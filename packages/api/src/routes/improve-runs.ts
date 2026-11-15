@@ -20,7 +20,12 @@ import {
   type ImprovementModel,
   type ImprovementTier,
 } from '../improve-run-binding.js';
-import { type ItemRights, writeWhereMade } from '../item-rights.js';
+import {
+  type HeldItems,
+  type ItemRights,
+  limitedMadeInRefusal,
+  writeWhereMade,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { refuseReadOnly, refusesCandidates } from '../registry-read-only.js';
 import type { SuggestedChangeObjective } from '../supervisor-binding.js';
@@ -28,6 +33,7 @@ import type { TestRunGroupWeights } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
+import { type ProjectDeletedCheck, projectGone } from './project-deleted.js';
 import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
@@ -43,6 +49,12 @@ export interface ImproveDeps {
   readonly agents: AgentRegistryBinding;
   /** Whether a project is suspended: no Improve run starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * Whether a project is deleted: no Improve run starts or is checked in
+   * one, refused `404 project-not-found`, as for an id with no project.
+   * Absent: no check.
+   */
+  readonly projectDeleted?: ProjectDeletedCheck;
   /**
    * The tenant's corrector groups. The `groupWeights` default counts everyone
    * (`as-recorded`) until an expert group (one with `assertableBy`) is named
@@ -141,9 +153,10 @@ function mountStartRoutes(
   deps: ImproveDeps,
   authorizer?: Authorizer,
   itemRights?: ItemRights,
+  held?: HeldItems,
 ) {
   r.post('/', async (c) => {
-    const asked = await askCheck(c, deps, authorizer, itemRights);
+    const asked = await askCheck(c, deps, authorizer, itemRights, held);
     if (asked instanceof Response) return asked;
     const { tenantId, parsed, improveRuns, groupWeights, check, readiness } = asked;
     const missing = blocking(readiness.items, parsed.tiers);
@@ -178,7 +191,7 @@ function mountStartRoutes(
   });
 
   r.post('/check', async (c) => {
-    const asked = await askCheck(c, deps, authorizer, itemRights);
+    const asked = await askCheck(c, deps, authorizer, itemRights, held);
     if (asked instanceof Response) return asked;
     const { parsed, check, readiness } = asked;
     const { basis } = check;
@@ -250,6 +263,7 @@ async function askCheck(
   deps: ImproveDeps,
   authorizer: Authorizer | undefined,
   itemRights: ItemRights | undefined,
+  held: HeldItems | undefined,
 ): Promise<
   | Response
   | {
@@ -266,8 +280,10 @@ async function askCheck(
   if (body === undefined) return badInput(c, 'Request body must be a JSON object');
   const parsed = parseStartImproveRunBody(body);
   if (typeof parsed === 'string') return badInput(c, parsed);
-  const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
+  const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights, held);
   if (denied !== undefined) return denied;
+  const gone = await projectGone(c, deps.projectDeleted, tenantId, parsed.projectId);
+  if (gone !== undefined) return gone;
   const improveRuns = deps.improveRuns;
   if (improveRuns === undefined) return unsupported(c);
   const readOnly = deps.agents.readOnly;
@@ -400,10 +416,15 @@ export function improveRunsRouter(
   deps: ImproveDeps,
   authorizer?: Authorizer,
   itemRights?: ItemRights,
+  /**
+   * Without a store, where a project-limited key's Improve run of an
+   * agent beyond its project is held. Absent: no hold.
+   */
+  held?: HeldItems,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const improveRuns = deps.improveRuns;
-  mountStartRoutes(r, deps, authorizer, itemRights);
+  mountStartRoutes(r, deps, authorizer, itemRights, held);
 
   async function load(c: Ctx): Promise<ImproveRun | Response> {
     if (improveRuns === undefined) return unsupported(c);
@@ -477,7 +498,7 @@ export function improveRunsRouter(
   r.post('/:improveRunId/cancel', async (c) => {
     const improveRun = await load(c);
     if (improveRun instanceof Response) return improveRun;
-    const denied = await deny(c, authorizer, 'publish', improveRun.agentId, itemRights);
+    const denied = await deny(c, authorizer, 'publish', improveRun.agentId, itemRights, held);
     if (denied !== undefined) return denied;
     const actor = actorOf(c);
     const outcome = await (improveRuns as ImproveRunBinding).cancel({
@@ -776,6 +797,8 @@ async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {
 /**
  * `undefined` when allowed; else the 403. For an agent more than one
  * project serves, `publish` is `write` where its new versions are made.
+ * Without a store, a project-limited key's is held there
+ * (`limitedMadeInRefusal`).
  */
 async function deny(
   c: Ctx,
@@ -783,8 +806,18 @@ async function deny(
   action: Action,
   agentId: string,
   itemRights?: ItemRights,
+  held?: HeldItems,
 ) {
-  if (authorizer === undefined) return undefined;
+  if (authorizer === undefined) {
+    return held === undefined
+      ? undefined
+      : limitedMadeInRefusal(c, {
+          kind: 'agent',
+          id: agentId,
+          held: held.agents,
+          orders: held.orders,
+        });
+  }
   const projects = await itemRights?.multi(c, 'agent', agentId);
   if (itemRights !== undefined && projects !== undefined) {
     return writeWhereMade(

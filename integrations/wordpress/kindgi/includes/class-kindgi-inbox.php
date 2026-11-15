@@ -67,13 +67,19 @@ final class Kindgi_Inbox {
 		$summary  = self::summary( $a );
 		$asked    = self::asked( $asked_by, $me, $who );
 		$agent_id = null !== $tool && is_string( $ref['agentId'] ?? null ) ? $ref['agentId'] : null;
-		$card     = array(
+		$about    = self::about_of( $a );
+		// Fields the card shows elsewhere: a reply's `to` in its heading, and the call's own order beside it.
+		$shown = null !== $reply && self::reply_heading( $reply ) === $heading ? array( 'to' ) : array();
+		if ( null === self::said_about( $a ) && null !== $about ) {
+			$shown[] = 'orderId';
+		}
+		$card = array(
 			'id'             => (string) ( $a['id'] ?? '' ),
 			'heading'        => $heading,
 			// A summary that's one of the agent's own fields shows once, as its words (compared whole, before either is cut).
 			'summary'        => in_array( $summary, $prose, true ) ? '' : $summary,
 			// What would run, always shown: a title can leave a field out. A reply's heading may name whom it goes to.
-			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null, null !== $reply && self::reply_heading( $reply ) === $heading ? array( 'to' ) : array() ),
+			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null, $shown, self::money_of( Kindgi_Order::of( $about ) ) ),
 			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
 			'words'          => self::words_of( $ref['arguments'] ?? null, $prose, null === $reply ? array() : array( 'body' => __( 'The reply', 'kindgi' ) ) ),
 			// A mail tool's reply: whom it goes to.
@@ -95,7 +101,9 @@ final class Kindgi_Inbox {
 			'notYours'       => $not_mine,
 			'conversationId' => null !== $tool && is_string( $ref['conversationId'] ?? null ) ? $ref['conversationId'] : null,
 			// What it's about, when its tool says (a WooCommerce order: `Kindgi_Order`).
-			'about'          => self::about_of( $a ),
+			'about'          => $about,
+			// The run that asked, for its row on Activity; none for a new version of an agent.
+			'runId'          => is_string( $a['provenanceRef']['runId'] ?? null ) ? $a['provenanceRef']['runId'] : null,
 			'decision'       => null === $decision ? null : array(
 				'decision'  => (string) ( $decision['decision'] ?? '' ),
 				'decidedAt' => (string) ( $decision['decidedAt'] ?? '' ),
@@ -302,12 +310,23 @@ final class Kindgi_Inbox {
 	}
 
 	/**
-	 * What an approval is about, when its tool says (Kindgi puts it in the
-	 * approval's `context.about`): a kind, `woocommerce.order`, and an id.
+	 * What an approval is about: what its tool says (Kindgi puts it in the
+	 * approval's `context.about`), a kind, `woocommerce.order`, and an id;
+	 * else, when it says nothing, the store's order its call names
+	 * (`order_of_call`).
 	 *
 	 * @return array{kind: string, id: string}|null
 	 */
 	public static function about_of( array $a ): ?array {
+		return self::said_about( $a ) ?? self::order_of_call( $a );
+	}
+
+	/**
+	 * What an approval's tool says it's about, in its `context.about`.
+	 *
+	 * @return array{kind: string, id: string}|null
+	 */
+	private static function said_about( array $a ): ?array {
 		$about = is_array( $a['context']['about'] ?? null ) ? $a['context']['about'] : array();
 		$kind  = is_string( $about['kind'] ?? null ) ? trim( $about['kind'] ) : '';
 		$id    = is_string( $about['id'] ?? null ) || is_int( $about['id'] ?? null ) ? trim( (string) $about['id'] ) : '';
@@ -315,6 +334,44 @@ final class Kindgi_Inbox {
 			'kind' => $kind,
 			'id'   => $id,
 		);
+	}
+
+	/**
+	 * The store's order a tool's call names, when its approval says nothing
+	 * it's about: the call's own top-level `orderId`, an order number, when
+	 * that order is on this WooCommerce store. Else null: a card about no
+	 * order shows no order, and no decision notes one.
+	 *
+	 * @return array{kind: string, id: string}|null
+	 */
+	private static function order_of_call( array $a ): ?array {
+		$id = null === self::tool_of( $a ) ? null : ( $a['subjectRef']['arguments']['orderId'] ?? null );
+		if ( ! is_int( $id ) && ! is_string( $id ) ) {
+			return null;
+		}
+		$about = array(
+			'kind' => Kindgi_Order::ABOUT,
+			'id'   => trim( (string) $id ),
+		);
+		$order = Kindgi_Order::of( $about );
+		return null !== $order && Kindgi_Order::store() && wc_get_order( $order ) instanceof WC_Order ? $about : null;
+	}
+
+	/**
+	 * On a card about an order, a call's amounts as the order's price, in
+	 * its currency (`Kindgi_Order::price`): a number in `amount`, or in a
+	 * field whose name ends `Amount` or `_amount`. Null, about no order.
+	 *
+	 * @return callable(string, mixed): ?string|null
+	 */
+	private static function money_of( ?int $order ): ?callable {
+		if ( null === $order ) {
+			return null;
+		}
+		return static function ( string $key, $value ) use ( $order ): ?string {
+			$money = 1 === preg_match( '/^amount$|[a-z0-9]Amount$|_amount$/', $key ) && ( is_int( $value ) || is_float( $value ) );
+			return $money ? Kindgi_Order::price( $value, $order ) : null;
+		};
 	}
 
 	/** One of the tool's own words for the call (`context.text`'s `title` or `summary`), or null. */
@@ -336,17 +393,18 @@ final class Kindgi_Inbox {
 	 * (`is_prose`) are left to `words_of`; ids only a machine reads
 	 * (`is_reference`) are left out.
 	 *
-	 * @param mixed    $arguments The call's fields.
-	 * @param string[] $shown     Fields the card shows elsewhere (a reply's `to`, in its heading).
+	 * @param mixed         $arguments The call's fields.
+	 * @param string[]      $shown     Fields the card shows elsewhere (a reply's `to`, in its heading; the order beside it).
+	 * @param callable|null $money     A field's value as a price, or null (`money_of`).
 	 * @return array<int, array{label: string, value: string}>
 	 */
-	public static function facts( $arguments, array $shown = array() ): array {
+	public static function facts( $arguments, array $shown = array(), ?callable $money = null ): array {
 		$facts = array();
 		foreach ( self::fields( $arguments ) as $key => $value ) {
 			if ( ! in_array( $key, $shown, true ) && ! self::is_prose( $value ) && ! self::is_reference( (string) $key, $value ) ) {
 				$facts[] = array(
 					'label' => self::words( (string) $key ),
-					'value' => self::text_of( $value ),
+					'value' => ( null === $money ? null : $money( (string) $key, $value ) ) ?? self::text_of( $value ),
 				);
 			}
 		}

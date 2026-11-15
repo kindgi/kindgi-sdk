@@ -31,8 +31,8 @@ Re-exports:
 
 | Symbol | Source | Kind |
 |---|---|---|
-| `defineTool`, `defineToolAsync`, `invokeTool`, `invokeToolForTest`, `toolContextForTest`, `registerToolSpecSynthesizer`, `ConnectionRejectedError`, `isConnectionRejectedError` | `@kindgi/tools` | value |
-| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec`, `ToolConnection`, `ConnectionNeed`, `ConnectionAccount` | `@kindgi/tools` | type |
+| `defineTool`, `defineToolAsync`, `invokeTool`, `invokeToolForTest`, `toolContextForTest`, `registerToolSpecSynthesizer`, `ConnectionRejectedError`, `isConnectionRejectedError`, `ToolFailure`, `isToolFailure` | `@kindgi/tools` | value |
+| `Tool`, `ToolManifest`, `ToolContext`, `DefineToolSpec`, `DefinedTool`, `InferInput`, `InferOutput`, `ToolSpec`, `ToolSpecSynthesizer`, `ToolSecretRef`, `HttpToolSpec`, `HttpAuthSpec`, `HttpHeaderSpec`, `HttpMethod`, `HttpRequestBodySpec`, `ToolConnection`, `ConnectionNeed`, `ConnectionAccount`, `ToolFailureDetails`, `ToolFailureOptions`, `ToolFailedError` | `@kindgi/tools` | type |
 | `defineCheck` | `@kindgi/guardrails` | value |
 | `DefineCheckSpec`, `DefinedCheck`, `InferCheckConfig` | `@kindgi/guardrails` | type |
 | `defineAgent` | `@kindgi/agents` | value |
@@ -68,6 +68,10 @@ const run = await client.runs.start({
 - in development, when those aren't set, from the running `kindgi dev`
   (the nearest `.kindgirc.json`), with a one-time warning to put them in
   your env file (`.env` / `.env.local`);
+- the two go together: with only one of them set, the client throws,
+  naming the file and what to set, and takes nothing from `.kindgirc.json`.
+  A URL that is that `kindgi dev`'s own is the exception: it takes the
+  file's token;
 - a token that doesn't match the running `kindgi dev`'s for the same URL
   (after `kindgi dev --reset`) is warned about once.
 

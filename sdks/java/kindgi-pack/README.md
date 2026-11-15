@@ -207,7 +207,11 @@ A guardrail ships its check, so its check id (`checkId`, else the guardrail's
 id) can't be a built-in check's (`must-cite`, `never-call-tool`,
 `max-tool-calls`, … in `Guardrail.RESERVED_CHECK_IDS`): the runtime runs the
 built-in for a guardrail naming one. `check(…)` refuses it, saying to rename
-your check, and the indexer reports the file.
+your check, and the indexer reports the file. To use a built-in, name it in
+place of a check: `builtInCheck("forbidden-substring", Map.of("patterns",
+List.of("guaranteed")))`, with its settings keyed as on the wire, or
+`builtInCheck("must-cite")` for its defaults. The runtime runs it, where
+`set("at", …)` says, and `evaluate` throws.
 
 An agent or a flow takes any other field of its schema with
 `set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`
@@ -253,6 +257,24 @@ logged when it finishes (`handler-finished-late`).
 Work the handler starts elsewhere (an HTTP request, a job) stops with
 `ctx.cancellation().onCancel(action)`. The action runs once: when the call is
 cancelled, or at once if it already was.
+
+### Failing a call on purpose
+
+When the tool ran and knows why the call can't give an answer, it throws a
+`ToolFailureException` with its own code for why, words for a person and,
+if any, facts:
+
+```java
+throw new ToolFailureException("order-not-found", "No order " + orderId, Map.of("orderId", orderId));
+```
+
+The call answers `tool-failed`, with the code as `reason`, the message as
+written and the details (pack protocol 2.12.0). The code is kebab case, at
+most 64 characters, and a fixed word: runs are grouped by it. The message is
+cut at 1,000 characters, and the details are a JSON object of at most 4 KiB,
+which reach the run's failure and the model, so never a secret. Any of them
+the class refuses throws `IllegalArgumentException`, and the call is then a
+crash (`handler-throw`) that says why.
 
 ### Answering later
 

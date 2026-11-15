@@ -100,7 +100,10 @@ def test_only_what_is_given_is_in_the_spec() -> None:
             {"authorization": {"kind": "basic", "secretRef": {"envName": "local", "name": "K"}}},
             "/authorization",
         ),
-        ({"authorization": {"kind": "bearer", "secretRef": {"name": "K"}}}, "/authorization"),
+        (
+            {"authorization": {"kind": "bearer", "secretRef": {"envName": "", "name": "K"}}},
+            "/authorization",
+        ),
         ({"request_body": {"kind": "form"}}, "/requestBody"),
     ],
 )
@@ -110,6 +113,13 @@ def test_a_spec_the_schema_refuses_is_a_definition_error(
     with pytest.raises(DefinitionError, match="not a valid HTTP tool spec") as raised:
         lookup(**overrides)
     assert where in str(raised.value)
+
+
+def test_a_secret_ref_may_leave_its_env_out() -> None:
+    # Read in the env the runtime serves, at each call; kept as given.
+    tool = lookup(authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}})
+    assert tool.spec is not None
+    assert tool.spec["authorization"] == {"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}}
 
 
 def test_every_placeholder_is_a_field_of_the_input() -> None:
@@ -144,7 +154,7 @@ def test_an_http_tools_model_schema_compiles_as_the_runtime_compiles_it() -> Non
 def test_id_version_and_description_are_checked() -> None:
     with pytest.raises(DefinitionError, match="id must be a non-empty string"):
         lookup(id=" ")
-    with pytest.raises(DefinitionError, match="exact semver"):
+    with pytest.raises(DefinitionError, match=r"MAJOR\.MINOR\.PATCH"):
         lookup(version="^1.0.0")
     with pytest.raises(DefinitionError, match="needs a description"):
         lookup(description="")

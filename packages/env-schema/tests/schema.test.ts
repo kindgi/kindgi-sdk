@@ -22,6 +22,8 @@ import {
   type EnvVarSpec,
   KINDGI_ENV_SCHEMA,
   LICENSE_KEY_VAR,
+  TENANT_EGRESS_NO_PROXY_VAR,
+  TENANT_EGRESS_PROXY_VAR,
   envVarsForTarget,
   renderEnvExample,
   validateEnvForTarget,
@@ -219,6 +221,19 @@ describe('envVarsForTarget', () => {
     ).toBe(false);
   });
 
+  test("the tenant egress proxy and its direct hosts: the server's, optional, from runtime 0.7.0", () => {
+    const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of [TENANT_EGRESS_PROXY_VAR, TENANT_EGRESS_NO_PROXY_VAR]) {
+      expect(server.get(name)).toMatchObject({ group: 'core', required: false });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.7\.0; /);
+      expect(packService).not.toContain(name);
+    }
+    expect(server.get(TENANT_EGRESS_PROXY_VAR)?.description).toContain(
+      'it must refuse at least what `KINDGI_TENANT_HOST_ACCESS` refuses',
+    );
+  });
+
   test("the server's bind host, its public URL and its development settings: optional, server only", () => {
     const server = envVarsForTarget({});
     const host = server.find((v) => v.name === 'KINDGI_API_HOST');
@@ -317,7 +332,29 @@ describe('envVarsForTarget — invitation emails', () => {
   });
 });
 
-describe('envVarsForTarget — the retention sweeper (T236)', () => {
+describe('envVarsForTarget — the license report', () => {
+  test("its address is the server's, optional, in core, and says its default and https only", () => {
+    const report = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_LICENSE_REPORT_URL',
+    );
+    expect(report).toMatchObject({
+      required: false,
+      group: 'core',
+      example: 'https://access.kindgi.com/v1/report',
+    });
+    expect(report?.description).toContain(
+      'Default `https://access.kindgi.com/v1/report`; `https` only',
+    );
+    expect(report?.description).toContain("only a key that doesn't report does");
+    expect(
+      envVarsForTarget({ component: 'pack-service' }).some(
+        (v) => v.name === 'KINDGI_LICENSE_REPORT_URL',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('envVarsForTarget — the retention sweeper', () => {
   test("its interval is the server's, optional (unset: no sweeping on its own), in core", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     expect(server.get('KINDGI_RETENTION_SWEEP_INTERVAL_MS')).toMatchObject({
@@ -333,7 +370,7 @@ describe('envVarsForTarget — the retention sweeper (T236)', () => {
   });
 });
 
-describe('envVarsForTarget — the compliance classifier (T250)', () => {
+describe('envVarsForTarget — the compliance classifier', () => {
   test("the server's, optional, in core; it says plainly that audit events are purged by kind", () => {
     const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
     const setting = server.get('KINDGI_COMPLIANCE_CLASSIFIER');
@@ -421,6 +458,7 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_ORCHESTRATOR_PROJECT',
     'KINDGI_ORCHESTRATOR_REGION',
     'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    'KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS',
     'KINDGI_ORCHESTRATOR_PACK_SERVICE',
   ];
 
@@ -559,13 +597,14 @@ describe('validateEnvForTarget', () => {
     expect(server.get('KINDGI_DATABASE_SERVER_CA')?.example).toBe('');
   });
 
-  test("the database timeouts are the server's, none required, each example its default", () => {
+  test("the database timeouts and pool size are the server's, none required, each example its default", () => {
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
     for (const [name, example] of [
       ['KINDGI_DB_STATEMENT_TIMEOUT_MS', '60000'],
       ['KINDGI_DB_LOCK_TIMEOUT_MS', '30000'],
       ['KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS', '30000'],
       ['KINDGI_DB_POOL_WAIT_TIMEOUT_MS', '10000'],
+      ['KINDGI_DB_POOL_SIZE', '10'],
     ] as const) {
       expect(server.get(name)?.required, name).toBe(false);
       expect(server.get(name)?.example, name).toBe(example);
@@ -577,6 +616,21 @@ describe('validateEnvForTarget', () => {
     expect(key?.required).toBe(false);
     expect(key?.appliesTo({})).toBe(true);
     expect(key?.example).toBe('');
+  });
+
+  test("the Kindgi account key is the server's, optional, in core, with no example; the pack service and the orchestrator don't get it", () => {
+    const key = envVarsForTarget({ component: 'server' }).find(
+      (v) => v.name === 'KINDGI_ACCOUNT_KEY',
+    );
+    expect(key?.required).toBe(false);
+    expect(key?.example).toBe('');
+    expect(key?.group).toBe('core');
+    for (const component of ['pack-service', 'pack-orchestrator'] as const) {
+      expect(
+        envVarsForTarget({ component }).map((v) => v.name),
+        component,
+      ).not.toContain('KINDGI_ACCOUNT_KEY');
+    }
   });
 
   test('the server and registry auth modes', () => {

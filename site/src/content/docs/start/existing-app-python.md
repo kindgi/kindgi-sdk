@@ -12,20 +12,20 @@ beside your code: its tools import your app's packages.
 **Before you start**, set up what the [Install page](../install/) describes:
 Python 3.11 or later, uv (or Poetry, or pip), Docker, and access to the
 runtime image. In the app's folder,
-`uvx --from "kindgi-cli>=0.6,<0.7" kindgi doctor` checks Docker and access to
+`uvx --from "kindgi-cli>=0.7,<0.8" kindgi doctor` checks Docker and access to
 the runtime image, and says how to fix what's missing. Run it again after
 `kindgi init`, and it checks Python and uv too.
 
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.6,<0.7"   # the CLI, pinned to Kindgi's minor version
+uv add --dev "kindgi-cli>=0.7,<0.8"   # the CLI, pinned to Kindgi's minor version
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry or pip
 uv run kindgi dev
 ```
 
-With Poetry, add the CLI with `poetry add --group dev "kindgi-cli>=0.6,<0.7"`
+With Poetry, add the CLI with `poetry add --group dev "kindgi-cli>=0.7,<0.8"`
 and run it as `poetry run kindgi`.
 
 The four commands print, in order:
@@ -97,7 +97,8 @@ def customer_orders(input: Customer) -> Orders:
 A package a tool imports must be in your app's main dependencies
 (`[project].dependencies`), not a dev group: the deployed pack installs
 without dev dependencies, so a dev-only import works under `kindgi dev` and
-fails once deployed.
+fails in the image. The image's build then stops, naming the file and the
+missing package.
 
 Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 `__init__.py` to `kindgi/`: the folder would shadow the `kindgi` package.

@@ -25,6 +25,11 @@ app as `KINDGI_API_URL` and `KINDGI_API_TOKEN` in your env file (`.env` /
 token is `token` in the pack's `.kindgirc.json`: the banner shows only its
 last four characters, so a log you share doesn't give it away.
 
+Set both, or neither. With only the token set, the client never sends it to
+the URL in `.kindgirc.json`, and with only a URL other than `kindgi dev`'s,
+it never sends that file's token there. Either way the client takes nothing
+from the file, and its first use throws, naming the file and what to set.
+
 ```sh
 # .env.local
 KINDGI_API_URL=http://127.0.0.1:4000
@@ -95,7 +100,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const { id } = await params;
   try {
     const run = await kindgi.runs.start({
-      agent: 'acme-support.triage',
+      agent: 'acme-support.ticket-classifier',
       input: { userMessage: `Triage ${id}` },
     });
     const { output } = run.output as { output: Triage }; // the agent's typed answer
@@ -128,7 +133,7 @@ from kindgi.client import Kindgi, KindgiApiError
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 try:
-    run = kindgi.runs.start(agent="acme-support.triage", input={"userMessage": "Triage REQ-1002"})
+    run = kindgi.runs.start(agent="acme-support.ticket-classifier", input={"userMessage": "Triage REQ-1002"})
     if run.output is None:  # a run that didn't complete has no output
         raise SystemExit(f"Run {run.id} ended {run.status}: {run.failure_message}")
     triage = run.output["output"]
@@ -150,7 +155,7 @@ import { kindgi } from '@/lib/kindgi';
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await kindgi.runs.start({
-    agent: 'acme-support.triage',
+    agent: 'acme-support.ticket-classifier',
     input: { userMessage: `Triage ${id}` },
     options: { wait: false }, // returns as soon as the run exists
   });

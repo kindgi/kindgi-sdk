@@ -298,7 +298,8 @@ const register: LeafCommand = {
     },
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the workspace's default project).",
+      description:
+        "The trigger's project, by id (default: the project the API key or session is limited to, else the workspace's default project).",
     },
     ...SIGNATURE_FLAGS,
     ...RUN_AS_FLAG,
@@ -427,7 +428,7 @@ const get: LeafCommand = {
       const version = triggerVersionPositional(ctx, 1);
       const webhooksClient = ctx.client().webhooks;
       if (version !== undefined) {
-        return renderJson(await webhooksClient.getVersion(id, version), ctx.globals.format);
+        return renderJson(await webhooksClient.versions.get(id, version), ctx.globals.format);
       }
       const trigger = await webhooksClient.get(id);
       const rendered = renderJson(trigger, ctx.globals.format);
@@ -548,7 +549,9 @@ const versions: LeafCommand = {
       ctx,
       'webhooks versions',
       async () =>
-        await ctx.client().webhooks.versions(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
+        await ctx
+          .client()
+          .webhooks.versions.list(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
       TRIGGER_VERSIONS_TABLE,
     ),
 };

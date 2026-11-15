@@ -85,6 +85,11 @@ run "defaults_keep_kms_and_the_own_repository" {
     condition     = contains(keys(google_project_service.apis), "cloudresourcemanager.googleapis.com")
     error_message = "The module turns Cloud Resource Manager on, for a root beside it that reads the project billed to the project."
   }
+  # C-RT-4: the first start has 10 minutes to run the migrations, Cloud Run's most.
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].containers[0].startup_probe[0].period_seconds == 5 && google_cloud_run_v2_service.server.template[0].containers[0].startup_probe[0].failure_threshold == 120
+    error_message = "C-RT-4: the server's startup probe waits 600 s, 120 tries 5 s apart."
+  }
 }
 
 run "secrets_backend_none_seals_endpoint_tokens_under_the_key" {
@@ -183,6 +188,40 @@ run "latest_is_refused" {
   expect_failures = [var.secrets_aad_key_version]
 }
 
+run "no_rotation_label_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].labels == null
+    error_message = "With server_rotation unset, the server's revision has no labels, so an existing deployment's plan doesn't change."
+  }
+}
+
+# A secret's rotation goes through Terraform: a new value is a new revision,
+# which reads each secret at "latest" again.
+run "a_rotation_is_the_revisions_label" {
+  command = plan
+
+  variables {
+    server_rotation = "2026-11-06-1530"
+  }
+
+  assert {
+    condition     = google_cloud_run_v2_service.server.template[0].labels == tomap({ rotated = "2026-11-06-1530" })
+    error_message = "server_rotation is the server revision's rotated label, and its only label."
+  }
+}
+
+run "a_rotation_that_isnt_a_label_value_is_refused" {
+  command = plan
+
+  variables {
+    server_rotation = "2026/11/06"
+  }
+
+  expect_failures = [var.server_rotation]
+}
+
 run "an_existing_repository_in_the_same_project" {
   command = plan
 
@@ -248,7 +287,7 @@ run "the_pack_invokes_the_named_services" {
   assert {
     condition = alltrue([
       for g in google_cloud_run_v2_service_iam_member.pack_invokes :
-      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack.email}"
+      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack[0].email}"
     ])
     error_message = "Each grant gives the pack's service account roles/run.invoker."
   }
@@ -471,11 +510,12 @@ run "public_url_refuses_a_path" {
 run "the_refused_names_cover_every_option_secret_signing" {
   command = plan
   variables {
-    export_signing       = "secret"
-    cors_origins         = ["https://app.acme.example"]
-    openfga_api_url      = "http://openfga.acme.internal:8080"
-    pack_call_timeout_ms = 300000
-    public_url           = "https://kindgi.acme.example"
+    export_signing         = "secret"
+    cors_origins           = ["https://app.acme.example"]
+    openfga_api_url        = "http://openfga.acme.internal:8080"
+    pack_call_timeout_ms   = 300000
+    public_url             = "https://kindgi.acme.example"
+    pagination_key_version = "1"
   }
   assert {
     condition = alltrue([
@@ -490,6 +530,7 @@ run "the_refused_names_cover_every_option_kms_signing" {
   variables {
     export_signing         = "kms"
     export_signing_kms_key = "projects/acme-app-dev/locations/northamerica-northeast2/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1"
+    pagination_key_version = "1"
   }
   assert {
     condition = alltrue([
@@ -497,6 +538,101 @@ run "the_refused_names_cover_every_option_kms_signing" {
     ])
     error_message = "A name the module sets on the server is missing from server_module_env."
   }
+}
+
+# The page-cursor key is the module's (tests/pagination-key.tftest.hcl has
+# its steps): pinned to a version, and set by no other map. The key before
+# it, while one rotates, is the operator's, through server_secret_env.
+run "pagination_key_version_refuses_latest" {
+  command = plan
+  variables {
+    pagination_key_version = "latest"
+  }
+  expect_failures = [var.pagination_key_version]
+}
+
+run "the_pagination_key_is_the_modules" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_PAGINATION_KEY = { secret = "acme-cursor-key", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_pagination_key_file_is_the_modules_too" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PAGINATION_KEY_PATH = "/secrets/cursor-key" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_previous_pagination_key_needs_the_current_one" {
+  command = plan
+  variables {
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", version = "1" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_previous_pagination_key_at_the_current_version_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", version = "2" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# The module's own project, named: still the module's secret.
+run "a_previous_pagination_key_at_the_current_version_in_the_named_project_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", project = "acme-app-dev", version = "2" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+# latest is the newest version: after a rotation, the current key.
+run "a_previous_pagination_key_at_latest_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "2"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "kindgi-dev-pagination-key", version = "latest" }
+    }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_previous_pagination_key_of_your_own_is_granted" {
+  command = plan
+  variables {
+    pagination_key_version = "1"
+    server_secret_env = {
+      KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "acme-old-cursor-key", version = "3" }
+    }
+  }
+  assert {
+    condition     = keys(google_secret_manager_secret_iam_member.server_reads_its_secrets) == ["KINDGI_PAGINATION_PREVIOUS_KEY"]
+    error_message = "A previous key in a secret of the operator's own is granted, as every server_secret_env secret is."
+  }
+}
+
+run "a_previous_pagination_key_as_a_plain_value_is_refused" {
+  command = plan
+  variables {
+    pagination_key_version = "1"
+    server_env             = { KINDGI_PAGINATION_PREVIOUS_KEY = "bm90LWluLXRoZS1wbGFu" }
+  }
+  expect_failures = [var.server_env]
 }
 
 run "backups_keep_cloud_sqls_defaults" {
@@ -1126,7 +1262,7 @@ run "the_orchestrator_has_only_its_own_rights" {
   assert {
     condition = (
       google_project_iam_member.orchestrator_runs_services.role == "roles/run.developer" &&
-      google_service_account_iam_member.orchestrator_acts_as_pack.role == "roles/iam.serviceAccountUser"
+      google_service_account_iam_member.orchestrator_acts_as_pack[0].role == "roles/iam.serviceAccountUser"
     )
     error_message = "The orchestrator manages the project's services, and runs them as the pack account."
   }
@@ -1164,7 +1300,7 @@ run "the_pack_account_reads_its_own_secrets_and_the_listed_cloud_secrets" {
     ]
   }
   assert {
-    condition     = google_project_iam_member.pack_reads_pack_secrets.role == "roles/secretmanager.secretAccessor" && google_project_iam_member.pack_reads_pack_secrets.condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
+    condition     = google_project_iam_member.pack_reads_pack_secrets[0].role == "roles/secretmanager.secretAccessor" && google_project_iam_member.pack_reads_pack_secrets[0].condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
     error_message = "The pack account reads the kp- secrets, its token and env values among them."
   }
   assert {
@@ -1282,8 +1418,8 @@ run "the_key_steps_mint_the_orchestrators_key_on_the_server" {
     error_message = "Until its key is set, the steps mint it on the server, add it as a version only if one came back, and name the variable to set."
   }
   assert {
-    condition     = toset(keys(output.service_accounts)) == toset(["server", "pack", "orchestrator"]) && output.service_accounts.orchestrator == google_service_account.orchestrator.email
-    error_message = "service_accounts names the server's, the pack services' and the orchestrator's accounts."
+    condition     = toset(keys(output.service_accounts)) == toset(["server", "pack", "tenants", "orchestrator"]) && output.service_accounts.orchestrator == google_service_account.orchestrator.email && output.service_accounts.tenants == {}
+    error_message = "service_accounts names the server's, the pack services' and the orchestrator's accounts, and no tenant's in shared mode."
   }
 }
 
@@ -2121,4 +2257,254 @@ run "the_first_apply_checks_the_host" {
     ]
   }
   expect_failures = [data.google_sql_database_instance.host]
+}
+
+# ---- the license renewal: by hand by default; a scheduled job only when asked ----
+
+run "renewal_is_by_hand_by_default" {
+  command = plan
+  assert {
+    condition     = google_secret_manager_secret.license_renewer.secret_id == "kindgi-dev-license-renewer"
+    error_message = "The renewer secret is created either way, empty, for kindgi license enroll."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_LICENSE_KEY_REF"
+      ]) == "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key" && one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_LICENSE_RENEWER_REF"
+    ]) == "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer"
+    error_message = "The server names where the key and the renewer key are kept, in kindgi license renew's form."
+  }
+  assert {
+    condition     = !contains(keys(google_secret_manager_secret_iam_member.server_reads), "license_renewer") && length(google_secret_manager_secret_iam_member.renewer_reads) == 0
+    error_message = "Nobody is granted the renewer secret without a schedule; the server never is."
+  }
+  assert {
+    condition = (length(google_cloud_run_v2_job.license_renewal) + length(google_cloud_scheduler_job.license_renewal)
+      + length(google_service_account.license_renewer) + length(google_monitoring_alert_policy.license_renewal_failed)
+    + length(google_monitoring_alert_policy.license_key_expiring) + length(google_monitoring_alert_policy.license_counts_not_sent)) == 0
+    error_message = "Without a schedule: no job, scheduler, service account or alerts."
+  }
+  assert {
+    condition     = !contains(keys(google_project_service.apis), "monitoring.googleapis.com")
+    error_message = "Without a schedule, Cloud Monitoring isn't enabled."
+  }
+  assert {
+    condition     = output.license_enroll_command == "kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer"
+    error_message = "The enroll command names the renewer secret."
+  }
+  assert {
+    condition     = output.license_renew_command == "kindgi license renew --key gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key --renewer gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer"
+    error_message = "The renew command names both secrets, schedule or not, and no server without the usage key."
+  }
+}
+
+run "a_schedule_adds_the_renewal_job" {
+  command = plan
+  variables {
+    license_renewal_schedule    = "17 6 * * *"
+    alert_notification_channels = ["projects/acme-app-dev/notificationChannels/123"]
+  }
+  assert {
+    condition = jsonencode(google_cloud_run_v2_job.license_renewal[0].template[0].template[0].containers[0].command) == jsonencode(["kindgi"]) && jsonencode(google_cloud_run_v2_job.license_renewal[0].template[0].template[0].containers[0].args) == jsonencode([
+      "license", "renew",
+      "--key", "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key",
+      "--renewer", "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer",
+    ])
+    error_message = "The job runs kindgi license renew with both secrets, and without the usage key no --runtime."
+  }
+  assert {
+    condition     = google_cloud_run_v2_job.license_renewal[0].template[0].template[0].containers[0].image == var.server_image
+    error_message = "The job runs the runtime image."
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_job.license_renewal[0].template[0].template[0].vpc_access) == 1 && google_cloud_run_v2_job.license_renewal[0].template[0].template[0].vpc_access[0].egress == "ALL_TRAFFIC"
+    error_message = "In direct, the job leaves through the VPC and Cloud NAT, like the server."
+  }
+  assert {
+    condition     = google_service_account.license_renewer[0].account_id == "kindgi-dev-renew"
+    error_message = "The job has a service account of its own."
+  }
+  assert {
+    condition     = keys(google_secret_manager_secret_iam_member.renewer_reads) == ["license_key", "renewer"] && alltrue([for m in google_secret_manager_secret_iam_member.renewer_reads : m.role == "roles/secretmanager.secretAccessor"])
+    error_message = "The job reads the license key and the renewer key, and nothing else."
+  }
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.renewer_adds_key_versions) == 1 && google_secret_manager_secret_iam_member.renewer_adds_key_versions[0].role == "roles/secretmanager.secretVersionAdder"
+    error_message = "The job may add versions to the license key only."
+  }
+  assert {
+    condition     = google_cloud_scheduler_job.license_renewal[0].schedule == "17 6 * * *" && google_cloud_scheduler_job.license_renewal[0].time_zone == "Etc/UTC" && google_cloud_scheduler_job.license_renewal[0].region == "northamerica-northeast2"
+    error_message = "Cloud Scheduler runs the cron in UTC, in the module's region."
+  }
+  assert {
+    condition     = google_cloud_scheduler_job.license_renewal[0].http_target[0].uri == "https://run.googleapis.com/v2/projects/acme-app-dev/locations/northamerica-northeast2/jobs/kindgi-dev-license-renewal:run" && google_cloud_scheduler_job.license_renewal[0].http_target[0].http_method == "POST" && google_cloud_scheduler_job.license_renewal[0].http_target[0].oauth_token[0].scope == "https://www.googleapis.com/auth/cloud-platform"
+    error_message = "Cloud Scheduler starts the job through the Cloud Run Admin API, with an OAuth token of the job's account."
+  }
+  assert {
+    condition     = google_cloud_run_v2_job_iam_member.renewer_runs_renewal[0].role == "roles/run.invoker"
+    error_message = "The scheduler's identity may start the job."
+  }
+  assert {
+    condition     = jsonencode(google_monitoring_alert_policy.license_renewal_failed[0].notification_channels) == jsonencode(["projects/acme-app-dev/notificationChannels/123"]) && jsonencode(google_monitoring_alert_policy.license_key_expiring[0].notification_channels) == jsonencode(["projects/acme-app-dev/notificationChannels/123"])
+    error_message = "With a schedule, both alerts go to the given channels."
+  }
+  assert {
+    condition     = strcontains(google_monitoring_alert_policy.license_key_expiring[0].conditions[0].condition_matched_log[0].filter, "resource.labels.job_name = \"kindgi-dev-license-renewal\"") && strcontains(google_monitoring_alert_policy.license_key_expiring[0].conditions[0].condition_matched_log[0].filter, "textPayload =~ \"It expires in -?[0-9]+ days\"")
+    error_message = "The job's run line saying the key is inside its warning window alerts, at any days left."
+  }
+  assert {
+    condition     = length(google_monitoring_alert_policy.license_counts_not_sent) == 0
+    error_message = "Without the usage key, renewing sends no counts, so nothing alerts on them."
+  }
+  assert {
+    condition     = contains(keys(google_project_service.apis), "monitoring.googleapis.com")
+    error_message = "A schedule enables Cloud Monitoring, for its alerts."
+  }
+}
+
+run "the_renewal_job_in_connector_mode_uses_cloud_runs_egress" {
+  command = plan
+  variables {
+    network_mode             = "connector"
+    vpc_connector            = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    pack_ingress             = "INGRESS_TRAFFIC_ALL"
+    license_renewal_schedule = "17 6 * * *"
+  }
+  assert {
+    condition     = length(google_cloud_run_v2_job.license_renewal[0].template[0].template[0].vpc_access) == 0
+    error_message = "In connector, the job needs no VPC: it calls access.kindgi.com through Cloud Run's own egress."
+  }
+}
+
+run "a_named_renewer_secret_and_scheduler_region" {
+  command = plan
+  variables {
+    license_renewal_schedule         = "0 5 * * 1"
+    license_renewer_secret           = "acme-kindgi-renewer"
+    license_renewal_scheduler_region = "us-central1"
+  }
+  assert {
+    condition     = google_secret_manager_secret.license_renewer.secret_id == "acme-kindgi-renewer" && output.license_enroll_command == "kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/acme-app-dev/secrets/acme-kindgi-renewer" && output.license_renew_command == "kindgi license renew --key gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key --renewer gcp:projects/acme-app-dev/secrets/acme-kindgi-renewer"
+    error_message = "license_renewer_secret names the secret, and the enroll and renew commands follow."
+  }
+  assert {
+    condition     = google_cloud_scheduler_job.license_renewal[0].region == "us-central1" && google_cloud_run_v2_job.license_renewal[0].location == "northamerica-northeast2"
+    error_message = "Only the scheduler moves; the job stays in the module's region."
+  }
+}
+
+# With the usage key, the job renews with --runtime and --runtime-token: the
+# counts, and the key offered to the running server.
+run "the_usage_key_renews_through_the_server" {
+  command = apply
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "kindgi-dev-license-usage-key"
+  }
+  assert {
+    condition = jsonencode(google_cloud_run_v2_job.license_renewal[0].template[0].template[0].containers[0].args) == jsonencode([
+      "license", "renew",
+      "--key", "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key",
+      "--renewer", "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer",
+      "--runtime", google_cloud_run_v2_service.server.uri,
+      "--runtime-token", "gcp:projects/acme-app-dev/secrets/kindgi-dev-license-usage-key",
+    ])
+    error_message = "With the usage key, the job names the server's run.app URL and the usage key's secret."
+  }
+  assert {
+    condition     = keys(google_secret_manager_secret_iam_member.renewer_reads) == ["license_key", "renewer", "usage_key"] && google_secret_manager_secret_iam_member.renewer_reads["usage_key"].secret_id == "projects/acme-app-dev/secrets/kindgi-dev-license-usage-key" && google_secret_manager_secret_iam_member.renewer_reads["usage_key"].role == "roles/secretmanager.secretAccessor"
+    error_message = "The job reads the usage key's secret too, and no more than that."
+  }
+  assert {
+    condition     = !contains([for m in google_secret_manager_secret_iam_member.server_reads : m.secret_id], "projects/acme-app-dev/secrets/kindgi-dev-license-usage-key")
+    error_message = "The server gets no access to the usage key."
+  }
+  assert {
+    condition     = output.license_renew_command == "kindgi license renew --key gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key --renewer gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer --runtime ${google_cloud_run_v2_service.server.uri} --runtime-token gcp:projects/acme-app-dev/secrets/kindgi-dev-license-usage-key"
+    error_message = "The renew command carries the same --runtime and --runtime-token as the job."
+  }
+  assert {
+    condition     = strcontains(google_monitoring_alert_policy.license_counts_not_sent[0].conditions[0].condition_matched_log[0].filter, "textPayload =~ \"counts: not sent [(]\"") && strcontains(google_monitoring_alert_policy.license_counts_not_sent[0].conditions[0].condition_matched_log[0].filter, "AND NOT textPayload =~ \"counts: not sent [(]a production key's renewal carries no counts[)]\"")
+    error_message = "With the usage key, a run that sent no counts alerts, but a production key's renewal, which carries none by design, doesn't."
+  }
+}
+
+run "behind_a_load_balancer_the_renewal_job_reaches_the_server_through_the_vpc" {
+  command = apply
+  variables {
+    server_ingress           = "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"
+    public_url               = "https://kindgi.acme.example/"
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "kindgi-dev-license-usage-key"
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_job.license_renewal[0].template[0].template[0].vpc_access[0].egress == "ALL_TRAFFIC" &&
+      google_cloud_run_v2_job.license_renewal[0].template[0].template[0].vpc_access[0].network_interfaces[0].subnetwork == google_compute_subnetwork.run[0].id
+    )
+    error_message = "Behind a load balancer, the job's calls go through the module's VPC and subnet, as the server's do."
+  }
+  assert {
+    condition     = google_cloud_run_v2_job.license_renewal[0].template[0].template[0].containers[0].args[index(google_cloud_run_v2_job.license_renewal[0].template[0].template[0].containers[0].args, "--runtime") + 1] == google_cloud_run_v2_service.server.uri
+    error_message = "The job calls the server's run.app URL, through the VPC, not public_url."
+  }
+}
+
+run "the_usage_key_refuses_a_server_behind_iam" {
+  command = plan
+  variables {
+    server_public            = false
+    license_renewal_schedule = "17 6 * * *"
+    license_usage_key_secret = "kindgi-dev-license-usage-key"
+  }
+  expect_failures = [google_secret_manager_secret.license_renewer]
+}
+
+run "the_usage_key_takes_a_server_without_invoker_iam" {
+  command = plan
+  variables {
+    server_public               = false
+    server_invoker_iam_disabled = true
+    license_renewal_schedule    = "17 6 * * *"
+    license_usage_key_secret    = "kindgi-dev-license-usage-key"
+  }
+  assert {
+    condition     = google_secret_manager_secret.license_renewer.secret_id == "kindgi-dev-license-renewer"
+    error_message = "With invoker IAM off, the usage key is taken."
+  }
+}
+
+run "a_schedule_that_isnt_a_cron_is_refused" {
+  command = plan
+  variables {
+    license_renewal_schedule = "daily"
+  }
+  expect_failures = [var.license_renewal_schedule]
+}
+
+run "a_usage_key_secret_that_isnt_a_secret_id_is_refused" {
+  command = plan
+  variables {
+    license_usage_key_secret = "projects/acme-app-dev/secrets/kindgi-dev-license-usage-key"
+  }
+  expect_failures = [var.license_usage_key_secret]
+}
+
+run "a_channel_that_isnt_a_channel_is_refused" {
+  command = plan
+  variables {
+    alert_notification_channels = ["ops@acme.example"]
+  }
+  expect_failures = [var.alert_notification_channels]
+}
+
+run "the_license_refs_cant_be_set_in_server_env" {
+  command = plan
+  variables {
+    server_env = { KINDGI_LICENSE_KEY_REF = "file:/tmp/key" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
 }

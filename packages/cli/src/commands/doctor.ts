@@ -3,8 +3,8 @@
 
 /**
  * `kindgi doctor`: whether this machine and this folder are ready to run
- * Kindgi, each check with what it found and, when it fails, the exact fix
- * (T130). A coding agent reads `--json` and fixes what fails; a person
+ * Kindgi, each check with what it found and, when it fails, the exact fix.
+ * A coding agent reads `--json` and fixes what fails; a person
  * reads the ✓/✗ lines. Any failed check exits 1.
  *
  * The checks, in order: Node, npm, Python and uv (a Python project's),
@@ -40,7 +40,7 @@ import type { KindgiClient, McpEndpoint } from '@kindgi/client';
 import { type Cursor, isCredentialName } from '@kindgi/types';
 
 import { ownAddressKeyElsewhere } from '../api-address.js';
-import type { ResolvedConfig } from '../config.js';
+import { type ResolvedConfig, listHomeLogins } from '../config.js';
 import type { CommandContext } from '../context.js';
 import {
   DEV_GOOGLE_CREDENTIALS_VAR,
@@ -270,7 +270,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal, ctx.env)),
     ),
   );
-  const apiKey = apiKeyCheck(ctx.config);
+  const apiKey = await withUnusableProfiles(apiKeyCheck(ctx.config), ctx.home);
   checks.push(apiKey);
   // A stored key that isn't for the CLI's address isn't sent (api-key above).
   const keyElsewhere = apiKey.status === 'fail';
@@ -472,10 +472,7 @@ function licenseStandingCheck(
   seam: DoctorSeam,
   how: { readonly advice: (claims: LicenseClaims) => string; readonly wholeKey: string },
 ): DoctorCheck {
-  const checked =
-    seam.licensePublicKeys !== undefined
-      ? checkLicenseKey(key, seam.licensePublicKeys)
-      : checkLicenseKey(key);
+  const checked = checkLicenseKey(key, seam.licensePublicKeys);
   if (checked.kind === 'err') {
     return checked.reason === 'unknown-key'
       ? warn(
@@ -1142,7 +1139,7 @@ async function runtimeCheck(
   try {
     const res = await ctx.fetch(url, { method: 'GET', signal: AbortSignal.timeout(5000) });
     if (res.ok) {
-      // Where to open it: the console, when the runtime serves one (T374).
+      // Where to open it: the console, when the runtime serves one.
       const consoleProbe = await probeConsole(ctx.fetch, rc.apiUrl);
       return consoleProbe.kind === 'served'
         ? {
@@ -1216,15 +1213,56 @@ function apiKeyCheck(config: ResolvedConfig): DoctorCheck {
   const elsewhere = ownAddressKeyElsewhere(config);
   if (elsewhere === undefined) {
     const file = config.files?.token;
-    return pass(
-      'api-key',
-      `The API key stored${file === undefined ? '' : ` in ${file.path}`} is for ${url}, the address commands go to.`,
-    );
+    const stored =
+      file === undefined
+        ? 'The API key stored'
+        : file.profile === undefined
+          ? `The API key stored in ${file.path}`
+          : `The profile ${file.profile}'s key in ${file.path}`;
+    return pass('api-key', `${stored} is for ${url}, the address commands go to.`);
   }
   return fail(
     'api-key',
     `Every command that needs the API key refuses: it would send ${elsewhere.sends}. ${elsewhere.stored}`.trimEnd(),
     elsewhere.fix,
+  );
+}
+
+/**
+ * The profiles ~/.kindgi/config.json holds that can't be used, or a
+ * `profiles` that isn't an object: a warning on the api-key check, since
+ * a command that names one is refused. A failing check keeps its status
+ * and fix, and says them too, so they're heard before the key is fixed.
+ */
+async function withUnusableProfiles(
+  check: DoctorCheck,
+  home: string | undefined,
+): Promise<DoctorCheck> {
+  let listed: Awaited<ReturnType<typeof listHomeLogins>>;
+  try {
+    listed = await listHomeLogins(home);
+  } catch {
+    // A file that isn't JSON: every command but this one fails on it, and says so.
+    return check;
+  }
+  const problems = [
+    ...(listed.problem === undefined
+      ? []
+      : [`${listed.path}: ${listed.problem}, so no profile in it can be used.`]),
+    ...listed.logins
+      .filter((login) => login.profile !== null && !login.usable)
+      .map(
+        (login) =>
+          `The profile ${login.profile} in ${listed.path} can't be used: ${login.problem}.`,
+      ),
+  ];
+  if (problems.length === 0) return check;
+  const message = `${check.message} ${problems.join(' ')}`;
+  if (check.status === 'fail') return { ...check, message };
+  return warn(
+    'api-key',
+    message,
+    'Save it again with `kindgi auth login --profile <name> --url <url> --token-stdin --force`, or remove it with `kindgi auth logout --profile <name>`.',
   );
 }
 
@@ -1528,6 +1566,16 @@ async function providerCheck(
         )
       : fail('provider', 'No provider is registered, so an agent has no model to call.', register);
   } catch (err) {
+    const wire = extractKindgiError(err);
+    // A 403 is the key, not the runtime (a key limited to a project, say,
+    // doesn't read the workspace's providers), and a restart wouldn't change that.
+    if (wire?.code === 'auth' && wire.reason === 'forbidden') {
+      return skip(
+        'provider',
+        `Not checked: the key in .kindgirc.json can't list the providers (${wire.message}).`,
+        "Check them with a key that reads the workspace's settings: a key limited to a project, say, doesn't.",
+      );
+    }
     return fail(
       'provider',
       `Couldn't list the providers: ${(err as Error).message}`,
@@ -1628,7 +1676,7 @@ interface ConfigIssue {
 
 /**
  * Each provider's configuration problems by its adapter's own static check
- * (`GET /v1/providers/{id}/check`, T362): only the providers with any.
+ * (`GET /v1/providers/{id}/check`): only the providers with any.
  * `issues` stop the runtime building it; `warnings` are `adapter_config`
  * keys it builds without reading (a runtime before 0.3.0 leaves them out:
  * it has none). `undefined` when the runtime has no such route (older than

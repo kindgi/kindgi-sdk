@@ -79,10 +79,12 @@ export type SessionId = Brand<string, 'SessionId'>;
 export type RunId = Brand<string, 'RunId'>;
 
 /**
- * Task flow definition id. Convention: `<pack-id>.<flow-name>`
- * (kebab-case, dot-namespaced) — e.g. `acme.brief-review-flow`,
- * `demo.echo-flow`. The framework's built-in agent-turn flow is
- * `agent.turn` (`AGENT_TURN_FLOW_ID` in `@kindgi/agents`).
+ * Task flow definition id: `<pack-id>.<flow-name>`, the pack's own id, a
+ * dot, and a kebab-case name with no dot. The name says the flow's job,
+ * the verb first — e.g. `acme.review-order`. `defineFlow` checks only that
+ * the id isn't empty; `kindgi dev` and `kindgi build` warn about any other
+ * shape. The framework's built-in agent-turn flow is `agent.turn`
+ * (`AGENT_TURN_FLOW_ID` in `@kindgi/agents`).
  */
 export type FlowId = Brand<string, 'FlowId'>;
 
@@ -93,29 +95,39 @@ export type NodeId = Brand<string, 'NodeId'>;
 export type EdgeId = Brand<string, 'EdgeId'>;
 
 /**
- * Agent definition id. Convention: `<pack-id>.<agent-name>`
- * (kebab-case, dot-namespaced) — e.g. `acme.brief-writer`,
- * `demo.echo-agent`. The `<pack-id>` prefix scopes the agent to
- * its pack; `<agent-name>` describes the agent's role. Enforced by
- * `defineAgent` at author time.
+ * Agent definition id: `<pack-id>.<agent-name>`, the pack's own id, a
+ * dot, and a kebab-case name with no dot. The `<pack-id>` prefix scopes
+ * the agent to its pack; `<agent-name>` names the agent's role — e.g.
+ * `acme.brief-writer`. `defineAgent` checks only that the id isn't empty;
+ * `kindgi dev` and `kindgi build` warn about any other shape.
  */
 export type AgentId = Brand<string, 'AgentId'>;
 
 /**
  * Tool definition id. Convention: `<pack-id>.<tool-name>`
  * (kebab-case, dot-namespaced) — e.g. `acme.verify-citation`,
- * `demo.echo`. The `<pack-id>` prefix scopes the tool to its pack;
- * `<tool-name>` names the operation. Enforced by `defineTool` at
- * author time.
+ * `acme.fetch-order`. The `<pack-id>` prefix scopes the tool to its pack;
+ * `<tool-name>` names the operation. `defineTool` checks only that
+ * the id isn't empty and doesn't start with `kindgi_`, which is kept for
+ * tools built into Kindgi.
  */
 export type ToolId = Brand<string, 'ToolId'>;
 
 /**
+ * The prefix of tools built into Kindgi (e.g. `kindgi_remember`): their
+ * ids are what the model calls, verbatim, so they have no dots. A
+ * published tool can't use it, and neither an agent's `tools` nor a flow's
+ * tool node names one; pack tools are `<pack>.<tool>`.
+ */
+export const BUILT_IN_TOOL_PREFIX = 'kindgi_';
+
+/**
  * Guardrail declaration id. Convention: `<pack-id>.<guardrail-name>`
  * (kebab-case, dot-namespaced) — e.g. `acme.no-fabricated-quotes`,
- * `demo.response-not-empty`. `<guardrail-name>` describes the
+ * `acme.response-not-empty`. `<guardrail-name>` describes the
  * property being asserted (usually a positive rule the agent turn
- * must satisfy). Enforced by `validateGuardrail` at author time.
+ * must satisfy). `validateGuardrail` checks only that the id isn't
+ * empty.
  */
 export type GuardrailId = Brand<string, 'GuardrailId'>;
 
@@ -136,6 +148,12 @@ export type LogEntryId = Brand<string, 'LogEntryId'>;
 
 /** A generated artifact (draft, memo, report). */
 export type ArtifactId = Brand<string, 'ArtifactId'>;
+
+/**
+ * A file with versions. It's the `ArtifactId` of its version 1's bytes,
+ * and names the file through every later version.
+ */
+export type FileId = Brand<string, 'FileId'>;
 
 /** A provenance DAG record. */
 export type ProvenanceId = Brand<string, 'ProvenanceId'>;
@@ -190,6 +208,12 @@ export type WebhookEventId = Brand<string, 'WebhookEventId'>;
 
 /** One event's delivery to one outbound endpoint, across all its attempts. */
 export type WebhookDeliveryId = Brand<string, 'WebhookDeliveryId'>;
+
+/** A destination: a named place outside Kindgi that a schedule's results go to (a schedule's `sendResultsTo`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** One message to one destination, or to a schedule owner's own email, across all its attempts. */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
 
 /** An installed pack instance for a workspace. Reserved: no package in this repository issues one. */
 export type InstallationId = Brand<string, 'InstallationId'>;

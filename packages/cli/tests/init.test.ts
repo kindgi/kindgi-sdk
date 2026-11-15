@@ -124,7 +124,16 @@ describe('kindgi init — minimal template', () => {
     expect(files).toEqual([
       '.agents/skills/kindgi-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.agents/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.agents/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.agents/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.agents/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.agents/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.agents/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -167,7 +176,16 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.claude/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.claude/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.claude/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.claude/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.claude/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.claude/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -244,7 +262,7 @@ describe('kindgi init — minimal template', () => {
   });
 
   test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up', 'returns-helper'])(
-    "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
+    "the %s template decides esbuild's install script for npm and pnpm alike: off",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
       const pkg = JSON.parse(await readFile(join(cwd, 'my-pack', 'package.json'), 'utf8')) as {
@@ -301,11 +319,11 @@ describe('kindgi init --template=woocommerce', () => {
       'lib/fake-store.ts',
       'tools/check-order-event/index.ts',
       'guardrails/no-customer-contact-details/index.ts',
-      'agents/store-agent/index.ts',
-      'agents/store-agent/index.test.ts',
+      'agents/order-desk/index.ts',
+      'agents/order-desk/index.test.ts',
       'agents/order-reviewer/index.ts',
       'agents/order-reviewer/index.test.ts',
-      'flows/order-review/index.ts',
+      'flows/review-order/index.ts',
       'fixtures/order-created.json',
       'scripts/connect-store.mjs',
       'README.md',
@@ -318,7 +336,7 @@ describe('kindgi init --template=woocommerce', () => {
         /\{\{[A-Z_]+\}\}/,
       );
     }
-    const agent = await readFile(join(root, 'agents/store-agent/index.ts'), 'utf8');
+    const agent = await readFile(join(root, 'agents/order-desk/index.ts'), 'utf8');
     expect(agent).toContain("'acme-shop.woo.refund': 'never_ask'");
     expect(agent).toContain("default: 'always_ask'");
     // A refused refund goes back to the model, which can then ask for refund-large.
@@ -361,27 +379,27 @@ describe('kindgi init --template=woocommerce', () => {
     const script = await readFile(join(root, 'scripts/connect-store.mjs'), 'utf8');
     expect(script).toContain("const PACK = 'acme-shop';");
     expect(script).toContain(`Usage: ${run} connect-store https://shop.example.com`);
-    expect(script).toContain(`Try the store agent: ${kindgi} runs start --agent=`);
+    expect(script).toContain(`Try the order desk: ${kindgi} runs start --agent=`);
     expect(script).not.toContain('{{');
   });
 
-  test("the store agent's instructions are a prompt block the pack brings, and it holds up", async () => {
+  test("the order desk's instructions are a prompt block the pack brings, and it holds up", async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'acme-shop', '--template=woocommerce'] }));
     expect(out.exitCode).toBe(0);
     const root = join(cwd, 'acme-shop');
-    const agent = await readFile(join(root, 'agents/store-agent/index.ts'), 'utf8');
+    const agent = await readFile(join(root, 'agents/order-desk/index.ts'), 'utf8');
     expect(agent).toContain(
-      "instructions: { prompt: 'acme-shop.store-agent-prompt', version: '^0.1.0' },",
+      "instructions: { prompt: 'acme-shop.order-desk-prompt', version: '^0.1.0' },",
     );
     // Read and checked as `kindgi build` reads and checks a pack's blocks.
     const read = await readPackBlocks(root, 'blocks/**/*.json');
     expect(read.errors).toEqual([]);
     expect(read.files).toEqual([
-      'blocks/store-agent-prompt.json',
-      'blocks/store-agent-prompt.liquid',
+      'blocks/order-desk-prompt.json',
+      'blocks/order-desk-prompt.liquid',
     ]);
     expect(read.blocks.map(({ id, version, kind }) => ({ id, version, kind }))).toEqual([
-      { id: 'acme-shop.store-agent-prompt', version: '0.1.0', kind: 'prompt' },
+      { id: 'acme-shop.order-desk-prompt', version: '0.1.0', kind: 'prompt' },
     ]);
     expect(blockProblems(read.blocks)).toEqual([]);
     // The agent, bundled as the Drupal reviewer is below, and its
@@ -390,9 +408,9 @@ describe('kindgi init --template=woocommerce', () => {
     const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
     const bundles = await mkdtemp(join(nodeModules, '.woocommerce-template-test-'));
     try {
-      const outfile = join(bundles, 'store-agent.mjs');
+      const outfile = join(bundles, 'order-desk.mjs');
       await build({
-        entryPoints: [join(root, 'agents/store-agent/index.ts')],
+        entryPoints: [join(root, 'agents/order-desk/index.ts')],
         bundle: true,
         platform: 'node',
         format: 'esm',
@@ -438,8 +456,8 @@ describe('kindgi init --template=follow-up', () => {
     for (const rel of [
       'tools/gmail-send/index.ts',
       'tools/gmail-send/index.test.ts',
-      'agents/follow-up/index.ts',
-      'agents/follow-up/index.test.ts',
+      'agents/follow-up-writer/index.ts',
+      'agents/follow-up-writer/index.test.ts',
       'README.md',
       'AGENTS.md',
       '.gitignore',
@@ -456,7 +474,7 @@ describe('kindgi init --template=follow-up', () => {
     expect(await readFile(join(root, 'tools/gmail-send/index.ts'), 'utf8')).toContain(
       "export default gmailSend({ id: 'acme-mail.gmail.send' });",
     );
-    const agent = await readFile(join(root, 'agents/follow-up/index.ts'), 'utf8');
+    const agent = await readFile(join(root, 'agents/follow-up-writer/index.ts'), 'utf8');
     expect(agent).toContain("default: 'always_ask'");
     expect(agent).toContain("'acme-mail.gmail.send': 'always_ask'");
     const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
@@ -524,13 +542,13 @@ describe('kindgi init --template=follow-up', () => {
       }),
     ]);
     expect(index.agents.map((a) => [a.id, a.tools])).toEqual([
-      ['acme-mail.follow-up', [{ id: 'acme-mail.gmail.send', version: '^1.0.0' }]],
+      ['acme-mail.follow-up-writer', [{ id: 'acme-mail.gmail.send', version: '^1.0.0' }]],
     ]);
   });
 });
 
 describe('kindgi init --template=returns-helper', () => {
-  test('scaffolds the returns helper: two tools, one agent and its three blocks, which hold up', async () => {
+  test('scaffolds the returns helper: three tools, one agent and its three blocks, which hold up', async () => {
     const out = await runCli(
       baseInputs({ argv: ['init', 'acme-returns', '--template=returns-helper'] }),
     );
@@ -542,7 +560,9 @@ describe('kindgi init --template=returns-helper', () => {
       'tools/find-order/index.ts',
       'tools/refund/index.ts',
       'tools/refund/index.test.ts',
-      'agents/returns-helper/index.ts',
+      'tools/today/index.ts',
+      'tools/today/index.test.ts',
+      'agents/returns-desk/index.ts',
       'README.md',
       'AGENTS.md',
       '.gitignore',
@@ -555,12 +575,13 @@ describe('kindgi init --template=returns-helper', () => {
         /\{\{[A-Z_]+\}\}/,
       );
     }
-    const agent = await readFile(join(root, 'agents/returns-helper/index.ts'), 'utf8');
+    const agent = await readFile(join(root, 'agents/returns-desk/index.ts'), 'utf8');
     expect(agent).toContain("instructions: { prompt: 'acme-returns.tone', version: '^0.1.0' },");
     expect(agent).toContain("settings: [{ id: 'acme-returns.refund-rules', version: '^0.1.0' }],");
     expect(agent).toContain(
       "modelSettings: { id: 'acme-returns.returns-model', version: '^0.1.0' },",
     );
+    expect(agent).toContain("{ id: 'acme-returns.today', version: '0.1.0' },");
     // Read and checked as `kindgi build` reads and checks a pack's blocks.
     const read = await readPackBlocks(root, 'blocks/**/*.json');
     expect(read.errors).toEqual([]);
@@ -600,9 +621,9 @@ describe('kindgi init --template=returns-helper', () => {
     const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
     const bundles = await mkdtemp(join(nodeModules, '.returns-helper-template-test-'));
     try {
-      const outfile = join(bundles, 'returns-helper.mjs');
+      const outfile = join(bundles, 'returns-desk.mjs');
       await build({
-        entryPoints: [join(root, 'agents/returns-helper/index.ts')],
+        entryPoints: [join(root, 'agents/returns-desk/index.ts')],
         bundle: true,
         platform: 'node',
         format: 'esm',
@@ -640,11 +661,11 @@ describe('kindgi init --template=drupal', () => {
       'tools/check-content-event/index.ts',
       'tools/check-content-event/index.test.ts',
       'guardrails/no-contact-details/index.ts',
-      'agents/content-agent/index.ts',
-      'agents/content-agent/index.test.ts',
-      'agents/content-reviewer/index.ts',
-      'agents/content-reviewer/index.test.ts',
-      'flows/content-review/index.ts',
+      'agents/style-checker/index.ts',
+      'agents/style-checker/index.test.ts',
+      'agents/article-reviewer/index.ts',
+      'agents/article-reviewer/index.test.ts',
+      'flows/review-article/index.ts',
       'fixtures/node-updated.json',
       'README.md',
     ]) {
@@ -656,7 +677,7 @@ describe('kindgi init --template=drupal', () => {
         /\{\{[A-Z_]+\}\}/,
       );
     }
-    const agent = await readFile(join(root, 'agents/content-agent/index.ts'), 'utf8');
+    const agent = await readFile(join(root, 'agents/style-checker/index.ts'), 'utf8');
     expect(agent).toContain("default: 'always_ask'");
     expect(agent).toContain(
       "Object.fromEntries(READ_TOOLS.map((id) => [id, 'never_ask' as const]))",
@@ -669,7 +690,7 @@ describe('kindgi init --template=drupal', () => {
     expect(lib.slice(lib.indexOf('READ_TOOLS = ['), lib.indexOf('] as const;'))).not.toMatch(
       /update_content|set_moderation_state/,
     );
-    const reviewer = await readFile(join(root, 'agents/content-reviewer/index.ts'), 'utf8');
+    const reviewer = await readFile(join(root, 'agents/article-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.event.nodeId }}');
     const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
@@ -686,9 +707,9 @@ describe('kindgi init --template=drupal', () => {
     const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
     const bundles = await mkdtemp(join(nodeModules, '.drupal-template-test-'));
     try {
-      const outfile = join(bundles, 'content-reviewer.mjs');
+      const outfile = join(bundles, 'article-reviewer.mjs');
       await build({
-        entryPoints: [join(cwd, 'acme-journal', 'agents/content-reviewer/index.ts')],
+        entryPoints: [join(cwd, 'acme-journal', 'agents/article-reviewer/index.ts')],
         bundle: true,
         platform: 'node',
         format: 'esm',
@@ -750,7 +771,7 @@ describe('kindgi init — python template, from the PyPI CLI (kindgi-cli)', () =
   });
 });
 
-describe('kindgi init — a machine without pnpm (T280)', () => {
+describe('kindgi init — a machine without pnpm', () => {
   test('the next steps install and run with npm, never naming pnpm', async () => {
     const out = await runCli(
       baseInputs({
@@ -772,7 +793,7 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
   });
 });
 
-describe("kindgi init — the README's commands are the Next steps' (T279)", () => {
+describe("kindgi init — the README's commands are the Next steps'", () => {
   const NO_PNPM = {
     pnpmVersion: async () => {
       throw new Error('spawn pnpm ENOENT');
@@ -994,6 +1015,7 @@ describe('kindgi init — python template', () => {
       '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-python-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-python-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-python-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.agents/skills/kindgi-python-authoring-tools/SKILL.md',
       '.agents/skills/kindgi-python-getting-started/SKILL.md',
@@ -1032,6 +1054,7 @@ describe('kindgi init — python template', () => {
       '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-python-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-python-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-python-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-python-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-python-getting-started/SKILL.md',
@@ -1039,8 +1062,8 @@ describe('kindgi init — python template', () => {
       '.gitignore',
       'AGENTS.md',
       'README.md',
-      'agents/echo_agent.py',
-      'flows/echo_flow.py',
+      'agents/greeter.py',
+      'flows/greet_person.py',
       'guardrails/response_not_empty.py',
       'pyproject.toml',
       'tests/test_tools.py',
@@ -1102,6 +1125,7 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-java-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-java-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-java-getting-started/SKILL.md',
@@ -1124,8 +1148,8 @@ describe('kindgi init — java template', () => {
       'kindgiw.cmd',
       'mvnw',
       'pom.xml',
-      'src/main/java/acme/billing/agents/EchoAgent.java',
-      'src/main/java/acme/billing/flows/EchoFlow.java',
+      'src/main/java/acme/billing/agents/Greeter.java',
+      'src/main/java/acme/billing/flows/GreetPerson.java',
       'src/main/java/acme/billing/guardrails/ResponseNotEmpty.java',
       'src/main/java/acme/billing/tools/Echo.java',
       'src/main/java/acme/billing/tools/Greet.java',
@@ -1201,6 +1225,7 @@ describe('kindgi init — scala template', () => {
       '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-scala-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-scala-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.agents/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.agents/skills/kindgi-scala-getting-started/SKILL.md',
@@ -1237,6 +1262,7 @@ describe('kindgi init — scala template', () => {
       '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-scala-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-scala-getting-started/SKILL.md',
@@ -1250,8 +1276,8 @@ describe('kindgi init — scala template', () => {
       'kindgiw.cmd',
       'project/build.properties',
       // `type` is a Scala keyword: the package is `acme.type_`.
-      'src/main/scala/acme/type_/agents/EchoAgent.scala',
-      'src/main/scala/acme/type_/flows/EchoFlow.scala',
+      'src/main/scala/acme/type_/agents/Greeter.scala',
+      'src/main/scala/acme/type_/flows/GreetPerson.scala',
       'src/main/scala/acme/type_/guardrails/ResponseNotEmpty.scala',
       'src/main/scala/acme/type_/tools/Echo.scala',
       'src/main/scala/acme/type_/tools/Greet.scala',
@@ -1319,7 +1345,16 @@ describe('kindgi init — sample template', () => {
     expect(files).toEqual([
       '.agents/skills/kindgi-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-authoring-flows/SKILL.md',
+      '.agents/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.agents/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.agents/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.agents/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.agents/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.agents/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.agents/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.agents/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -1362,7 +1397,16 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-authoring-flows/start-from-a-trigger.md',
       '.claude/skills/kindgi-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-authoring-guardrails/built-in-checks.md',
+      '.claude/skills/kindgi-authoring-guardrails/changing-and-testing.md',
+      '.claude/skills/kindgi-authoring-guardrails/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-guardrails/field-by-field.md',
+      '.claude/skills/kindgi-authoring-guardrails/in-the-agent-loop.md',
+      '.claude/skills/kindgi-authoring-guardrails/llm-judge.md',
+      '.claude/skills/kindgi-authoring-guardrails/pack-guardrail-file.md',
+      '.claude/skills/kindgi-authoring-guardrails/what-it-can-do.md',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
       '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
@@ -1405,8 +1449,8 @@ describe('kindgi init — sample template', () => {
       '.nvmrc',
       'AGENTS.md',
       'README.md',
-      'agents/echo-agent/index.ts',
-      'flows/echo-flow/index.ts',
+      'agents/greeter/index.ts',
+      'flows/greet-person/index.ts',
       'guardrails/response-not-empty/index.ts',
       'kindgi.config.ts',
       'package.json',

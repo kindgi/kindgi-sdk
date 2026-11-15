@@ -6,9 +6,11 @@ import type { NodeHandler } from '@kindgi/handler';
 import { persistProvenance } from '../provenance-emit.js';
 
 import type { TurnContext } from './context.js';
+import { addFileVersionNodes } from './turn-provenance.js';
 
 /**
- * Persist the completed provenance DAG. Best-effort: a persistence
+ * Persist the completed provenance DAG, with the run's file versions
+ * (`addFileVersionNodes`) added first. Best-effort: a persistence
  * failure here does NOT fail the run (the turn already succeeded and
  * the DAG was built in memory); the result then carries no
  * `provenance`.
@@ -28,6 +30,7 @@ export function buildPersistProvenanceHandler(ctx: TurnContext): NodeHandler {
       // want).
       return { persisted: false };
     }
+    await addFileVersionNodes(ctx);
     const persisted = await persistProvenance(ctx.provenance, ctx.provenanceBindings, {
       projectId: ctx.input.projectId,
     });

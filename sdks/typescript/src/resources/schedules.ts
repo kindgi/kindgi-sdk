@@ -22,6 +22,8 @@
  */
 
 import type {
+  DestinationDeliveryCollectionPage,
+  DestinationDelivery as DestinationDeliveryWire,
   PatchScheduleBody,
   RegisterScheduleBody,
   ScheduleCollectionPage,
@@ -46,6 +48,7 @@ export type ScheduleFirePage = ScheduleFirePageWire;
 export type ScheduleVersion = ScheduleVersionWire;
 export type ScheduleVersionPage = ScheduleVersionPageWire;
 export type TakeTriggerOwnerInput = TakeTriggerOwnerBody;
+export type ScheduleDeliveryPage = DestinationDeliveryCollectionPage;
 
 export interface ListScheduleFiresFilter {
   readonly limit?: number;
@@ -55,6 +58,13 @@ export interface ListScheduleFiresFilter {
 export interface ListScheduleVersionsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+export interface ListScheduleDeliveriesFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+  /** Only the deliveries in this status. */
+  readonly status?: DestinationDeliveryWire['status'];
 }
 
 export interface ListSchedulesFilter {
@@ -138,21 +148,27 @@ export interface SchedulesClient {
   fires(triggerId: string, filter?: ListScheduleFiresFilter): Promise<ScheduleFirePage>;
 
   /**
-   * The schedule's versions, newest first: what it was from each version's
-   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
-   * change makes one; a change that alters nothing, pausing and resuming
-   * make none. A fire's run uses the newest when it starts, and keeps it
-   * (its `trigger.version`).
+   * Where the schedule's results went (`sendResultsTo`), newest first: each
+   * message to a destination or to `me`, delivered, pending, or skipped or
+   * failed with the reason. A runtime before Kindgi 0.7.0 doesn't serve it.
    *
-   * @wire GET /v1/schedules/:triggerId/versions
+   * @wire GET /v1/schedules/:triggerId/deliveries
    */
-  versions(triggerId: string, filter?: ListScheduleVersionsFilter): Promise<ScheduleVersionPage>;
+  listDeliveries(
+    triggerId: string,
+    filter?: ListScheduleDeliveriesFilter,
+  ): Promise<ScheduleDeliveryPage>;
 
   /**
-   * One version of the schedule, by its number (from 1). Returns 404
-   * `trigger-version-not-found` for a number it never had.
-   *
-   * @wire GET /v1/schedules/:triggerId/versions/:version
+   * The schedule's versions: list and get. Calling it directly lists them.
+   * That is deprecated: use `schedules.versions.list`, which sends the same
+   * request. A later minor release removes it, announced in advance.
+   */
+  readonly versions: ScheduleVersionsClient;
+
+  /**
+   * @deprecated Use `schedules.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
    */
   getVersion(triggerId: string, version: number): Promise<ScheduleVersion>;
 
@@ -184,7 +200,53 @@ interface MutationOptions {
   readonly idempotencyKey?: string;
 }
 
+export interface ScheduleVersionsClient {
+  /**
+   * @deprecated Use `schedules.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
+  (triggerId: string, filter?: ListScheduleVersionsFilter): Promise<ScheduleVersionPage>;
+  /**
+   * The schedule's versions, newest first: what it was from each version's
+   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
+   * change makes one; a change that alters nothing, pausing and resuming
+   * make none. A fire's run uses the newest when it starts, and keeps it
+   * (its `trigger.version`).
+   *
+   * @wire GET /v1/schedules/:triggerId/versions
+   */
+  list(triggerId: string, filter?: ListScheduleVersionsFilter): Promise<ScheduleVersionPage>;
+  /**
+   * One version of the schedule, by its number (from 1). Returns 404
+   * `trigger-version-not-found` for a number it never had.
+   *
+   * @wire GET /v1/schedules/:triggerId/versions/:version
+   */
+  get(triggerId: string, version: number): Promise<ScheduleVersion>;
+}
+
 export function makeSchedulesClient(transport: Transport): SchedulesClient {
+  const list: ScheduleVersionsClient['list'] = async (triggerId, filter) =>
+    transport.request<ScheduleVersionPage>({
+      method: 'GET',
+      path: `/v1/schedules/${encodeURIComponent(triggerId)}/versions`,
+      query: {
+        ...(filter?.limit !== undefined && { limit: filter.limit }),
+        ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+      },
+    });
+  const versions: ScheduleVersionsClient = Object.assign(
+    (triggerId: string, filter?: ListScheduleVersionsFilter) => list(triggerId, filter),
+    {
+      list,
+      async get(triggerId: string, version: number) {
+        return transport.request<ScheduleVersion>({
+          method: 'GET',
+          path: `/v1/schedules/${encodeURIComponent(triggerId)}/versions/${version}`,
+        });
+      },
+    },
+  );
   return {
     async register(input, options) {
       return transport.request<Schedule>({
@@ -252,22 +314,19 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
         },
       });
     },
-    async versions(triggerId, filter) {
-      return transport.request<ScheduleVersionPage>({
+    async listDeliveries(triggerId, filter) {
+      return transport.request<ScheduleDeliveryPage>({
         method: 'GET',
-        path: `/v1/schedules/${encodeURIComponent(triggerId)}/versions`,
+        path: `/v1/schedules/${encodeURIComponent(triggerId)}/deliveries`,
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.status !== undefined && { status: filter.status }),
         },
       });
     },
-    async getVersion(triggerId, version) {
-      return transport.request<ScheduleVersion>({
-        method: 'GET',
-        path: `/v1/schedules/${encodeURIComponent(triggerId)}/versions/${version}`,
-      });
-    },
+    versions,
+    getVersion: (triggerId, version) => versions.get(triggerId, version),
     async runNow(triggerId, options) {
       return transport.request<ScheduleFire>({
         method: 'POST',

@@ -13,10 +13,84 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.7.0
+
+- `kindgi`: **the client takes the URL and the token from the running
+  `kindgi dev` together, or not at all.** With `KINDGI_API_TOKEN` set (or
+  `token=` passed) and no URL, `Kindgi()` and `AsyncKindgi()` no longer send
+  that token to the URL in the nearest `.kindgirc.json`: they raise
+  `ValueError`, naming the file and what to set. With `KINDGI_API_URL` set
+  (or `base_url=` passed) and no token, they take the file's token only when
+  the URL is the file's own, and raise the same way for another URL. Set
+  both in your env file, or neither to use the running `kindgi dev`.
+- `kindgi`: **a SAML provider carries the service provider's certificates,
+  for its metadata.** `SamlIdentityProviderConfig` and
+  `UpdateIdentityProviderBody` gain `sp_signing_certificates` and
+  `sp_decryption_certificates` (`spSigningCertificates` and
+  `spDecryptionCertificates` on the wire): the certificates (PEM) of the keys
+  `sp_signing_key_ref` and `sp_decryption_key_ref` name, published in the
+  service provider's metadata. Each needs its key. Both are optional and
+  default to `None`.
+- `kindgi`: **a Python pack's service no longer names `GPG_KEY` when it
+  starts.** Python's base image sets it in every pack's image, so the
+  `env-dropped` line warned at every start. The service still drops it like
+  any name the pack doesn't declare: a pack that reads it declares it.
+- `kindgi`: **an HTTP tool's `secretRef` can leave its env out.**
+  `http_tool(authorization={"kind": "bearer", "secretRef": {"name": "ACME_TOKEN"}})`
+  is read in the env the runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`), as the secrets a tool's code declares are. A ref that names
+  its env still reads there, and an empty `envName` is refused. The client's
+  `ToolSecretRef.env_name` is optional: `None` when a tool's ref names no env.
+  An older `kindgi` fails to read such a tool, or a page of tools that holds
+  one, so upgrade it with the runtime.
 - `kindgi`: **`LicenseStatus.mode`'s docstring says `development` is a
   runtime before 0.7.0**, which ran with no key. From 0.7.0 a development
   runtime has a license key too, and answers `licensed`. What you pass or
   read doesn't change.
+- `kindgi`: **the corrections docstrings say which run can be corrected:**
+  one that completed with an output. `CorrectionsResource.create` and
+  `AgentsTestSetResource.add_case` (and their async twins) said a finished
+  run, but a run that failed, was cancelled, or completed with no output is
+  finished too, and is refused with `409 run-not-finished`. What you pass or
+  read doesn't change.
+- `kindgi`: **`client.agents.release_gate.resolve` needs `scope_kind`.**
+  `GET /v1/agents/{agentId}/release-gate` answers `400` without one, and the
+  API's spec now says it's required, so `scope_kind` is a required keyword
+  argument, sync and async. A call without it raises `TypeError` before it's
+  sent, where it got that `400`.
+- `kindgi`: **an agent's `ConversationPolicy` has `hitl`.**
+  `ConversationPolicy.hitl` (`ConversationHitlPolicy`, with `ToolHitlPolicy`,
+  `ToolHitlRule` and `SeparateApproverPolicy`) holds the agent's approval
+  rules, as an agent published over the API sets them and reads them back.
+- `kindgi`: **`http_tool` refuses a placeholder in the URL's host or port.**
+  There, a run's input or a model's arguments would choose where the runtime
+  sends the request. The URL must also start with `http://` or `https://` and
+  a host. TypeScript's `defineTool` and Java's `Tool.Builder.http` already
+  refused these with the same messages, and so did a deployment of the pack.
+  Python now refuses them when the tool is defined, with a `DefinitionError`.
+- `kindgi`: **a tool's schema with a name holding a lone surrogate is refused
+  as the runtime refuses it.** Under `properties`, `patternProperties`,
+  `dependentSchemas` or `dependencies`, such a name over a subschema the
+  runtime compiles now fails the definition with the runtime's "URI
+  malformed", where checking it raised `UnicodeEncodeError` before. The
+  runtime writes the name into that subschema's path, URI encoded, and a lone
+  surrogate can't be encoded. Over a subschema any data passes, such as `{}`,
+  the schema compiles, as it does in the runtime.
+- `kindgi`: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.**
+  A tool that sets no version takes the pack's, and a deploy takes no other
+  tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or
+  `"1.0.0-rc.1"` no longer loads: `python -m kindgi.pack index`, and
+  `kindgi build`, `deploy`, `env`, `dev` and `mcp`, stop with
+  `config-parse-failed`, naming `pack.version`, as they do when it's missing.
+  Write `1.0.0`.
+- `kindgi`: **each kind's version is checked where it's declared, by the
+  deploy's rule.** A tool's (`@tool(version=...)`, `http_tool`) is
+  `MAJOR.MINOR.PATCH`, so a prerelease or build metadata is refused. An
+  agent's is an exact semver with no build metadata, and so is a flow's,
+  which wasn't checked. Each of those was refused only at deploy before. The
+  messages are `version must be MAJOR.MINOR.PATCH (e.g. 1.2.3), got '...'`
+  and `version must be an exact semver with no build metadata (e.g. 1.2.3 or
+  1.2.3-rc.1), got '...'`.
 - `kindgi`: **`RunWaitingFor.other`'s docstring says which waits are
   `unattributed`.** `OtherItem` said a wait no approval is linked to, but a
   connect's wait and one listed in `tokens` aren't `unattributed` either: it's
@@ -28,6 +102,69 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `DeploymentRecord.production_entry` (`"promote-only"`) carry the signed
   mark of a build that reaches a project in production only by promotion. A
   deploy of one into a project in production is `409 promote-only-build`.
+- `kindgi`: **`SystemTenantPurge.left_because`'s docstring says it also names
+  a secret the secret manager didn't erase.** It named only a setting the
+  runtime lacks. What you pass or read doesn't change.
+- `kindgi`: **a key carries the key it was minted with, and a revoke names
+  the keys that went with it.** `ApiToken.minted_with` is the key a key was
+  minted with, which revoking stops it with. `tokens.list(minted_with=...)`
+  lists the keys minted with a key, to any depth, and the page says
+  `minted_with`. `RevokeTokenResult.also_revoked` lists every key revoked
+  with one, and `UnregisterUserResult.minted_keys_revoked` counts the keys
+  minted with a removed person's. Each is absent from a runtime that doesn't
+  record which key minted which.
+- `kindgi`: **a guardrail can name a built-in check: `built_in_guardrail(...)`.** It takes `id`, `check` (one of `RESERVED_CHECK_IDS`), `config` (the built-in's settings, keyed as on the wire), `on_violation` or `action`, `name`, `severity`, `scope` and `at`, and returns a `Guardrail` with no check function: the runtime runs the built-in and checks its settings, and calling it raises. Its index entry is a TypeScript pack's: `checkId` is the built-in's, with `checkBuiltIn: true` and no `configSchema`. It raises `DefinitionError` where it's defined for an id that isn't a built-in's, and for what a TypeScript pack's build refuses: an `at` that isn't a guardrail point, a `scope.tools` that names no tool ids or is set away from `before-tool` and `after-tool`, and `escalate` or `compensate` away from the final answer. `Guardrail` gains `at` and `built_in`. The indexer gives a built-in's id no `check-id-unprefixed` warning, and the pack service holds no check for it.
+- `kindgi`: **a tool's or a check's error says what caused it, and leaves out
+  the call's secrets.** A handler's or a check's failure message, and a module's
+  that fails to import, goes on to say its causes (`raise … from err`), up to
+  three, each as `; caused by <Name> [<code>]: <message>`, masked and on one
+  line: `RuntimeError: lookup failed; caused by ConnectionRefusedError: [Errno
+  111] Connection refused`. A handler's error has the call's secrets, its
+  connection tokens and its files token as `[redacted]`, in its message and its
+  `cause`, wherever it quotes them. The message is masked as the TypeScript pack
+  service masks it: a Kindgi token whole, and a URL's secret query value, such as
+  `?token=`. An error with no cause and no secret reads as it did. `kindgi.log`
+  gains `scrub_text(text, full_mask=True)` and `describe_causes`, as
+  `@kindgi/log`'s `scrubText` and `describeCauses`.
+- `kindgi`: **`RunEvent.kind` lists only the kinds the run stream sends.**
+  Eight it never sent (`run.queued`, `run.tool-invoked`, `run.tool-result`,
+  `run.model-token`, `run.artifact-produced`, `run.guardrail-violated`,
+  `run.approval-requested`, `run.approval-completed`) are gone from its
+  `Literal`. It still takes any string, so nothing you read changes.
+- `kindgi`: **a removed schedule, webhook trigger, mail trigger or text trigger
+  can be read.** `get_version` on `schedules`, `webhooks`, `mail_triggers`
+  and `text_triggers` answers a removed trigger's version, with
+  `unregistered_at`, so a run's `trigger.version` resolves whatever became
+  of its trigger. `get`, `list`, `list_versions` and `fires` take
+  `include_unregistered=True` for removed ones, and the trigger and version
+  models gain an optional `unregistered_at`.
+- `kindgi`: **unregistering a tool or agent version can say what can still
+  run it.** `UnregisterToolResult.locked_by` and
+  `UnregisterAgentResult.locked_by` list each agent and flow version you
+  can read that locks it, as the new `VersionLock` model (`kind`, `id`, `version`, and
+  `unregistered` for an unregistered agent version a registered flow version
+  still runs). `[]` says nothing you can read locks it. They're `None` when the runtime
+  doesn't send it.
+- `kindgi`: **`python -m kindgi.pack index --strict` exits 1 when a file
+  fails to index**, printing each file error, as `kindgi-index --strict`
+  does for a TypeScript pack. When a module imports a package that isn't
+  installed, it also says that a pack's image installs the main dependencies
+  only, so a package that only a dev group lists belongs in
+  `[project].dependencies`. A helper module (`tools/_db.py`) that won't
+  import doesn't count on its own: a module that imports it fails too. If it
+  defines tools itself, it says they're left out of the index. A pack image's
+  build runs it with `--strict`. Without the flag, nothing changes.
+- `kindgi`: **a tool can fail a call on purpose, with its own code and
+  words.** `raise ToolFailure("order-not-found", f"No order {order_id}",
+  details={"orderId": order_id})` answers the call `tool-failed` (pack
+  protocol 2.12.0): the code is its `reason`, the message is said as
+  written, and the details go with it, to the run's `failure` and, in an
+  agent whose `tool_errors` `retryOn` names `tool-failed`, to the model. A
+  code that isn't kebab case, an empty message, or details that aren't a
+  JSON object of at most 4 KiB raise `ValueError`, so the call is a crash
+  that says why. The client's agent models take `tool-failed` in
+  `retryOn`, and `RunFailure`'s docstrings say what a `tool-failed` failure
+  carries.
 - `kindgi`: **the identity provider models' `join` docstring says `domain`
   lets no one in on its own.** `OidcIdentityProviderConfig.join` and
   `SamlIdentityProviderConfig.join` said `domain` also let in anyone from the
@@ -41,6 +178,71 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   those its runs there may use and none can be changed, and memory is written
   only in that project. The methods' arguments and the shapes of their
   answers don't change.
+- `kindgi`: **an API key can be made to only read.** `MintTokenBody.read_only`, set when the key is made, gives a key whose every request but a `GET` or a `HEAD` is refused (`read-only-key`), apart from an agent's pin check (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. Such a key makes and revokes no keys. `ApiToken`, `MintTokenResult`, `WhoamiResult` and `MyKeyLimits` gain `read_only`. A server whose key store can't keep the limit makes no key (`read-only-unsupported`).
+- `kindgi`: **a tenant admin gives another tenant admin capabilities, and takes them back.** `identity.users.give_capabilities` and `identity.users.take_back_capability` answer with the person's grants after. A person's grants carry the capabilities they hold, when the runtime reports them.
+- `kindgi`: **files with versions: `client.files`.** `client.files` has `list`, `create`, `get`, `delete` and `pin_history`, and `client.files.versions` has `list`, `add`, `get`, `download`, `restore`, `delete`, `pin` and `unpin`, one for each `files.*` operation, in the async client too. `create` and `add` send a multipart upload, as `client.artifacts.upload` does. A version is named by its number or by `"latest"`. `BlobMeta` gains `file_id` and `version`, for a blob that is a file's version. `client.artifacts`' methods are deprecated: each warns with `DeprecationWarning`, naming the `files` method to use, until 0.8.0 removes them. `file-not-found` and `file-version-not-found` raise `NotFoundError`; `file-version-conflict`, `file-version-pinned`, `file-last-version` and `artifact-in-file` raise `ConflictError`; and `file-too-large` raises `InvalidRequestError`.
+- `kindgi`: **a tool can declare that it updates files, and an agent that its
+  model may change files.** `@tool(updates_files=True)` declares a tool that
+  adds versions to files its run has; only a tool with a handler can.
+  `Agent(files={"update": True, "create": True})` offers the agent's model the
+  built-in `kindgi_update_file` and `kindgi_create_file`. The indexer writes
+  `updatesFiles` and `files` into the pack index, and the vendored
+  `tool.schema.json` (1.5.0) and `pack-index.schema.json` (1.10.0) take them.
+  The client's models gain `AgentFilesPolicy`, a `files` field on `Agent` and
+  its publish body, and `updates_files` on a tool.
+- `kindgi`: **a tool that updates files gets `ctx.files.update`.** On a call
+  with an idempotency key whose tool files say `updates` (pack protocol
+  2.13.0), a tool that declares `updates_files=True` gets
+  `ctx.files.update(file_id=..., expected_version=..., content_type=...,
+  data=..., name=None)`, and `update_async`. It answers a `FileUpdateAnswer`:
+  `file`, the new version; `same` or `conflict`, Latest; or `not_updated`,
+  why no version was added. An update over 10 MB answers `size`, and nothing
+  is sent. The vendored `pack-protocol.schema.json` is 2.13.0, and the
+  client's models gain `ToolFileUpdateAnswer`.
+- `kindgi`: **a tool's context names the workspace's time zone.** `ToolContext` gains `time_zone`, an IANA name such as `"America/Toronto"`, as a runtime on pack protocol 2.12.0 sends it: one agent turn's calls all get the same one, `"UTC"` when the workspace sets none. It's `None` outside an agent turn and from an older runtime, so a tool uses UTC then. `ToolContext.for_test(time_zone=…)` passes one in a unit test.
+- `kindgi`: **a schedule can send its results to its owner's email or to a destination.** `client.destinations` lists, creates, gets, updates and removes destinations (a workspace admin's; remove is a soft delete), sends a test message, and lists and redelivers a destination's deliveries. `client.schedules.list_deliveries(trigger_id)` lists where a schedule's results went. The models gain `Destination`, `DestinationDelivery` and their bodies and pages, and a schedule's `send_results_to` (`ScheduleResultTarget`; `ScheduleResultTargetInput` in a body). `client.runs.list` takes `completed_after`, `after_run_id`, `completed_before` and `started_by`. A runtime before Kindgi 0.7.0 serves none of them.
+- `kindgi`: **a tenant's own limits on the flows and agents in production,
+  and its plan id.** `TenantLimits` gains `flows_in_production` and
+  `agents_in_production`, and `TenantLimitsInUse` their counts.
+  `TenantLimitsResult` gains `plan`: the tenant's plan id, `None` while none
+  is set, absent from a runtime that doesn't keep it.
+  `client.system_tenants.set_plan(tenant_id, plan="starter")` sets it, and
+  `plan=None` clears it (`TenantPlanBody`, answering `TenantPlan`).
+- `kindgi`: **the client's models carry a runtime's plan warning.** Once a
+  count of the flows or agents in production reaches the runtime's license
+  key's plan, `plan_warning` (`PlanWarning`: `flows` and `agents`, each a
+  `PlanCount` with `plan`, `most` and `in_use`) is on a published agent's or
+  flow's answer, a deployment, a deploy check, a promotion and its check, and
+  a project's production answer; a runtime that doesn't count them leaves it
+  out. `DeployCheckBody` gains `flows`.
+- `kindgi`: **a deleted project is kept, and a workspace admin can restore
+  it.** `projects.restore` brings one back as it was, and
+  `projects.list_deleted` lists the workspace's deleted projects, newest first
+  (the new `DeletedProject` model). A webhook delivery to a deleted project
+  answers `skipped: "project-deleted"`, a system deployment retired with its
+  project says `reason: "project-deleted"`, and an audit event's `kind` can be
+  `project-deleted` or `project-restored`.
+- `kindgi`: **a workspace can let people at its email domain join.** `client.auth.join_domains` lists the domains a workspace lets people join from, and allows, changes and stops allowing one (`list`, `allow`, `update`, `unregister`); `client.system_tenants` gains `join_domains`, `allow_join_domain`, `update_join_domain`, `unregister_join_domain` and, for a sign-up page, `lookup_join_domains`. The new models are `JoinDomain`, `JoinDomainList`, `AllowJoinDomainBody`, `ChangeJoinDomainBody`, `UnregisterJoinDomainResult`, `JoinDomainLookupBody`, `JoinDomainLookupResult` and `JoinLookupWorkspaceJoin` or `JoinLookupWorkspaceMember`. `join-domain-not-yours` and `join-domains-operator-managed` raise `AuthError` with `reason` `forbidden`.
+- `kindgi`: a person's record (`UserRecord`, `UserCreated`) gains `created_by`, who added them, as ids only: `user:<id>`, `service_account:<id>`, `identity_provider:<providerId>` or `email_domain:<domain>` for someone who joined by domain, or `site:<siteId>`. `None` for the seed user, and from a runtime that doesn't keep it.
+- `kindgi`: **an identity provider can let colleagues join by domain, and a person's grants say when the server's setting makes them a tenant admin.** The identity provider models, and their register and update bodies, gain `join_role` (`viewer`, `runner` or `none`), what someone who joins by domain gets, and `join`'s description says what `domain` now does. `PersonGrants` gains `tenant_admin_from_setting`: the server's `KINDGI_ADMIN_EMAILS` names the person, and taking tenant admin from them, or removing them, is refused with `listed-admin`.
+- `kindgi`: **`client.runs.list(include="waitingFor")` says what each
+  suspended run waits for** (its `waiting_for`, as `client.runs.get` gives
+  it). A page with it holds at most 25 runs. A runtime before Kindgi 0.7.0
+  refuses it with `400 bad-input`.
+- `kindgi`: **an `include` takes a value or a list:
+  `client.runs.list(include=["output", "waitingFor"])`.** The runs list, an
+  agent's test cases, the cost records and the people list send a list as
+  one comma-separated parameter. One value works as before.
+- `kindgi`: **`client.license.replace(key=...)` hands a running server a renewed license key** (`PUT /v1/license`), with the deployment's own token or a system key holding `system:license`. A server that takes it runs the new key without a restart. Runtime 0.7.0 doesn't serve the route, so it runs a renewed key from its next start. A key the server refuses raises `ConflictError` (`license-key-refused`, with `details["reason"]`); `LicenseKeyBody` is the request. `LicenseStatus` gains `limits` (`LicenseLimits`: `flows` and `agents`, each a `LicenseLimit` with `plan`, `most` and `in_use`), set only when the key carries limits, and only in the operator's view.
+- `kindgi`: **`Tool.mutating`'s description says a tool that isn't read-only asks before
+  each call**, not only the first time: an approval isn't remembered, so
+  `ask_on_first_use` asks before every call, as `always_ask` does. The client's
+  models and the vendored `tool.schema.json` say the same. How a call is gated
+  doesn't change.
+- `kindgi`: **sign-in options can link the deployment's own sign-up page.**
+  `auth.sign_in_options` gains `sign_up_url`, for a sign-in page to link as
+  "No account yet? Sign up". It's `None` when the operator set none, and from
+  older servers.
 
 ## 0.6.0
 

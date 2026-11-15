@@ -27,8 +27,8 @@ in a secret manager already, Kindgi can keep them there instead.
 - **The server's own identity on your cloud,** with access to that store.
   Kindgi signs in as the server itself: its AWS identity, managed identity,
   service account, Vault token or Kubernetes service account.
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   `env init` step needs the pack's folder, so it uses `pnpm exec kindgi`.
 
@@ -284,7 +284,7 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
     capabilities = ["create", "read", "update"]
   }
   path "kindgi/metadata/*" {
-    capabilities = ["read", "delete", "list"]
+    capabilities = ["read", "patch", "delete", "list"]
   }
   path "kindgi/delete/*" {
     capabilities = ["update"]
@@ -293,6 +293,12 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
     capabilities = ["update"]
   }
   ```
+
+  `patch` on the metadata lets the runtime keep `kindgi_version_base` in a
+  secret's custom metadata (leave it there), so a secret revoked for good,
+  set again and then revoked can be set again by its name. Without it, a
+  set or a revoke that needs to keep it logs a `secrets` warning that names
+  the capability.
 
 - **Revoking** a secret soft-deletes every one of its versions in Vault.
   With `--hard`, see [Revoking for good](#revoking-for-good).
@@ -390,6 +396,141 @@ What's left after that follows where the values were:
     can. If it still can't, it recovers the secret with every old version
     disabled, then writes the new value. The old versions stay in the vault,
     disabled, until the secret is deleted again. Kindgi never reads them.
+
+With a secret manager, `--hard` revokes the secret first, then erases its
+values there:
+
+- **While it erases,** setting the name again answers
+  `secret-provider-unavailable` ("set it again in a few minutes"), and so
+  does another `--hard` revoke of it. A set that was already writing when
+  the revoke began, and finishes while it erases or after the erase is
+  done, answers `secret-revoked`: what it wrote isn't served, and the
+  error says what becomes of it.
+- **If the erase doesn't finish,** because the secret manager answers an
+  error or writes to the secret keep landing while it erases, the revoke
+  answers an error that says so. The secret stays revoked, so no read
+  shows it, but a value may still be in the secret manager: revoke it with
+  `--hard` again to erase it.
+- **If the erase takes over 10 minutes,** sets of the name and other
+  `--hard` revokes are no longer held off. If one comes in, the revoke
+  answers an error that says so: the secret manager may still hold a
+  value, or a set made since may have lost the value it wrote. Set it
+  again, or revoke it with `--hard` again, to settle it.
+- **If the revoke gets no answer** because the runtime stopped partway
+  through the erase, sets of the name and another `--hard` revoke answer
+  `secret-provider-unavailable` for up to 10 minutes. Then revoke it with
+  `--hard` again to finish the erase, before you set the name again.
+
+### When a hard revoke doesn't finish
+
+What a hard revoke that answers an error leaves depends on the answer. Each
+one comes with a message that says which case it is.
+
+- **`429 secret-provider-rate-limited`, `502 secret-provider-unauthorized`
+  or `503 secret-provider-unavailable`:** your secret manager was limiting
+  the runtime's requests, refused its credentials, or couldn't be reached.
+  The secret is revoked, so reads stop, but its value may still be in the
+  secret manager. Run the hard revoke again once the secret manager
+  answers: it erases the value. A soft revoke that gets one of these isn't
+  made, so run it again too.
+- **`503 secret-provider-unavailable`, because another hard revoke of the
+  secret is still erasing it:** run the revoke again in a few minutes if the
+  secret is still there. A revoke whose runtime stopped partway holds the
+  next one off for up to 10 minutes.
+- **`500 secret-store-error`:** the secrets store or the secret manager
+  failed, so run the revoke again, or the erase in the secret manager
+  didn't finish. The message says which. An erase that didn't finish is one
+  of these:
+  - If writes to the secret kept landing while it erased, the secret stays
+    revoked, so reads stop, and the hard revoke run again finishes the
+    erase.
+  - If the erase took over 10 minutes and a set or another hard revoke came
+    in meanwhile, the secret manager may still hold a value, or a set made
+    since may have lost the value it wrote. Set it again, or run the hard
+    revoke again.
+  - If another secret manager keeps the secret, or its stored name is no
+    longer a valid one, the secret is revoked, but its value stays in that
+    secret manager. Remove it there.
+
+A write of the secret during a hard revoke (a set, a deployment's secret
+sync or a tenant config change) gets one of two answers:
+
+- **`404 secret-revoked`:** the revoke overtook the write, so what it wrote
+  isn't served. The message says what becomes of that value.
+- **`503 secret-provider-unavailable`:** the revoke is still erasing the
+  secret in your secret manager. Write it again in a few minutes. A revoke
+  whose runtime stopped partway holds writes off for up to 10 minutes.
+
+A rotate answers `404 secret-revoked` instead, during a hard revoke or after
+any revoke: a revoked secret can't be rotated. If a hard revoke overtook the
+rotate's write, the message says what becomes of that value.
+
+## When an org, a project or a tenant goes
+
+- **Deleting an org:** the server's sweep erases each of the org's secrets
+  in your secret manager, every version, then drops its row. A secret
+  manager that doesn't answer stops the sweep, and its next run goes on
+  from there.
+- **Purging a tenant:** the purge (runtime 0.7.0 or later) erases every
+  secret the tenant set there, revoked ones too, before any of its rows go.
+  A secret your secret manager
+  doesn't erase stops the purge, with nothing of the tenant deleted after
+  it: fix the server's access to your secret manager, then run the purge
+  again ([Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant)).
+- **Deleting a project** drops its secrets' rows and leaves their values in
+  your secret manager. Find them by the project's id, as below, and delete
+  them there.
+- **A secret Kindgi doesn't send to your secret manager** isn't erased with
+  the rest. That's one stored under a name outside the rule for new names
+  (above), or one kept in another secret manager than the server's. The
+  runtime logs a warning for each, with its tenant, its id and its path,
+  and its row goes. Delete it in your secret manager by hand.
+
+The org's sweep and the purge erase as a hard revoke does, so what each
+secret manager keeps afterwards is as [Revoking for good](#revoking-for-good)
+says. An Azure vault that can't purge keeps each deleted secret recoverable
+until its scheduled purge date. The erase still counts, and the runtime logs
+a warning that says until when.
+
+### Values left with no row
+
+A value can stay in your secret manager after Kindgi's rows for it are gone:
+
+- **A deleted org's or a purged tenant's secrets,** from a runtime that
+  deleted their rows without erasing them first.
+- **A deleted project's secrets,** as above.
+- **A hard-revoked secret whose tenant was purged without this secret
+  manager set.** A purge doesn't ask for a secret manager to erase what a
+  hard revoke already erased, but a set written while that revoke ran can
+  have left a value there.
+
+Kindgi marks each value with where it belongs, so you can find them:
+
+- **AWS Secrets Manager:** a secret under `kindgi/` carries the tags
+  `kindgi_tenant_id`, and `kindgi_org_id` or `kindgi_project_id` at those
+  scopes.
+
+  ```sh
+  aws secretsmanager list-secrets \
+    --filters Key=tag-key,Values=kindgi_tenant_id Key=tag-value,Values=<tenant id>
+  ```
+
+- **Google Secret Manager:** the same names, as labels.
+
+  ```sh
+  gcloud secrets list --project=<project> --filter='labels.kindgi_tenant_id=<tenant id>'
+  ```
+
+- **Azure Key Vault:** a secret's `kindgi-path` tag starts with its scope
+  and the tenant's id: `tenant/<tenant id>/_/`, `org/<tenant id>/<org id>/`
+  or `project/<tenant id>/<project id>/`.
+- **HashiCorp Vault or OpenBao:** the same paths, under the mount.
+
+  ```sh
+  vault kv list -mount=<mount> org/<tenant id>/
+  ```
+
+Delete each one in your secret manager, as you would any secret there.
 
 ## Next
 

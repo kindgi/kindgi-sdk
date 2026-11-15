@@ -17,12 +17,14 @@ export type { KindgiClient } from './client.js';
 export type {
   AgentReleaseGateClient,
   AgentPinnedClient,
+  AgentTestSetClient,
   AgentUnpinInput,
   AgentsClient,
   DefineAgentOptions,
   ListPinHistoryFilter,
   AgentPinnedWhere,
   AgentPinInput,
+  AgentVersionsClient,
   ReinstateAgentVersionResult,
 } from './resources/agents.js';
 export type {
@@ -85,19 +87,30 @@ export type {
   ReviewersClient,
 } from './resources/approvals.js';
 export type {
+  AuditResourceClient,
+  AuthzAuditClient,
+  SignInAuditClient,
+} from './resources/audit.js';
+export type {
   DefineFlowOptions,
   FlowFilter,
   FlowsClient,
   FlowValidateResult,
   FlowVersionFilter,
   FlowVersionRow,
+  FlowVersionsClient,
   PageFilter,
+  ReinstateFlowVersionResult,
+  UnregisterFlowVersionResult,
 } from './resources/flows.js';
 export type {
   ReinstateToolVersionResult,
   ToolFilter,
   ToolVersionFilter,
+  ToolVersionRow,
+  ToolVersionsClient,
   ToolsClient,
+  UnregisterToolVersionResult,
 } from './resources/tools.js';
 export type {
   EnvClient,
@@ -119,6 +132,7 @@ export type {
   EnvironmentsListInput,
   EnvironmentsPage,
 } from './resources/environments.js';
+export type { EnvironmentOrdersClient } from './resources/environment-orders.js';
 export type {
   PollingOverrides,
   RawRotationResponse,
@@ -133,10 +147,12 @@ export type {
   SecretRevokeInput,
   SecretRevokeOutcome,
   SecretRotateInput,
+  SecretRotationsClient,
   SecretSetInput,
   SecretSetOutcome,
   SecretVersionPage,
   SecretVersionRecord,
+  SecretVersionsClient,
   SecretsClient,
 } from './resources/secrets.js';
 export type {
@@ -191,7 +207,10 @@ export type {
   PoliciesClient,
   PolicyListFilter,
   PolicyVersionRow,
+  PolicyVersionsClient,
   PolicyVersionsFilter,
+  ReinstatePolicyVersionResult,
+  UnregisterPolicyVersionResult,
 } from './resources/policies.js';
 export type {
   RetentionClient,
@@ -219,11 +238,14 @@ export type {
   AssignableProjectRoleValue,
   CreateProjectInput,
   ListProjectMembershipsFilter,
+  ListDeletedProjectsFilter,
   ListProjectsFilter,
   ProjectMembershipPage,
   ListProjectAccessFilter,
   ListProjectPinnedVersionsFilter,
   ListTeamGrantsFilter,
+  DeletedProjectPage,
+  DeletedProjectShape,
   ProjectAccessClient,
   ProjectAccessPage,
   ProjectAccessShape,
@@ -258,6 +280,7 @@ export type {
   QueueRulePreviewInput,
   QueueRuleResults,
   QueueRuleSpec,
+  QueueRuleVersionsClient,
   QueueRulesClient,
   QueueRuleWhen,
 } from './resources/expert-queue.js';
@@ -290,6 +313,8 @@ export type {
   MintPublicRunTokenInput,
   PublicRunToken,
   TokenFilter,
+  TokenPage,
+  TokenRevoked,
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
@@ -325,6 +350,13 @@ export type {
   PinTestRun,
   RunProgress,
   ScopeSegment,
+  UnregisterAgentResult,
+  DeleteFileResult,
+  FilePin,
+  FilePinChange,
+  FileVersion,
+  FileVersionWrite,
+  StoredFile,
 } from './generated/api.js';
 export type { FollowRunOptions, RunProgressEvent, SubscribeToRunOptions } from './run-follow.js';
 export type { CorrectorGroupFilter, CorrectorGroupsClient } from './resources/corrector-groups.js';
@@ -342,6 +374,8 @@ export type {
   McpClient,
   McpEndpointFilter,
   McpEndpointsClient,
+  McpPromptsClient,
+  McpResourcesClient,
 } from './resources/mcp.js';
 export type {
   EventsClient,
@@ -349,16 +383,31 @@ export type {
 } from './resources/events.js';
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
+  AddFileVersionInput,
+  CreateFileInput,
+  DownloadedFileVersion,
+  FilesClient,
+  FilesPageFilter,
+  FileVersionSelector,
+  FileVersionsClient,
+  ListFilesFilter,
+  PinFileVersionInput,
+  RestoreFileVersionInput,
+} from './resources/files.js';
+export type {
+  ListScheduleDeliveriesFilter,
   ListScheduleFiresFilter,
   ListScheduleVersionsFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
+  ScheduleDeliveryPage,
   ScheduleFire,
   ScheduleFirePage,
   SchedulePage,
   ScheduleVersion,
   ScheduleVersionPage,
+  ScheduleVersionsClient,
   SchedulesClient,
   UnregisterScheduleResult,
   UpdateScheduleInput,
@@ -383,6 +432,7 @@ export type {
   ConnectionStartResult,
   ConnectionsClient,
   CreateConnectionAppInput,
+  DisconnectOptions,
   FinishConnectInput,
   ListConnectionAppsFilter,
   ListConnectionCandidatesInput,
@@ -419,6 +469,23 @@ export type {
   WebhookTestEvent,
 } from './resources/webhook-endpoints.js';
 export type {
+  CreateDestinationInput,
+  Destination,
+  DestinationContent,
+  DestinationDelivery,
+  DestinationDeliveryEvent,
+  DestinationDeliveryPage,
+  DestinationDeliveryStatus,
+  DestinationKind,
+  DestinationPage,
+  DestinationSecretRef,
+  DestinationStatus,
+  DestinationsClient,
+  ListDestinationDeliveriesFilter,
+  ListDestinationsFilter,
+  UpdateDestinationInput,
+} from './resources/destinations.js';
+export type {
   ListWebhookFiresFilter,
   ListWebhookTriggerVersionsFilter,
   ListWebhookTriggersFilter,
@@ -432,6 +499,7 @@ export type {
   WebhookTriggerPage,
   WebhookTriggerVersion,
   WebhookTriggerVersionPage,
+  WebhookTriggerVersionsClient,
   WebhooksClient,
 } from './resources/webhooks.js';
 export type {
@@ -445,11 +513,28 @@ export type {
   MailTriggerPage,
   MailTriggerVersion,
   MailTriggerVersionPage,
+  MailTriggerVersionsClient,
   MailTriggersClient,
   RegisterMailTriggerInput,
   UnregisterMailTriggerResult,
   UpdateMailTriggerInput,
 } from './resources/mail-triggers.js';
+export type {
+  ListTextFiresFilter,
+  ListTextTriggerVersionsFilter,
+  ListTextTriggersFilter,
+  RegisterTextTriggerInput,
+  TextFire,
+  TextFirePage,
+  TextTrigger,
+  TextTriggerPage,
+  TextTriggerVersion,
+  TextTriggerVersionPage,
+  TextTriggerVersionsClient,
+  TextTriggersClient,
+  UnregisterTextTriggerResult,
+  UpdateTextTriggerInput,
+} from './resources/text-triggers.js';
 export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,
@@ -497,6 +582,17 @@ export type {
   SystemCloudSecretSetOutcome,
   SystemEnvClient,
 } from './resources/system-env.js';
+export type {
+  KeptRepoErasurePage,
+  KeptRepoId,
+  KeptRepoOpenErasure,
+  KeptRepoPurgeReason,
+  KeptRepoRef,
+  KeptRepoRuling,
+  KeptRepoRulings,
+  KeptRepoState,
+  SystemKeptReposClient,
+} from './resources/system-kept-repos.js';
 export type {
   CreatedSystemTenant,
   SystemTenant,
@@ -633,6 +729,7 @@ export type {
 } from './resources/identity.js';
 export type {
   AuthClient,
+  AuthJoinDomainsClient,
   AuthProvidersClient,
   AuthSettings,
   AuthSettingsClient,
@@ -901,6 +998,8 @@ export type {
   WaitResumedEvent,
   WaitSuspendedEvent,
   WebhookEndpointId,
+  DestinationId,
+  DestinationDeliveryId,
   WhoamiResult,
   WriteFactInput,
   SupersedeFactInput,

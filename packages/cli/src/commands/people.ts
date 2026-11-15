@@ -219,7 +219,7 @@ const get: LeafCommand = {
     ),
 };
 
-/** `grants --table`: one row per grant, in words. */
+/** `grants --table`: one row per grant, in words, then one per capability held. */
 const GRANTS_TABLE: TableSpec<PersonGrants, readonly [string, string]> = {
   rows: (g) => [
     ...(g.tenantAdmin === true ? [['tenant', 'admin'] as const] : []),
@@ -227,6 +227,7 @@ const GRANTS_TABLE: TableSpec<PersonGrants, readonly [string, string]> = {
     ...g.projects.map((p) => [`project ${p.projectId}`, p.role] as const),
     ...g.teams.map((t) => [`team ${t.teamId}`, t.role] as const),
     ...(g.reviewer !== undefined ? [['reviewer roster', g.reviewer.role] as const] : []),
+    ...(g.capabilities ?? []).map((c) => ['tenant', `capability ${c}`] as const),
   ],
   columns: [
     { header: 'WHERE', get: (r) => r[0] },
@@ -238,7 +239,7 @@ const grants: LeafCommand = {
   kind: 'leaf',
   name: 'grants',
   description:
-    "What a person may do, as granted directly: tenant admin, tenant member (reads the workspace's settings), project and team roles, the reviewer roster. A tenant admin reads anyone's; anyone else only their own.",
+    "What a person may do, as granted directly: tenant admin, tenant member (reads the workspace's settings), project and team roles, the reviewer roster, and the capabilities they hold. A tenant admin reads anyone's; anyone else only their own.",
   usage: 'kindgi people grants <user-id> [--table]',
   run: (ctx) =>
     runSdk(
@@ -291,7 +292,7 @@ const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
   description:
-    'Remove a person from the workspace: every API key and session of theirs is revoked, and every role and membership taken away, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
+    'Remove a person from the workspace: every API key and session of theirs is revoked, every role and membership taken away, and every connection they own removed, before it answers (their keys get 401 at once). Their record stays, so their history still says who they were; their email is free again (adding it makes a new person). Refused for yourself, the seed user and the only tenant admin. Tenant admins only.',
   usage: 'kindgi people remove <user-id>',
   run: (ctx) =>
     runSdkRendered(ctx, 'people remove', async () => {
@@ -302,7 +303,11 @@ const remove: LeafCommand = {
         stdout: renderJson(removed, ctx.globals.format).stdout,
         stderr: successNote(
           ctx.globals.format,
-          `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n`,
+          `Removed ${who}: ${removed.keysRevoked} key(s) and ${removed.sessionsRevoked} session(s) revoked, ${removed.grantsRemoved} role(s) and membership(s) taken away.\n${
+            (removed.mintedKeysRevoked ?? 0) > 0
+              ? `Also revoked ${removed.mintedKeysRevoked} key(s) minted with theirs, whoever they act for.\n`
+              : ''
+          }`,
         ),
       };
     }),

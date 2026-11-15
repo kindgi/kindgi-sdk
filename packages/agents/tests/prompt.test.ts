@@ -37,11 +37,11 @@ describe('renderInstructions — basic substitution', () => {
   test('substitutes a single declared parameter', () => {
     const agent = make('You draft for {{ firmName }}.', [{ name: 'firmName', type: 'string' }]);
     const r = renderInstructions(agent, {
-      parameters: { firmName: 'Wilson Sonsini' },
+      parameters: { firmName: 'Acme LLP' },
       clock: fixedClock,
     });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.rendered).toBe('You draft for Wilson Sonsini.');
+    if (r.ok) expect(r.value.rendered).toBe('You draft for Acme LLP.');
   });
 
   test('substitutes multiple parameters + framework auto-vars', () => {
@@ -97,11 +97,11 @@ describe('renderInstructions — conditionals and filters', () => {
   test('supports filters like upcase', () => {
     const agent = make('For {{ firmName | upcase }}.', [{ name: 'firmName', type: 'string' }]);
     const r = renderInstructions(agent, {
-      parameters: { firmName: 'wilson sonsini' },
+      parameters: { firmName: 'acme llp' },
       clock: fixedClock,
     });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.rendered).toBe('For WILSON SONSINI.');
+    if (r.ok) expect(r.value.rendered).toBe('For ACME LLP.');
   });
 });
 

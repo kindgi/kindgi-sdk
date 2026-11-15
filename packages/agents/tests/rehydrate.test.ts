@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { describe, expect, test } from 'vitest';
+import { getEventListeners } from 'node:events';
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { TenantBudgetError } from '@kindgi/bounds';
 import { createProviderRegistry } from '@kindgi/capabilities';
 import type { ModelMessage, ModelProvider } from '@kindgi/capabilities';
 import { createCheckRegistry } from '@kindgi/guardrails';
 import type { Guardrail } from '@kindgi/guardrails';
+import type { HandlerRegistry } from '@kindgi/handler';
 import type { JournalEntry } from '@kindgi/runtime';
 import { createToolRegistry, defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
-import type { RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
+import type { NodeId, RunId, Semver, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
+import { MODEL_CALL_NODE } from '../src/agent-turn-flow.js';
 import { defineAgent } from '../src/define.js';
 import type { AgentVersionMismatchError } from '../src/errors.js';
+import { DEFAULT_MAX_WALL_MS } from '../src/handlers/constants.js';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure, type RunJournalUnavailableError } from '../src/handlers/errors.js';
@@ -173,7 +178,7 @@ const parkedJournal: readonly JournalEntry[] = [
     providerModel: 'second-model',
     toolCount: 0,
   }),
-  completed('render-prompt', {}),
+  completed('render-prompt', { rendered: 'Help.' }),
   completed('persist-user-message', { sequence: 3 }),
   completed('run-retrievals', { count: 1, retrieved: [retrievedFact] }),
   completed('build-initial-messages', {
@@ -223,6 +228,8 @@ describe('rehydrateTurnContext', () => {
     expect(ctx.appended.map((m) => m.sequence)).toEqual([3, 4, 5, 6, 7]);
     expect(ctx.storedBeforePark?.map((m) => m.sequence)).toEqual([6, 7]);
     expect(ctx.userMessage?.sequence).toBe(3);
+    // The instructions as render-prompt rendered them.
+    expect(ctx.renderedPrompt).toBe('Help.');
     expect(ctx.retrieved).toEqual([retrievedFact]);
     // Where the loop's own messages start, from what build-initial-messages journaled.
     expect(ctx.initialMessageCount).toBe(3);
@@ -463,6 +470,225 @@ describe('rehydrateTurnContext', () => {
     }
     expect(journalReads).toBe(0);
     expect(resumes.count).toBe(0);
+  });
+
+  test("a turn whose worker was lost after render-prompt builds its first messages on render-prompt's journaled instructions", async () => {
+    const turn = resumedTurn([provider('second')]);
+    const { agent: resumed } = turn.input;
+    // The worker was lost in persist-user-message: setup and render-prompt
+    // completed, and the kernel doesn't run render-prompt again. What it
+    // rendered is only in the journal (the agent's instructions render "Help.").
+    const lost: readonly JournalEntry[] = [
+      completed('setup', {
+        turnNumber: 2,
+        providerId: 'second',
+        providerModel: 'second-model',
+        toolCount: 0,
+      }),
+      completed('render-prompt', { rendered: 'Help, as rendered when the turn started.' }),
+    ];
+    const ran: string[] = [];
+    let built: unknown;
+    const bindings = {
+      ...(resumeBindings(turn, resumed.version, async () => undefined, { count: 0 }) as object),
+      conversationBinding: {
+        ...turn.bindings.conversationBinding,
+        appendMessage: async () => ({ kind: 'ok', value: stored[2] }),
+      },
+      runBinding: {
+        readJournal: async () => ({ kind: 'ok', value: lost }),
+        // As the kernel resumes the run: the steps the journal doesn't hold
+        // run in order, each given the output of the one before.
+        resumeRun: async ({ handlers }: { readonly handlers: HandlerRegistry }) => {
+          const kctx = testNodeContext({ runId: 'run-1' as RunId, dryRun: false });
+          let output: unknown;
+          for (const node of ['persist-user-message', 'run-retrievals', 'build-initial-messages']) {
+            const handler = handlers.get(node as NodeId);
+            if (handler === undefined) throw new Error(`no ${node} handler`);
+            ran.push(node);
+            output = await handler(output, kctx);
+          }
+          built = output;
+          throw new Error('stopped after build-initial-messages');
+        },
+      },
+    };
+    await expect(
+      resumeAgentTurn({ tenantId, runId: 'run-1' as RunId, agent: resumed }, bindings as never),
+    ).rejects.toThrow('stopped after build-initial-messages');
+    expect(ran).toEqual(['persist-user-message', 'run-retrievals', 'build-initial-messages']);
+    const { nextMessages } = built as { readonly nextMessages: readonly ModelMessage[] };
+    expect(nextMessages[0]).toEqual({
+      role: 'system',
+      content: 'Help, as rendered when the turn started.',
+    });
+  });
+});
+
+describe("resumeAgentTurn: the caller's abortSignal aborts the resumed turn", () => {
+  /**
+   * The parked turn's provider (`second`), whose model call waits for its
+   * signal and rejects as it aborts, as a network call does. It says when
+   * it was called, and whether it saw the abort.
+   */
+  function waitingSecond() {
+    let invoked: () => void = () => {};
+    const called = new Promise<void>((resolve) => {
+      invoked = resolve;
+    });
+    const seen = { aborted: false };
+    const model: ModelProvider = {
+      ...provider('second'),
+      invoke: (input) =>
+        new Promise((_, reject) => {
+          invoked();
+          const stop = (): void => {
+            seen.aborted = true;
+            reject(new Error('aborted'));
+          };
+          if (input.abortSignal?.aborted) stop();
+          else input.abortSignal?.addEventListener('abort', stop, { once: true });
+        }),
+    };
+    return { model, called, seen };
+  }
+
+  /**
+   * The parked turn's provider (`second`), whose model call fails at once:
+   * aborted if its signal is, else refused.
+   */
+  function refusingSecond(): ModelProvider {
+    return {
+      ...provider('second'),
+      invoke: async (input) => {
+        throw new Error(input.abortSignal?.aborted === true ? 'aborted' : 'refused');
+      },
+    };
+  }
+
+  /**
+   * Resume the parked turn with `abortSignal`. Its run's resume runs
+   * `resumes` on the turn's handlers, and ends as it says.
+   */
+  function resume(
+    model: ModelProvider,
+    abortSignal: AbortSignal,
+    resumes: (handlers: HandlerRegistry) => Promise<unknown>,
+  ) {
+    const turn = resumedTurn([provider('first'), model]);
+    const { agent: resumed } = turn.input;
+    return resumeAgentTurn({ tenantId, runId: 'run-1' as RunId, agent: resumed, abortSignal }, {
+      ...turn.bindings,
+      runSnapshotBinding: {
+        read: async () => ({
+          kind: 'ok',
+          value: {
+            runId: 'run-1',
+            tenantId,
+            projectId: 'p-1',
+            agentId: resumed.id,
+            agentVersion: resumed.version,
+            conversationId: 'conv-1',
+            userMessage: 'user 3',
+            dryRun: false,
+            createdAt: '2026-10-01T00:00:00Z',
+          },
+        }),
+      },
+      runBinding: {
+        readJournal: async () => ({ kind: 'ok', value: parkedJournal }),
+        resumeRun: ({ handlers }: { readonly handlers: HandlerRegistry }) => resumes(handlers),
+      },
+    } as never);
+  }
+
+  /** The run goes on to the turn's next model call, and fails with that step's failure. */
+  async function modelCallFails(handlers: HandlerRegistry) {
+    const modelCall = handlers.get(MODEL_CALL_NODE as NodeId);
+    if (modelCall === undefined) throw new Error('no model-call handler');
+    const kctx = testNodeContext({ runId: 'run-1' as RunId, dryRun: false });
+    const failure = await Promise.resolve(modelCall({ nextMessages: [] }, kctx)).then(
+      () => new Error('the model call answered'),
+      (cause: unknown) => cause,
+    );
+    return {
+      kind: 'ok',
+      value: {
+        runId: 'run-1',
+        status: 'failed',
+        failureMessage: failure instanceof Error ? failure.message : String(failure),
+      },
+    };
+  }
+
+  test("a step's abort reaches the resumed turn's model call in flight, and the turn ends aborted from outside", async () => {
+    const second = waitingSecond();
+    const step = new AbortController();
+    const result = resume(second.model, step.signal, modelCallFails);
+    await second.called;
+    step.abort(new Error('the step timed out'));
+    // The model call stopped as the step did.
+    expect(second.seen.aborted).toBe(true);
+    expect(await result).toMatchObject({
+      kind: 'err',
+      error: { code: 'agent-turn-aborted', reason: 'external' },
+    });
+  });
+
+  test('a step already aborted as its turn resumes: the turn is aborted before its model call can answer', async () => {
+    const step = new AbortController();
+    step.abort(new Error('the step timed out'));
+    expect(await resume(refusingSecond(), step.signal, modelCallFails)).toMatchObject({
+      kind: 'err',
+      error: { code: 'agent-turn-aborted', reason: 'external' },
+    });
+  });
+
+  test("the turn listens to the step's signal while it runs, and leaves it once it returns", async () => {
+    const step = new AbortController();
+    let listening: number | undefined;
+    const result = await resume(provider('second'), step.signal, async () => {
+      listening = getEventListeners(step.signal, 'abort').length;
+      return { kind: 'ok', value: { runId: 'run-1', status: 'suspended' } };
+    });
+    expect(result).toMatchObject({ kind: 'ok', value: { status: 'suspended' } });
+    expect(listening).toBe(1);
+    expect(getEventListeners(step.signal, 'abort')).toHaveLength(0);
+  });
+
+  describe("and the agent's wall-clock budget runs out too, before the turn returns", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    test("the step's abort came first: the turn says so, not timeout", async () => {
+      const step = new AbortController();
+      const result = resume(refusingSecond(), step.signal, async (handlers) => {
+        step.abort(new Error('the step timed out'));
+        vi.advanceTimersByTime(DEFAULT_MAX_WALL_MS);
+        return modelCallFails(handlers);
+      });
+      expect(await result).toMatchObject({
+        kind: 'err',
+        error: { code: 'agent-turn-aborted', reason: 'external' },
+      });
+    });
+
+    test('the budget ran out first: the turn says timeout, not the abort that followed', async () => {
+      const step = new AbortController();
+      const result = resume(refusingSecond(), step.signal, async (handlers) => {
+        vi.advanceTimersByTime(DEFAULT_MAX_WALL_MS);
+        step.abort(new Error('the step timed out'));
+        return modelCallFails(handlers);
+      });
+      expect(await result).toMatchObject({
+        kind: 'err',
+        error: { code: 'agent-turn-aborted', reason: 'timeout' },
+      });
+    });
   });
 });
 

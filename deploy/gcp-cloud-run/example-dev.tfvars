@@ -44,6 +44,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # set secrets_backend = "none" instead if you store no model keys (Vertex AI).
 secrets_aad_key_version = "1"
 
+# The version of the page-cursor key the server reads: the first one added (README step 3).
+# Pinned, never "latest", so every instance and revision seals cursors with the same key.
+pagination_key_version = "1"
+
 # Set after the first apply, once the orchestrator's key is minted and added
 # (README, "5. The pack orchestrator"). Pinned, never "latest".
 # orchestrator_key_version = "1"

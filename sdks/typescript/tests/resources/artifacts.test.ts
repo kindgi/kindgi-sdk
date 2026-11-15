@@ -174,6 +174,28 @@ describe('artifacts.upload / download', () => {
       form.get('projectId'),
       form.get('tags'),
     ]).toEqual(['note.txt', 'text/plain', 'p-1', '{"k":"v"}']);
+    expect(form.get('forRun')).toBeNull();
+  });
+
+  it("an upload for a run sends `forRun=true`, and returns the answer's `expiresAt`", async () => {
+    const expiresAt = '2026-10-08T00:00:00.000Z';
+    const stub = capture(
+      () =>
+        new Response(JSON.stringify({ ...WIRE_BLOB, expiresAt }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetchImpl,
+    });
+    const meta = await client.artifacts.upload({ body: 'hello', forRun: true });
+    expect(meta.expiresAt).toBe(expiresAt);
+    expect((stub.seen[0]!.init.body as FormData).get('forRun')).toBe('true');
+    await client.artifacts.upload({ body: 'hello', forRun: false });
+    expect((stub.seen[1]!.init.body as FormData).get('forRun')).toBeNull();
   });
 
   it('download streams the bytes with what the headers say', async () => {

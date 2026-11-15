@@ -63,6 +63,12 @@ export type ApiTokenId = Brand<string, 'ApiTokenId'>;
 /** An outbound webhook endpoint id (`client.webhookEndpoints`). */
 export type WebhookEndpointId = Brand<string, 'WebhookEndpointId'>;
 
+/** A destination id: where schedules send their results (`client.destinations`). */
+export type DestinationId = Brand<string, 'DestinationId'>;
+
+/** A delivery to a destination (`client.destinations.listDeliveries`). */
+export type DestinationDeliveryId = Brand<string, 'DestinationDeliveryId'>;
+
 /** @unwired SDK-defined id for a pack installation. */
 export type InstallationId = Brand<string, 'InstallationId'>;
 
@@ -200,7 +206,6 @@ import type { TurnEvent } from '@kindgi/agents';
  * `GET /v1/runs/{runId}/journal` for callers that want the full record.
  */
 export type RunEventKind =
-  | 'run.queued'
   | 'run.started'
   | 'run.step-started'
   | 'run.step-completed'
@@ -208,15 +213,8 @@ export type RunEventKind =
   | 'run.step-retry-scheduled'
   | 'run.iteration-started'
   | 'run.iteration-completed'
-  | 'run.tool-invoked'
-  | 'run.tool-result'
-  | 'run.model-token'
-  | 'run.artifact-produced'
-  | 'run.guardrail-violated'
   | 'run.wait-suspended'
   | 'run.wait-resumed'
-  | 'run.approval-requested'
-  | 'run.approval-completed'
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled';
@@ -247,7 +245,7 @@ export interface RunEvent {
   readonly kind: RunEventKind;
   /** Monotonic within-run sequence. */
   readonly sequence?: number;
-  /** For step-scoped events (`run.step-*`, `run.tool-invoked`, …). */
+  /** For step-scoped events (`run.step-*`, `run.iteration-*`, …). */
   readonly nodeId?: string;
   /** Kind-specific opaque JSON payload; shape mirrors `@kindgi/specs/run-event.schema.json` by kind. */
   readonly payload?: unknown;
@@ -2031,7 +2029,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, invite?, firstSignedInAt?, createdBy?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -2052,6 +2050,13 @@ export interface User {
   readonly invite?: UserInvite;
   /** Their first sign-in; absent before it, and for people added before the runtime kept it. */
   readonly firstSignedInAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Who added them: `user:<id>` or `service_account:<id>`;
+   * `identity_provider:<providerId>` or `email_domain:<domain>` for someone
+   * who joined by domain; `site:<siteId>` for a person a site signs in.
+   * Absent for the seed user, and from a runtime that doesn't keep it.
+   */
+  readonly createdBy?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
   /**
    * The person's grants: only from `users.list({ includeGrants: true })`,
@@ -2113,12 +2118,18 @@ export interface InviteRenewed {
 }
 
 /**
- * A removed person and what removing them took away (each 0 when they
- * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ * A removed person and what removing them took away (each 0 when nothing
+ * of theirs was left to take). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
  */
 export interface UnregisterUserResult {
   readonly user: User;
   readonly keysRevoked: number;
+  /**
+   * The keys minted with theirs, and with those in turn, revoked with
+   * them, whoever they act for. Not in `keysRevoked`. Absent from a
+   * runtime whose key store doesn't record which key minted which.
+   */
+  readonly mintedKeysRevoked?: number;
   readonly sessionsRevoked: number;
   readonly grantsRemoved: number;
 }
@@ -2130,8 +2141,9 @@ export interface UnregisterUserResult {
  * with one); session-token callers additionally see `sessionId`,
  * `providerId`, `scopes`, and `expiresAt`. When the token carries a
  * `userId`, the identity directory adds `user: UserRecord`. `principal`
- * says whom the caller acts as; an API key adds `tokenId`, its `role` and
- * the `projectId` it is limited to.
+ * says whom the caller acts as; an API key adds `tokenId`, its `role`,
+ * the `projectId` it is limited to, and `readOnly`: whether it only reads
+ * (absent from older servers).
  */
 export interface WhoamiResult {
   readonly tenantId: import('@kindgi/types').TenantId;
@@ -2145,6 +2157,7 @@ export interface WhoamiResult {
   readonly tokenId?: string;
   readonly role?: ApiTokenRole;
   readonly projectId?: string;
+  readonly readOnly?: boolean;
 }
 
 /**
@@ -2365,12 +2378,20 @@ export interface ApiToken {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /** `true`: the key only reads (`ApiTokenSpec.readOnly`). Absent on any other key. */
+  readonly readOnly?: true;
   /** Who minted it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastUsedAt?: import('@kindgi/types').Timestamp;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
   readonly revokedAt?: import('@kindgi/types').Timestamp;
+  /**
+   * The key it was minted with: the minter's key, or the key a token
+   * sign-in session was opened with. It stops when that key is revoked.
+   * Absent when none was, and for a key minted before keys recorded it.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 export interface ApiTokenSpec {
@@ -2394,6 +2415,14 @@ export interface ApiTokenSpec {
    * refused (`key-project-mismatch`).
    */
   readonly projectId?: import('@kindgi/types').ProjectId;
+  /**
+   * `true`: the key only reads. Its every request but a `GET` or a `HEAD`
+   * is refused (`read-only-key`), apart from an agent's pin check
+   * (`POST /v1/agents/{agentId}/pinned/check`), which writes nothing. It
+   * mints and revokes no keys. A server whose key store can't keep
+   * the limit makes no key (`read-only-unsupported`).
+   */
+  readonly readOnly?: boolean;
 }
 
 /**
@@ -2473,12 +2502,23 @@ export interface PersonGrants {
   readonly tenantAdmin?: boolean;
   /** A tenant member: reads the workspace's settings, not its projects. Absent when not reported. */
   readonly tenantMember?: boolean;
+  /**
+   * The server's `KINDGI_ADMIN_EMAILS` names them: demote and removal answer
+   * `409 listed-admin`. Absent when not reported.
+   */
+  readonly tenantAdminFromSetting?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
     readonly role: 'viewer' | 'runner' | 'editor' | 'owner' | 'admin' | 'member';
   }[];
   readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
   readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+  /**
+   * The capabilities the person holds, such as `env:write` or
+   * `signing-keys:write`. Absent when the runtime doesn't report them:
+   * unknown, not none.
+   */
+  readonly capabilities?: readonly string[];
 }
 
 /** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */
@@ -2659,6 +2699,8 @@ export interface McpEndpoint {
   readonly secretEnv?: Readonly<Record<string, McpEndpointSecretRef>>;
   /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
   readonly sendTraceparent?: boolean;
+  /** The server's tools that only read, by its own names (see `RegisterMcpEndpointInput`). */
+  readonly readOnlyTools?: readonly string[];
 }
 
 /**
@@ -2699,6 +2741,15 @@ export interface RegisterMcpEndpointInput {
    * transports only: `true` on `stdio` is refused.
    */
   readonly sendTraceparent?: boolean;
+  /**
+   * The server's tools that only read, by the names its `tools/list` gives
+   * them (`acme-order-lookup`, not the catalog id). Each is published with
+   * `mutating: false`, and a tool's newest version decides for every version
+   * of it. List only tools that never change anything. 1 to 256 names, each
+   * 1 to 128 characters, no repeats (`invalid-read-only-tools`). Any
+   * transport.
+   */
+  readonly readOnlyTools?: readonly string[];
   /** The scope the endpoint is registered in; authorization checks it. */
   readonly scope: import('./scope-wire.js').ScopeRef;
 }
@@ -2706,9 +2757,8 @@ export interface RegisterMcpEndpointInput {
 /**
  * @unwired SDK-defined event shapes; the API has no event emission or
  * subscription routes (`client.events.*` throws `not-yet-wired`).
- * Event triggers, which would start runs from events, aren't served yet:
- * the runtime fires schedules only. Filters are declarative predicates
- * over event fields.
+ * Event triggers, which would start runs from events, aren't served yet.
+ * Filters are declarative predicates over event fields.
  */
 export interface Event {
   readonly id: import('@kindgi/types').EventId;
@@ -2807,6 +2857,21 @@ export interface BlobMeta {
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   /**
+   * The file these bytes are a version of (`client.files`), with `version`:
+   * both or neither. Absent from older servers.
+   */
+  readonly fileId?: import('@kindgi/types').FileId;
+  /**
+   * Which version of `fileId` these bytes are: the lowest, when versions
+   * share them.
+   */
+  readonly version?: number;
+  /**
+   * A `forRun` upload's: when it's deleted if no run that names it in its
+   * input has started by then. Absent once one has, and on any other file.
+   */
+  readonly expiresAt?: import('@kindgi/types').Timestamp;
+  /**
    * The blob's S3-compatible address (`/s3/{bucket}/{key}`), both or
    * neither: present when the server's storage gives the blob one.
    */
@@ -2829,6 +2894,14 @@ export interface UploadArtifactInput {
   readonly projectId?: string;
   /** sha256, hex, lowercase: the upload is refused when the bytes differ. */
   readonly expectedHash?: string;
+  /**
+   * An input for a run that hasn't started, with no `ownerRunId`. It's
+   * deleted once the server's unused-upload time has passed (24 hours by
+   * default) unless a run that names it in its input has started by then;
+   * the answer's `expiresAt` says when. Default: the file stays until it's
+   * deleted. An upload by someone who may run but not write is always one.
+   */
+  readonly forRun?: boolean;
 }
 
 /** What `artifacts.head` returns: an artifact's download headers, no bytes. */

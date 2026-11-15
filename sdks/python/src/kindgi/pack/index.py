@@ -171,7 +171,8 @@ def run_indexer(
                 continue
             defined[version] = rel_path
             entries[kind].append(built["entry"])
-            if isinstance(primitive, Guardrail):
+            # A built-in's id is the runtime's, with no pack's prefix.
+            if isinstance(primitive, Guardrail) and not primitive.built_in:
                 warning = _unprefixed_check(primitive, rel_path, config.id)
                 if warning is not None:
                     warnings.append(warning)
@@ -292,6 +293,7 @@ def _tool_entry(tool: Tool[..., Any], rel_path: str, config: PackConfig) -> dict
             "pauses": True if tool.pauses else None,
             "storesFiles": True if tool.stores_files else None,
             "readsFiles": True if tool.reads_files else None,
+            "updatesFiles": True if tool.updates_files else None,
             "modulePath": rel_path,
         }
     )
@@ -306,8 +308,10 @@ def _guardrail_entry(guardrail: Guardrail, rel_path: str) -> dict[str, Any]:
             "action": dict(guardrail.action),
             "severity": guardrail.severity,
             "scope": _dict(guardrail.scope),
+            "at": guardrail.at,
             "checkModulePath": rel_path,
             "checkId": guardrail.check_id,
+            "checkBuiltIn": True if guardrail.built_in else None,
             "config": _dict(guardrail.config),
             "judgeCapabilities": _dict(guardrail.judge_capabilities),
             "configSchema": guardrail.config_schema,
@@ -368,6 +372,7 @@ def _agent_entry(agent: Agent, rel_path: str, config: PackConfig) -> dict[str, A
             "toolErrors": _dict(agent.tool_errors),
             "parallelToolCalls": agent.parallel_tool_calls,
             "memory": _dict(agent.memory),
+            "files": _dict(agent.files),
             "mcp": _dict(agent.mcp),
             "settings": [dict(s) for s in agent.settings],
             "modelSettings": _dict(agent.model_settings),

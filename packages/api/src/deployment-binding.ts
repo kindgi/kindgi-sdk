@@ -210,7 +210,9 @@ export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
  * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
  *   routed or not, since nothing of it runs;
  * - `project-suspended`, `pack-suspended`: every deployment of the project,
- *   or this deployment.
+ *   or this deployment;
+ * - `project-deleted`: every deployment of the project, since nothing of it
+ *   runs until it's restored.
  */
 export const SYSTEM_DEPLOYMENT_RETIRE_REASONS = [
   'superseded',
@@ -218,6 +220,7 @@ export const SYSTEM_DEPLOYMENT_RETIRE_REASONS = [
   'tenant-suspended',
   'project-suspended',
   'pack-suspended',
+  'project-deleted',
 ] as const;
 
 export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REASONS)[number];

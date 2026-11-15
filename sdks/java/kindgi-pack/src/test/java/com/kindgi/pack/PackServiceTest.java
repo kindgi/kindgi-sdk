@@ -74,7 +74,7 @@ class PackServiceTest {
     index.put("artifactVersion", "20261001.7");
     List<Object> tools = new ArrayList<>();
     for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed", "acme.later", "acme.laterFails",
-        "acme.laterNull", "acme.laterNever", "acme.logs", "acme.mail", "acme.mailLater")) {
+        "acme.laterNull", "acme.laterNever", "acme.logs", "acme.mail", "acme.mailLater", "acme.failsWithCause")) {
       tools.add(tool(id));
     }
     index.put("tools", tools);
@@ -92,7 +92,16 @@ class PackServiceTest {
     Map<String, Object> laterMin = new LinkedHashMap<>(min);
     laterMin.put("id", "acme.laterMin");
     laterMin.put("checkId", "acme.checks.laterMin");
-    index.put("guardrails", List.of(min, broken, laterMin));
+    // A built-in's entry, as builtInCheck indexes it: no class of the pack's defines its check.
+    Map<String, Object> builtIn = new LinkedHashMap<>();
+    builtIn.put("id", "acme.no-guarantees");
+    builtIn.put("kind", "zero-llm");
+    builtIn.put("action", Map.of("on-violation", "halt"));
+    builtIn.put("checkModulePath", CHECKS);
+    builtIn.put("checkId", "forbidden-substring");
+    builtIn.put("checkBuiltIn", true);
+    builtIn.put("config", Map.of("patterns", List.of("guaranteed")));
+    index.put("guardrails", List.of(min, broken, laterMin, builtIn));
     assertThat(PackService.missingModules(index, getClass().getClassLoader())).isEmpty();
     service = new PackService(index, TOKEN, 4, "strict", Map.of(), log.child(Map.of("packId", "acme")));
     assertThat(service.prewarm(getClass().getClassLoader())).isEmpty();
@@ -186,6 +195,13 @@ class PackServiceTest {
   }
 
   @Test
+  void aBuiltInCheckIsTheRuntimesNotThePacks() throws IOException {
+    // Prewarm (in start) found no failure: the service holds no check for it.
+    assertThat(check("forbidden-substring", Map.of("patterns", List.of("hello"))))
+        .containsEntry("code", "check-not-in-pack").containsEntry("checkId", "forbidden-substring");
+  }
+
+  @Test
   void aConfigSchemaThatDoesntCompileIsSaid() throws IOException {
     Map<String, Object> answer = check("acme.min", Map.of());
     assertThat(answer).containsEntry("code", "input-validation-failed");
@@ -251,6 +267,21 @@ class PackServiceTest {
     assertThat(answer).containsEntry("code", "handler-throw");
     assertThat((String) answer.get("message")).isEqualTo(
         "Handler for tool \"acme.laterFails\" threw: java.lang.IllegalStateException: card declined");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aHandlersFailureSaysItsCausesWithTheCallsSecretTakenOut() throws Exception {
+    String secret = "shop-key-0123456789";
+    Map<String, Object> answer = invoke("acme.failsWithCause", Map.of(), null,
+        Map.of("tenantId", "t1", "runId", "r1", "secrets", Map.of("SHOP_KEY", secret)), "");
+    assertThat(answer).containsEntry("code", "handler-throw");
+    assertThat((String) answer.get("message")).isEqualTo("Handler for tool \"acme.failsWithCause\" threw: "
+        + "java.lang.IllegalStateException: lookup failed; caused by IOException: login refused for [redacted]");
+    Map<String, Object> cause = (Map<String, Object>) answer.get("cause");
+    assertThat(cause).containsEntry("name", "java.lang.IllegalStateException").containsEntry("message", "lookup failed");
+    assertThat((String) cause.get("stack")).contains("Caused by: java.io.IOException: login refused for [redacted]");
+    assertThat(Json.compactString(answer)).doesNotContain(secret);
   }
 
   @Test

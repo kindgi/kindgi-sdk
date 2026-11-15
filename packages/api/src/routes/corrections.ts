@@ -61,7 +61,7 @@ import {
 import { statusFor, toWireError } from '../errors.js';
 import type { ExpectedCall } from '../expected-decisions.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import { type ItemRights, forbidden } from '../item-rights.js';
+import { type HeldItems, type ItemRights, forbidden, limitedItemRefusal } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
@@ -75,11 +75,12 @@ import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
 /**
- * Corrections: whether a finished run's decisions and answer were right,
- * and what was right instead, each with a status and sorted to whoever
- * fixes it.
+ * Corrections: whether the decisions and answer of a run that completed
+ * with an output were right, and what was right instead, each with a
+ * status and sorted to whoever fixes it.
  *
- * - `POST /v1/corrections`: correct a finished run; it's sorted at save.
+ * - `POST /v1/corrections`: correct a run that completed with an output;
+ *   it's sorted at save.
  * - `GET /v1/corrections`: corrections, filtered by run, agent version,
  *   flow, status, sorting, who made them, when, group, participant or
  *   project scope.
@@ -102,7 +103,7 @@ export function correctionsRouter(
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
   flows?: FlowRegistryBinding,
-  /** Whose reviewer role an expert group checks (T200). */
+  /** Whose reviewer role an expert group checks. */
   reviewers?: ReviewerBinding,
   /** Resolves a corrected agent version's tools, so a correction can only name tools it has. */
   agents?: AgentRegistryBinding,
@@ -112,6 +113,12 @@ export function correctionsRouter(
   auditEvents?: AuditEventBinding,
   /** Whether the correction's project sorts end users' corrections (`sortEndUserCorrections`); without it, none does. */
   projects?: ProjectBinding,
+  /**
+   * Without a store, where a project-limited key's change to a correction
+   * of an agent or flow beyond its project is held (`limitedItemRefusal`).
+   * Absent: only the correction's own project is held.
+   */
+  held?: HeldItems,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -136,6 +143,7 @@ export function correctionsRouter(
       asserted,
       reviewers,
     });
+    if (prepared.kind === 'held') return prepared.response;
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message, prepared.details);
     const { run, subject, projectId, conversationId, expert, replayOf } = prepared;
     const unknownTool = await unknownCorrectionTool(tenantId, subject, body, agents);
@@ -363,6 +371,16 @@ export function correctionsRouter(
         ),
       );
     }
+    const held =
+      authorizer === undefined && !isAuthor
+        ? limitedCallerRefusal(
+            c,
+            'admin',
+            ref('project', correction.projectId as unknown as string),
+            'the correction',
+          )
+        : undefined;
+    if (held !== undefined) return held;
     const outcome = await binding.unregister({ tenantId, correctionId });
     if (!outcome.unregistered) return notFound();
     return c.json({ correctionId, unregistered: true });
@@ -393,7 +411,26 @@ export function correctionsRouter(
     ) {
       return notFound();
     }
-    if (authorizer !== undefined) {
+    if (authorizer === undefined) {
+      // Without a store, a project-limited key's change is held where a
+      // store refuses it: the correction's project, then its agent's or
+      // flow's (`publish` on it, or for one more than one project serves,
+      // `write` on the correction's project, as above).
+      const { kind, id } = read.subject;
+      const projectId = read.projectId as unknown as string;
+      const refused =
+        limitedCallerRefusal(c, 'read', ref('project', projectId), 'the correction') ??
+        (held === undefined
+          ? undefined
+          : await limitedItemRefusal(c, {
+              kind,
+              id,
+              today: 'publish',
+              check: { rule: 'on', action: 'write', projectId },
+              held: kind === 'agent' ? held.agents : held.flows,
+            }));
+      if (refused !== undefined) return refused;
+    } else {
       const { kind, id } = read.subject;
       // An item more than one project serves: the change is in the
       // correction's project, so it takes the right there, never the item's
@@ -634,6 +671,20 @@ export function correctorGroupsRouter(
   const scopeRef = (tenantId: TenantId, scope: CorrectorGroupScope) =>
     scope.kind === 'tenant' ? ref('tenant', tenantId) : ref('project', scope.projectId);
 
+  /**
+   * Without a store, a key or session limited to a project still changes
+   * no group beyond it: another project's, or the tenant's. Reads pass.
+   */
+  const heldChange = (c: Context<AppEnv>, group: CorrectorGroup | null): Response | undefined =>
+    authorizer !== undefined || group === null
+      ? undefined
+      : limitedCallerRefusal(
+          c,
+          'admin',
+          scopeRef(c.get('tenantId') as TenantId, group.scope),
+          'the corrector group',
+        );
+
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -721,6 +772,8 @@ export function correctorGroupsRouter(
       correctorGroupId,
       includeUnregistered: action === 'read',
     });
+    const held = heldChange(c, found);
+    if (held !== undefined) return held;
     if (found !== null && authorizer !== undefined) {
       const allowed = await authorizer.can(c, action, scopeRef(tenantId, found.scope));
       if (
@@ -835,7 +888,9 @@ type Prepared =
       readonly code: string;
       readonly message: string;
       readonly details?: Readonly<Record<string, unknown>>;
-    };
+    }
+  /** Without a store, a project-limited key's correction of another project's run, held. */
+  | { readonly kind: 'held'; readonly response: Response };
 
 /**
  * Everything a correction needs from its run, or why it can't be recorded:
@@ -862,6 +917,16 @@ async function prepareCorrection(
   ) {
     return err('permission-denied', `Not allowed to correct run "${body.runId}".`);
   }
+  const held =
+    authorizer === undefined
+      ? limitedCallerRefusal(
+          c,
+          'write',
+          ref('project', run.projectId as unknown as string),
+          'the run',
+        )
+      : undefined;
+  if (held !== undefined) return { kind: 'held', response: held };
   const unfinished = unfinishedRun(run, body.runId);
   if (unfinished !== undefined) return err(unfinished.code, unfinished.message);
   const subject = subjectOf(run);
@@ -914,25 +979,34 @@ async function prepareCorrection(
 
 type CorrectedRun = NonNullable<Awaited<ReturnType<RunBinding['getRun']>>>;
 
-/** Why a run can't be corrected, or made a test case: an erasure cleared it, or it has no output yet. */
+/** Why a run can't be corrected, or made a test case: an erasure cleared it, or it has no output. */
 export function unfinishedRun(
   run: CorrectedRun,
   runId: string,
 ): { readonly code: string; readonly message: string } | undefined {
-  // An erasure cleared its content: there's nothing to correct (T273 M-5).
+  // An erasure cleared its content: there's nothing to correct or to make a case of.
   if (run.contentErasedAt !== undefined) {
     return {
       code: 'run-erased',
-      message: `Run "${runId}" was erased (a person's words were removed): there's nothing to correct.`,
+      message: `Run "${runId}" was erased (a person's words were removed): its content is gone.`,
     };
   }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
-    return {
-      code: 'run-not-finished',
-      message: `Run "${runId}" has no output to correct yet (status ${run.status}).`,
-    };
+    return { code: 'run-not-finished', message: noOutput(run.status, runId) };
   }
   return undefined;
+}
+
+/**
+ * Why a run has no output, in words that fit both callers: a correction and
+ * a test case. A run that ended won't have one; only a run still going says "yet".
+ */
+function noOutput(status: CorrectedRun['status'], runId: string): string {
+  if (status === 'completed') return `Run "${runId}" completed without an output.`;
+  if (status === 'failed' || status === 'cancelled') {
+    return `Run "${runId}" ended without an output (status ${status}), and won't have one.`;
+  }
+  return `Run "${runId}" has no output yet (status ${status}).`;
 }
 
 /** The first item whose pointer finds nothing in the run's output, as its refusal. */

@@ -7,23 +7,41 @@
  * (`rehydrate.ts`) adds those of the steps that ran before it from what
  * they left durable (the conversation, the journal). Either way the DAG
  * is the same.
+ *
+ * The nodes of the agent's own acts name it as their `actor`, in one form
+ * (`agentActor`): its model calls, the tool calls they made, its answer,
+ * what it remembered, and the approvals it parked on. The others don't:
+ * the user message is its sender's, a decision whoever made it, a tool's
+ * result the tool's, and a search or a guardrail's check the turn's.
  */
 
 import type { MessageFile } from '@kindgi/capabilities';
-import type { ProvenanceBuilder } from '@kindgi/provenance';
+import { fileVersionNodes } from '@kindgi/provenance';
+import type { ProvenanceBuilder, ProvenanceEdge } from '@kindgi/provenance';
+import { toolIdempotencyKey } from '@kindgi/tools';
 import type { Timestamp } from '@kindgi/types';
 
 import { REMEMBER_TOOL_ID } from '../remember.js';
 import type { CallThinking } from '../streaming.js';
 import type {
+  Agent,
   ConversationMessage,
   RecalledMemory,
   RetrievalIntent,
   RetrievedFact,
 } from '../types.js';
 import type { TurnContext } from './context.js';
+import type { RunFileVersion } from './files.js';
 import type { GateDecision } from './gate-decision.js';
 import type { RememberToolOutput } from './remember-tool.js';
+
+/**
+ * The agent as the nodes of its acts name it: `agent:<id>@<version>`, the
+ * form a `memory-write` node has always had.
+ */
+export function agentActor(agent: Pick<Agent, 'id' | 'version'>): string {
+  return `agent:${agent.id}@${agent.version}`;
+}
 
 /** The turn's user message. */
 export function addInputNode(provenance: ProvenanceBuilder, message: ConversationMessage): void {
@@ -173,21 +191,24 @@ export function filesReadOf(files: readonly FileRead[]): { readonly files?: read
 }
 
 /**
- * A model call, `caused-by` the turn's user message and `influenced-by`
- * each of this turn's tool results it read: all of them so far, since
- * the call's input holds every message of the turn before it.
+ * A model call, its actor the agent (`agentActor`), `caused-by` the turn's
+ * user message and `influenced-by` each of this turn's tool results it
+ * read: all of them so far, since the call's input holds every message of
+ * the turn before it.
  */
 export function addModelCallNode(
   provenance: ProvenanceBuilder,
   call: ModelCallFacts,
   inputSequence: number,
   toolResultIds: readonly string[],
+  actor: string,
 ): void {
   const id = `model-call:${call.step}`;
   provenance.addNode({
     id,
     kind: 'model-call',
     timestamp: call.at,
+    actor,
     modelVersion: `${call.provider.id}/${call.provider.model}`,
     attributes: {
       step: call.step,
@@ -206,15 +227,17 @@ export function addModelCallNode(
 }
 
 /**
- * A tool call the model at `step` made, and its result: the stored tool
- * message (a tool's output, a rejected approval's, or a failed call's).
- * `version` is the tool the agent's binding resolved, when it has one.
+ * A tool call the model at `step` made, its actor the agent, and its
+ * result: the stored tool message (a tool's output, a rejected approval's,
+ * or a failed call's). `version` is the tool the agent's binding resolved,
+ * when it has one.
  */
 export function addToolNodes(
   provenance: ProvenanceBuilder,
   step: number,
   result: ConversationMessage,
   version: { readonly resolvedVersion: string; readonly requestedRange: string } | undefined,
+  actor: string,
 ): void {
   const call = result.toolCall;
   if (call === undefined) return;
@@ -224,6 +247,7 @@ export function addToolNodes(
     id: callNodeId,
     kind: 'tool-call',
     timestamp: result.createdAt,
+    actor,
     attributes: {
       toolId: call.toolId,
       invocationId: call.invocationId,
@@ -249,7 +273,7 @@ export function addToolNodes(
 export function addMemoryWriteNode(
   provenance: ProvenanceBuilder,
   result: ConversationMessage,
-  agent: { readonly id: string; readonly version: string },
+  actor: string,
 ): void {
   const call = result.toolCall;
   if (call === undefined || call.toolId !== REMEMBER_TOOL_ID) return;
@@ -260,7 +284,7 @@ export function addMemoryWriteNode(
     id,
     kind: 'memory-write',
     timestamp: result.createdAt,
-    actor: `agent:${agent.id}@${agent.version}`,
+    actor,
     attributes: {
       operation: written.outcome === 'superseded' ? 'update_memory' : 'create_memory',
       factId: written.factId,
@@ -288,23 +312,16 @@ export function addStepToolNodes(
   step: number,
   stored: readonly ConversationMessage[],
 ): void {
+  const actor = agentActor(ctx.input.agent);
   for (const result of stored) {
     if (result.role !== 'tool' || result.toolCall === undefined) continue;
     const { invocationId, toolId } = result.toolCall;
     if (ctx.provenance !== undefined) {
-      addToolNodes(ctx.provenance, step, result, versionOf(ctx, toolId));
-      addMemoryWriteNode(ctx.provenance, result, {
-        id: ctx.input.agent.id as unknown as string,
-        version: ctx.input.agent.version as unknown as string,
-      });
+      addToolNodes(ctx.provenance, step, result, versionOf(ctx, toolId), actor);
+      addMemoryWriteNode(ctx.provenance, result, actor);
       const approval = ctx.toolApprovals?.get(invocationId);
       if (approval !== undefined) {
-        addToolApprovalNodes(
-          ctx.provenance,
-          invocationId,
-          approval,
-          ctx.input.agent.id as unknown as string,
-        );
+        addToolApprovalNodes(ctx.provenance, invocationId, approval, actor);
       }
     }
     ctx.toolResultIds ??= [];
@@ -346,16 +363,16 @@ export interface ToolApproval {
 
 /**
  * The approval a tool call waited on, as the session gate records its own:
- * a `wait` node (the agent parked) `resumed-from` a `resume` node (the
- * decision, its actor whoever decided). The call `waited-on` the wait, and
- * its result was `caused-by` the decision: the tool's output when approved,
- * the rejection when not.
+ * a `wait` node (the agent parked, its actor the agent) `resumed-from` a
+ * `resume` node (the decision, its actor whoever decided). The call
+ * `waited-on` the wait, and its result was `caused-by` the decision: the
+ * tool's output when approved, the rejection when not.
  */
 export function addToolApprovalNodes(
   provenance: ProvenanceBuilder,
   invocationId: string,
   approval: ToolApproval,
-  agentId: string,
+  actor: string,
 ): void {
   const waitId = `tool-hitl-gate-wait:${invocationId}`;
   const resumeId = `tool-hitl-gate-resume:${invocationId}`;
@@ -364,7 +381,7 @@ export function addToolApprovalNodes(
     id: waitId,
     kind: 'wait',
     timestamp: approval.parkedAt,
-    actor: `agent:${agentId}`,
+    actor,
     attributes: { gate: 'tool-call', invocationId, waitTokenId: approval.waitTokenId },
   });
   provenance.addNode({
@@ -404,4 +421,95 @@ function versionOf(
   return binding === undefined
     ? undefined
     : { resolvedVersion: binding.resolvedVersion, requestedRange: binding.requestedRange };
+}
+
+/**
+ * Keeps the `idempotencyKey` of each call answered by one of `messages`
+ * (its tool messages) with its invocation id (`TurnContext.callKeys`), for
+ * the edges of the file versions it made or was given
+ * (`addFileVersionNodes`): a call that ran before a resume, or before a park
+ * in its own step. A call outside a step has no key.
+ */
+export function noteCallKeys(
+  ctx: TurnContext,
+  runId: string,
+  stepScope: string | undefined,
+  messages: readonly ConversationMessage[],
+): void {
+  if (stepScope === undefined) return;
+  for (const m of messages) {
+    if (m.role !== 'tool' || m.toolCall === undefined) continue;
+    const toolId = m.toolCall.toolId as unknown as string;
+    const callId = m.toolCall.invocationId;
+    ctx.callKeys ??= new Map();
+    ctx.callKeys.set(toolIdempotencyKey({ runId, stepScope, toolId, callId }), callId);
+  }
+}
+
+/**
+ * The run's file versions (`FileBinding.versions`), once, as the turn
+ * persists its record: one `artifact` node per version, with
+ * `FileVersionAttributes` and the sha256 as its `contentHash`. Its edges
+ * say how the turn came to it, as a flow record's do: the turn's input ->
+ * the node (`influenced-by`) for one its input named; the node -> its call
+ * (`produced`) for one a call made; its call -> the node (`influenced-by`)
+ * for one a call was given. A version whose call has no node in the record
+ * is kept with no edge. Past `MAX_FILE_VERSION_NODES` versions, one node
+ * counts the rest. Without the binding's `versions`, or when it throws,
+ * the record has none: it's best-effort, as persisting it is.
+ */
+export async function addFileVersionNodes(ctx: TurnContext): Promise<void> {
+  const provenance = ctx.provenance;
+  if (provenance === undefined) return;
+  const versions = await runFileVersions(ctx);
+  if (versions.length === 0) return;
+  const { nodes, kept, omitted, at } = fileVersionNodes(versions);
+  const known = new Set(provenance.snapshot().nodes.map((n) => n.id));
+  for (const node of nodes) if (!known.has(node.id)) provenance.addNode(node);
+  for (const edge of fileVersionEdges(ctx, kept, known)) provenance.addEdge(edge);
+  if (omitted > 0 && !known.has('truncated:files')) {
+    provenance.addNode({
+      id: 'truncated:files',
+      kind: 'event',
+      timestamp: at ?? (new Date(ctx.startedAt).toISOString() as Timestamp),
+      attributes: { truncated: { reason: 'files', filesOmitted: omitted } },
+    });
+  }
+}
+
+/** The run's file versions from its binding: none without `versions`, or when it throws. */
+async function runFileVersions(ctx: TurnContext): Promise<readonly RunFileVersion[]> {
+  const binding = ctx.files;
+  if (binding?.versions === undefined) return [];
+  try {
+    return await binding.versions();
+  } catch {
+    return [];
+  }
+}
+
+/** The edges of `addFileVersionNodes`, each once, to nodes the record has (`known`). */
+function fileVersionEdges(
+  ctx: TurnContext,
+  kept: readonly (RunFileVersion & { readonly nodeId: string })[],
+  known: ReadonlySet<string>,
+): ProvenanceEdge[] {
+  const input = ctx.userMessage === undefined ? undefined : `input:${ctx.userMessage.sequence}`;
+  const edges = new Map<string, ProvenanceEdge>();
+  for (const file of kept) {
+    const other = file.how === 'input' ? input : callNodeOf(ctx, file.callKey);
+    if (other === undefined || !known.has(other)) continue;
+    const edge: ProvenanceEdge =
+      file.how === 'made'
+        ? { from: file.nodeId, to: other, kind: 'produced' }
+        : { from: other, to: file.nodeId, kind: 'influenced-by' };
+    edges.set(`${edge.from} ${edge.to} ${edge.kind}`, edge);
+  }
+  return [...edges.values()];
+}
+
+/** The node of the call a key was noted for (`TurnContext.callKeys`). */
+function callNodeOf(ctx: TurnContext, callKey: string | undefined): string | undefined {
+  const callId = callKey === undefined ? undefined : ctx.callKeys?.get(callKey);
+  return callId === undefined ? undefined : `tool-call:${callId}`;
 }

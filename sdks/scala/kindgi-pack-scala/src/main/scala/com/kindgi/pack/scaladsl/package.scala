@@ -36,6 +36,19 @@ package object scaladsl {
   type ToolConnection = com.kindgi.pack.ToolConnection
   type ConnectionAccount = com.kindgi.pack.ConnectionAccount
   type ConnectionRejectedException = com.kindgi.pack.ConnectionRejectedException
+  type ToolFailureException = com.kindgi.pack.ToolFailureException
+
+  /**
+   * A tool's own failure with its details as a Scala map: `throw ToolFailureException("order-not-found",
+   * s"No order $id", Map("orderId" -> id))`. The rules are kindgi-pack's `ToolFailureException`'s.
+   */
+  object ToolFailureException {
+    def apply(code: String, message: String): com.kindgi.pack.ToolFailureException =
+      new com.kindgi.pack.ToolFailureException(code, message)
+
+    def apply(code: String, message: String, details: Map[String, Any]): com.kindgi.pack.ToolFailureException =
+      new com.kindgi.pack.ToolFailureException(code, message, JsonValues.javaMap(details))
+  }
   type RunTrace = com.kindgi.pack.RunTrace
   type CheckResult = com.kindgi.pack.CheckResult
   type Cancellation = com.kindgi.pack.Cancellation

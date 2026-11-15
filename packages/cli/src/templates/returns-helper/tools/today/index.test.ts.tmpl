@@ -1,0 +1,53 @@
+// {{PACK_ID}}.today — answers in the zone the turn gives it, and in UTC
+// without one. Scaffolded by `kindgi init`.
+
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import type { ToolContext } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+import today from './index.js';
+
+function ctxInZone(timeZone?: string): ToolContext {
+  return {
+    tenantId: '00000000-0000-0000-0000-000000000001' as TenantId,
+    abortSignal: new AbortController().signal,
+    ...(timeZone !== undefined && { timeZone }),
+  };
+}
+
+async function run(ctx: ToolContext) {
+  if (today.handler === undefined) throw new Error('handler missing');
+  return today.handler({}, ctx);
+}
+
+describe('{{PACK_ID}}.today', () => {
+  // 23:30 UTC on Friday 2026-01-30: already Saturday in Tokyo.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-30T23:30:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  test('compiles with the expected id', () => {
+    expect(today.id).toBe('{{PACK_ID}}.today');
+  });
+
+  test("answers in the workspace's time zone", async () => {
+    expect(await run(ctxInZone('Asia/Tokyo'))).toEqual({
+      date: '2026-01-31',
+      weekday: 'Saturday',
+      time: '08:30',
+      timeZone: 'Asia/Tokyo',
+    });
+  });
+
+  test('answers in UTC when the call names no zone', async () => {
+    expect(await run(ctxInZone())).toEqual({
+      date: '2026-01-30',
+      weekday: 'Friday',
+      time: '23:30',
+      timeZone: 'UTC',
+    });
+  });
+});

@@ -468,7 +468,7 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
 
 def test_the_unions_of_text_and_models_are_the_ones_known() -> None:
     # Opened beside models, an enum takes any text: text must never be read as a model.
-    assert sorted(TEXT_OR_MODEL) == ["TestRunComparison.baseline"]
+    assert sorted(TEXT_OR_MODEL) == ["TestRunComparison.baseline", "ToolHitlPolicy.overrides"]
 
 
 @pytest.mark.parametrize(

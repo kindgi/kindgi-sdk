@@ -78,6 +78,21 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "required": false,
+            "description": "Extras, one or more, comma-separated.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["owner", "history"]
+              }
+            },
+            "style": "form",
+            "explode": false
           }
         ],
         "responses": {
@@ -439,6 +454,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RotateQueued"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/widgets/{widgetId}/refresh": {
+      "post": {
+        "operationId": "widgets.refresh",
+        "summary": "Refresh a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshDone"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshQueued"
                 }
               }
             }
@@ -980,6 +1037,10 @@
           "ownerId": {
             "type": "string",
             "format": "uuid"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
           }
         }
       },
@@ -999,6 +1060,35 @@
         "additionalProperties": false,
         "required": ["jobId"],
         "properties": {
+          "jobId": {
+            "type": "string"
+          }
+        }
+      },
+      "RefreshDone": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "refreshedAt"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["done"]
+          },
+          "refreshedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RefreshQueued": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "jobId"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["queued"]
+          },
           "jobId": {
             "type": "string"
           }
@@ -1059,6 +1149,91 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256
+          }
+        }
+      },
+      "Gate": {
+        "type": "object",
+        "description": "Plain values beside objects: each read by its JSON token and written back as it.",
+        "additionalProperties": false,
+        "properties": {
+          "separate": {
+            "description": "A boolean, or a named object.",
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "$ref": "#/components/schemas/GateRule"
+              }
+            ]
+          },
+          "limit": {
+            "description": "An integer, or one of two objects told apart by their properties.",
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["max"],
+                "properties": {
+                  "max": {
+                    "type": "integer"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["perTool"],
+                "properties": {
+                  "perTool": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "weight": {
+            "description": "A number, an object, or `null`.",
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["scale"],
+                "properties": {
+                  "scale": {
+                    "type": "number"
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "GateRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "default": {
+            "type": "boolean"
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
           }
         }
       }

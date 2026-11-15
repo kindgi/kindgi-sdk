@@ -1,5 +1,18 @@
 # @kindgi/sandbox
 
+## 0.7.0
+
+### Patch Changes
+
+- Updated dependencies [dfaeea7]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [524e626]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

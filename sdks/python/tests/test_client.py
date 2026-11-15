@@ -36,6 +36,7 @@ from kindgi.client import (
     models,
     paginate,
 )
+from kindgi.client._base import _csv
 
 RUN = {
     "id": "6ccd0eca-40b4-4b86-b8f5-24b0900dddda",
@@ -452,6 +453,8 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
             AuthError,
             lambda e: e.reason == "forbidden",
         ),
+        (error(403, "join-domains-operator-managed"), AuthError, lambda e: e.reason == "forbidden"),
+        (error(403, "join-domain-not-yours"), AuthError, lambda e: e.reason == "forbidden"),
         (
             error(500, "kaboom", requestId="req-1"),
             ServerError,
@@ -1016,6 +1019,46 @@ def test_the_people_list_with_their_grants() -> None:
     assert second.grants is None
 
 
+def test_an_include_list_is_one_key_its_values_comma_separated() -> None:
+    # `style: form, explode: false`: one key, which every runtime reads. One
+    # value is sent as before; an empty list leaves the key out.
+    api, seen = client(lambda r: error(400, "bad-input"))
+    project = "0b9f4c1e-1111-4a2b-8c3d-000000000001"
+    record = "0b9f4c1e-1111-4a2b-8c3d-000000000002"
+    with pytest.raises(InvalidRequestError):
+        api.runs.list(include=["output", "waitingFor"])
+    with pytest.raises(InvalidRequestError):
+        api.runs.list(include="output")
+    with pytest.raises(InvalidRequestError):
+        api.runs.list(include=[])
+    with pytest.raises(InvalidRequestError):
+        api.agents.test_set.list_cases("acme.drafter", project_id=project, include=["retired"])
+    with pytest.raises(InvalidRequestError):
+        api.cost.records.list(include=["rawUsage"])
+    with pytest.raises(InvalidRequestError):
+        api.cost.records.get(record, include=["rawUsage"])
+    with pytest.raises(InvalidRequestError):
+        api.identity.users.list(include=["grants"])
+    assert [r.url.params.get_list("include") for r in seen] == [
+        ["output,waitingFor"],
+        ["output"],
+        [],
+        ["retired"],
+        ["rawUsage"],
+        ["rawUsage"],
+        ["grants"],
+    ]
+    assert b"include=output%2CwaitingFor" in seen[0].url.query
+
+
+def test_csv_writes_a_list_as_one_value() -> None:
+    assert _csv(["output", "waitingFor"]) == "output,waitingFor"
+    assert _csv("output") == "output"
+    assert _csv(["output"]) == "output"
+    assert _csv([]) is None
+    assert _csv(None) is None
+
+
 def test_team_grants() -> None:
     grant = {
         "teamId": "t-1",
@@ -1344,7 +1387,7 @@ def test_the_generated_client_is_in_step_with_openapi() -> None:
 
 
 def test_retention_scheduled_and_sweep() -> None:
-    """T236: the retention routes, with the conflicts a page reports."""
+    """The retention routes, with the conflicts a page reports."""
     conflict = {
         "domain": "provider",
         "policyIds": ["acme.keep-providers", "acme.keep-providers-long"],
@@ -1383,7 +1426,7 @@ def test_retention_scheduled_and_sweep() -> None:
 
 
 def test_retention_scheduled_pages_with_a_cursor() -> None:
-    """T249: `cursor` goes in the query; `has_more` and `next_cursor` come back."""
+    """`cursor` goes in the query; `has_more` and `next_cursor` come back."""
 
     def item(n: int) -> dict[str, Any]:
         return {
@@ -1418,7 +1461,7 @@ def test_retention_scheduled_pages_with_a_cursor() -> None:
 
 
 def test_a_second_retention_policy_for_a_domain_is_a_conflict() -> None:
-    """T236: `409 policy-scope-taken` names the policy that covers the domain."""
+    """`409 policy-scope-taken` names the policy that covers the domain."""
     response = error(409, "policy-scope-taken", details={"heldBy": "acme.keep-providers"})
     api, _ = client(lambda r: response, max_retries=0)
     with pytest.raises(ConflictError) as raised:
@@ -1456,7 +1499,7 @@ def test_observations_list_sends_every_filter_the_route_reads() -> None:
 
 
 def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
-    """T309: ids the models carry as `UUID` go straight back into the client."""
+    """Ids the models carry as `UUID` go straight back into the client."""
     run_id = uuid.UUID("0b6e3c1e-2f4f-4a51-9d0e-7a1f2c3d4e5f")
 
     def handler(request: httpx.Request) -> httpx.Response:

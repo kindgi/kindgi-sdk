@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.13"
+version: "0.1.14"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -65,7 +65,7 @@ You need a JDK 17 or later (`JAVA_HOME`). Maven comes with the pack
 (`./mvnw`).
 
 ```sh
-npx --yes @kindgi/cli@0.6 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.6,<0.7" kindgi init …
+npx --yes @kindgi/cli@0.7 init my-pack --template=java   # or: uvx --from "kindgi-cli>=0.7,<0.8" kindgi init …
 cd my-pack
 ./mvnw test        # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
@@ -104,7 +104,7 @@ reported as `file:line:col`, and the last good code keeps serving.
 In the app's directory (where its `pom.xml` is):
 
 ```sh
-npx --yes @kindgi/cli@0.6 init   # --pack-id=<id> if the app's artifactId doesn't make one
+npx --yes @kindgi/cli@0.7 init   # --pack-id=<id> if the app's artifactId doesn't make one
 ./kindgiw dev
 ```
 
@@ -140,8 +140,8 @@ my-pack/
 ├── src/main/java/mypack/
 │   ├── tools/Echo.java, tools/Greet.java    # Tool.define(...)
 │   ├── guardrails/ResponseNotEmpty.java     # Guardrail.define(...)
-│   ├── agents/EchoAgent.java                # Agent.define(...)
-│   └── flows/EchoFlow.java                  # Flow.define(...)
+│   ├── agents/Greeter.java                  # Agent.define(...)
+│   └── flows/GreetPerson.java               # Flow.define(...)
 ├── src/test/java/mypack/ToolsTest.java      # the tools, called directly
 ├── .claude/skills/                          # these skills (`./kindgiw skills sync` refreshes them)
 └── .agents/skills/                          # the same skills, where Codex and Gemini CLI look
@@ -156,8 +156,8 @@ The package comes from the pack's id (`my-pack` becomes `mypack`).
 With `kindgi dev` running, from another terminal in the pack directory:
 
 ```sh
-./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+./kindgiw runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
+./kindgiw runs start --flow=my-pack.greet-person --input='{"message":"Ada"}'
 ```
 
 The agent's answer comes from `dev-echo`, a **fallback** provider a new pack
@@ -196,7 +196,7 @@ A flow is data: nodes and edges (`flow.schema.json`). A node's ref may be
 the `Tool` itself:
 
 ```java
-public static final Flow FLOW = Flow.define("acme.ledger.record-flow")
+public static final Flow FLOW = Flow.define("acme.ledger.book-expense")
     .version("0.1.0")
     .toolNode("record", RecordExpense.TOOL)
     .edge("e-start", "$start", "record")
@@ -217,7 +217,7 @@ CLI) covers the whole API, with typed models and errors:
 ```java
 Kindgi client = Kindgi.create();   // KINDGI_API_URL + KINDGI_API_TOKEN; in dev, the running kindgi dev
 Run run = client.runs().start(StartRunBody.WithAgent.builder()
-    .agent("my-pack.echo-agent")
+    .agent("my-pack.greeter")
     .input(Map.of("userMessage", "Ada"))
     .build());
 try (EventStream<RunEvent> events = client.runs().follow(run.id())) {
@@ -251,7 +251,7 @@ Show it in the app's own UI. **Never:**
   gives no database access.
 - **link users to Kindgi's console**, or any Kindgi UI, for this data.
 
-Docs: https://docs.kindgi.com/v0.6/guides/runs/show-runs-in-your-app/
+Docs: https://docs.kindgi.com/v0.7/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -289,11 +289,11 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.6/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.7/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.6/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.7/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.6/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.7/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).
@@ -303,8 +303,10 @@ kindgi-pack's), not a deployment's runtime.
 
 ## Two things need the human
 
-- **The pack id and version** in `kindgi.config.json`. The id prefixes every
-  primitive (`<pack-id>.<name>`): pick it once.
+- **The pack id and version** in `kindgi.config.json`. The id names the app
+  or the business, once, and prefixes every primitive (`<pack-id>.<name>`).
+  Names inside the pack don't repeat it, and an agent's or a flow's name has
+  no dot of its own. Pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
 ## Commands for the person's own terminal

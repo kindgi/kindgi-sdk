@@ -86,11 +86,13 @@ export type CreateProjectError =
       /**
        * Another project in its org has `spec.slug`, or, with
        * `heldAs: 'old-slug'`, another project of the workspace had it before it
-       * was renamed (`ProjectBinding.create`'s outcome, the same way).
+       * was renamed; `deletedProject: true` when that project is deleted
+       * (`ProjectBinding.create`'s outcome, the same way).
        */
       readonly code: 'slug-conflict';
       readonly message: string;
       readonly heldAs?: 'old-slug';
+      readonly deletedProject?: true;
       readonly cause?: unknown;
     }
   /** `spec.orgId` isn't the workspace's: it never existed, or it was deleted. */
@@ -160,6 +162,15 @@ export interface RemoveProjectMemberParams {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly userId: UserId;
+  /**
+   * When true and the membership holds `owner`, change nothing and answer
+   * `project-member-holds-owner`. The membership routes set it on a
+   * caller's behalf, then ask for `delete` on the project before they
+   * repeat the call without it; other callers leave it out. A binding
+   * that holds project roles must honor it, or a project admin can still
+   * lower or remove an owner through these routes.
+   */
+  readonly stopAtOwner?: boolean;
 }
 
 /** A direct membership's new role. */
@@ -221,8 +232,11 @@ export interface MembershipWriteError {
    * `write-failed`: the row and its tuple couldn't be changed together.
    * `site-person-grants-managed`: the person is one a site signs in, who
    * holds only the grants their site's sign-in writes.
+   * `project-member-holds-owner`: the project membership holds `owner`, and
+   * the call set `stopAtOwner` (answered only by `removeProjectMember` and
+   * `updateProjectMemberRole`).
    */
-  readonly code: 'write-failed' | 'site-person-grants-managed';
+  readonly code: 'write-failed' | 'site-person-grants-managed' | 'project-member-holds-owner';
   readonly message: string;
   readonly cause?: unknown;
 }
@@ -280,6 +294,25 @@ export interface TenantLimits {
    * limit, the next one waits until enough come out.
    */
   readonly projectsInProduction?: number;
+  /**
+   * MiB of files the workspace may keep: its uploads, its runs' files and
+   * its tools' files, with the uploads under way. Past it, an upload is
+   * refused with 403 `storage-limit-reached`, and a tool's file isn't
+   * stored. Lowering it deletes no file: with more stored than the limit,
+   * every new file is refused until enough are deleted.
+   */
+  readonly storageMiB?: number;
+  /**
+   * Flows in production, each counted once however many of the
+   * workspace's projects in production run it. There's a margin: a write
+   * that would take the count past the most, the larger of 1.2 times this
+   * (rounded down) and one more than it, is refused with 403
+   * `plan-limit-reached` (`scope: 'tenant'`), and a write's answer warns
+   * from this number on. Lowering it takes nothing out of production.
+   */
+  readonly flowsInProduction?: number;
+  /** Agents in production, counted as `flowsInProduction` is, with the same margin and refusal. */
+  readonly agentsInProduction?: number;
 }
 
 /** A workspace's new name, slug, or both (`renameTenant`). A field left out stays as it is. */
@@ -352,11 +385,19 @@ export interface TenantHierarchyBinding {
   updateTeamMemberRole?(
     params: UpdateTeamMemberRoleParams,
   ): Promise<Result<TeamMembershipUpdateRoleOutcome, MembershipWriteError>>;
-  /** Remove a user's direct project membership and its tuple together (see `removeTeamMember`). */
+  /**
+   * Remove a user's direct project membership and its tuple together (see
+   * `removeTeamMember`). With `stopAtOwner`, a membership that holds
+   * `owner` is left as it is, and the answer is `project-member-holds-owner`.
+   */
   removeProjectMember?(
     params: RemoveProjectMemberParams,
   ): Promise<Result<void, MembershipWriteError>>;
-  /** Change a direct project membership's role and replace its tuple together (see `removeTeamMember`). */
+  /**
+   * Change a direct project membership's role and replace its tuple
+   * together (see `removeTeamMember`). `stopAtOwner` stops at an owner as
+   * `removeProjectMember` does.
+   */
   updateProjectMemberRole?(
     params: UpdateProjectMemberRoleParams,
   ): Promise<Result<ProjectMembershipUpdateRoleOutcome, MembershipWriteError>>;

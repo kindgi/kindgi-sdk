@@ -23,7 +23,7 @@
  * asserts against captured requests.
  */
 
-import { createHash, generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
 import {
   chmod,
   lstat,
@@ -49,6 +49,7 @@ import { describeDevToken } from '../src/commands/dev.js';
 import { defaultSdkSkillsRoot } from '../src/commands/init.js';
 import { syncSkills } from '../src/commands/skills.js';
 import { LocalPortsRefused } from '../src/dev/blocked.js';
+import type { DevConnectionKeys } from '../src/dev/connection-keys.js';
 import { type DevLockProcesses, devLockPath } from '../src/dev/dev-lock.js';
 import { NO_DEV_LICENSE_KEY } from '../src/dev/license-key.js';
 import type { EnsureOutcome, ProjectDatabases } from '../src/dev/project-database.js';
@@ -145,6 +146,8 @@ interface Fixtures {
   /** `[staged, index]` pairs published, in order. */
   readonly published: (readonly [string, string])[];
   readonly packStops: () => number;
+  /** How often the builder (the bundler's esbuild context) was disposed. */
+  readonly builderDisposes: () => number;
   /** How often the pack service was told it's closing (`beginClose`). */
   readonly packBeginCloses: () => number;
   /** What the stop took down, in order: `runtime: stopping` / `runtime: gone`, `watcher`, `pack service`. */
@@ -234,6 +237,7 @@ function makeFixtures(
   const published: (readonly [string, string])[] = [];
   let packStops = 0;
   let packBeginCloses = 0;
+  let builderDisposes = 0;
   const unavailable = {
     kind: 'err',
     error: { code: 'pack-service-unavailable', message: 'fake' },
@@ -249,6 +253,9 @@ function makeFixtures(
       what: "Acme's non-production key, until 2099-01-01 (99 days)",
     }),
     detectSandbox: async () => ({ kind: 'available', engine: 'seatbelt' }),
+    // Never the real home: the tests that turn connections on give a folder.
+    connectionKeys: async () => ({ kind: 'off', reason: 'not in these tests' }),
+    removeConnectionKeys: async () => false,
     checkPackPython: async (python) => {
       pythonChecks.push(python);
       return opts.pythonProblem !== undefined
@@ -309,6 +316,7 @@ function makeFixtures(
         },
         syncEntries: async () => false,
         dispose: async () => {
+          builderDisposes += 1;
           if (opts.disposeFails === true) throw new Error('dispose failed');
         },
       };
@@ -364,6 +372,7 @@ function makeFixtures(
     packsServedEmpty,
     published,
     packStops: () => packStops,
+    builderDisposes: () => builderDisposes,
     packBeginCloses: () => packBeginCloses,
     stopOrder,
     pythonChecks,
@@ -644,6 +653,26 @@ describe('kindgi dev — argument validation', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('Invalid --port');
   });
+
+  // A dev runtime is local: an exported KINDGI_PROFILE, even one no file
+  // holds, never blocks `kindgi dev` in that shell (`--profile` is refused).
+  test.each(['qa', 'Not A Name'])(
+    'KINDGI_PROFILE=%s exported: ignored, never refused',
+    async (name) => {
+      const fixtures = makeFixtures();
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        env: {
+          KINDGI_DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+          KINDGI_PROFILE: name,
+        },
+        argv: ['dev', '--port=99999', '--no-watch', `--path=${packDir}`],
+      });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain('Invalid --port');
+      expect(out.stderr).not.toContain('KINDGI_PROFILE');
+    },
+  );
 
   test('--watch and --no-watch together → contradictory-flags error', async () => {
     const fixtures = makeFixtures();
@@ -1438,59 +1467,6 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(await boot()).not.toContain(hint);
   });
 
-  describe('a database URL with a list of hosts, whose record was keyed on a hash of it', () => {
-    const URL_LIST = 'postgres://me@h1:5432,h2:6543/db';
-    const FLAGS = [`--database-url=${URL_LIST}`];
-    const KEY = 'h1:5432,h2:6543/db tenant tenant-abc';
-
-    /** One boot registers gemini; then the record is as the CLI wrote it before: keyed on 16 hex of the URL's sha256. */
-    async function bootThenKeyOnHash(fixtures: Fixtures): Promise<string> {
-      await writeFile(
-        join(packDir, 'kindgi.config.ts'),
-        "export default { pack: { id: 'my-pack', version: '0.1.0' }, providers: [{ preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.5-flash-lite'] }] };\n",
-        'utf8',
-      );
-      expect(await bootSaid(fixtures, FLAGS)).toContain('  ✓ gemini: registered\n');
-      const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
-      const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-        readonly runtimes: Record<string, unknown>;
-      };
-      expect(Object.keys(record.runtimes)).toEqual([KEY]);
-      const hash = createHash('sha256').update(URL_LIST).digest('hex').slice(0, 16);
-      await writeFile(
-        recordPath,
-        JSON.stringify({ v: 1, runtimes: { [`${hash} tenant tenant-abc`]: record.runtimes[KEY] } }),
-      );
-      return recordPath;
-    }
-
-    test("the entries move to the URL's hosts, ports and database before they're read: the provider is still this pack's", async () => {
-      const fixtures = makeFixtures();
-      const recordPath = await bootThenKeyOnHash(fixtures);
-
-      const next = await bootSaid(fixtures, FLAGS);
-      expect(next).toContain('gemini (unchanged)');
-      expect(next).not.toContain('not from kindgi.config.ts');
-      expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([KEY]);
-    });
-
-    test("a record the move can't write is said under --quiet too, and kindgi dev goes on", async () => {
-      const fixtures = makeFixtures();
-      const recordPath = await bootThenKeyOnHash(fixtures);
-      // A directory where the file is written first, so no write can land.
-      await mkdir(`${recordPath}.${process.pid}.tmp`);
-
-      for (const flags of LOUD_AND_QUIET) {
-        const said = await bootSaid(fixtures, [...FLAGS, ...flags]);
-        expect(said.split('\n').filter((l) => l.includes('could not update'))).toEqual([
-          expect.stringMatching(
-            /^ {4}⚠ could not update \.kindgi\/dev\/providers\.json: EISDIR.*\. Providers this pack registered may read as not its own\.$/,
-          ),
-        ]);
-      }
-    });
-  });
-
   test('under --quiet the providers that need a look are said, under their heading; the ones that went fine are not', async () => {
     await writeFile(
       join(packDir, 'kindgi.config.ts'),
@@ -1699,6 +1675,17 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('mock start failure');
   });
 
+  test('a failed start disposes the bundler and closes the pack service', async () => {
+    const fixtures = makeFixtures({ startFails: true });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(fixtures.builderDisposes()).toBe(1);
+    expect(fixtures.packStops()).toBe(1);
+  });
+
   // Removed: 'tool POST returning 409 counts as already-registered success'.
   // Since the disk-binding switch, every primitive is served from
   // disk and the CLI never POSTs them — there's no 409 path to test.
@@ -1798,7 +1785,7 @@ describe('kindgi dev — the PyPI CLI (kindgi-cli)', () => {
   });
 });
 
-describe('kindgi dev — a stop before the runtime serves (T176)', () => {
+describe('kindgi dev — a stop before the runtime serves', () => {
   test('Ctrl+C while it waits for the runtime: it stops at once, exit 130, not an error', async () => {
     const controller = new AbortController();
     const fixtures = makeFixtures();
@@ -2964,32 +2951,6 @@ describe('kindgi dev — a database per project', () => {
     ]);
   });
 
-  test("a key of the old hash's shape is deleted on any boot; the entries beside it stay", async () => {
-    await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
-    const base = makeFixtures();
-    await boot(withProjectDatabase({ base }).fixtures);
-    const recordPath = join(packDir, '.kindgi', 'dev', 'providers.json');
-    const record = JSON.parse(await readFile(recordPath, 'utf8')) as {
-      readonly runtimes: Record<string, unknown>;
-    };
-    const own = 'bundled kindgi_acme tenant tenant-abc';
-    expect(Object.keys(record.runtimes)).toEqual([own]);
-    await writeFile(
-      recordPath,
-      JSON.stringify({
-        v: 1,
-        runtimes: {
-          ...record.runtimes,
-          '0123456789abcdef tenant tenant-abc': record.runtimes[own],
-        },
-      }),
-    );
-
-    const next = await boot(withProjectDatabase({ base, ensure: { kind: 'exists' } }).fixtures);
-    expect(next.log).toContain(OWN);
-    expect(Object.keys(JSON.parse(await readFile(recordPath, 'utf8')).runtimes)).toEqual([own]);
-  });
-
   test("a providers.json that can't be written is said under --quiet too, once for each write", async () => {
     await writeFile(join(packDir, 'kindgi.config.ts'), GEMINI_CONFIG, 'utf8');
     const base = makeFixtures();
@@ -3161,6 +3122,7 @@ describe('kindgi dev — a database per project', () => {
 
     test('a database named with --database-url is never dropped', async () => {
       const { fixtures, calls } = withProjectDatabase({ interactive: true, answer: true });
+      const remove = vi.spyOn(fixtures.runners, 'removeConnectionKeys');
       const { out, opts, log } = await boot(fixtures, [
         '--reset',
         '--yes',
@@ -3168,9 +3130,269 @@ describe('kindgi dev — a database per project', () => {
       ]);
       expect(out.exitCode).toBe(0);
       expect(calls).toEqual([]);
+      expect(remove).not.toHaveBeenCalled();
       expect(opts?.databaseUrl).toBe('postgres://me@db.internal/mine');
       expect(log).toContain('  --reset: the database you gave is left as it is (never dropped)\n');
     });
+
+    /** Confirmed `--reset`, its connection keys' removal doing `remove`: each call goes in `calls`. */
+    function removingKeys(remove: () => Promise<boolean>) {
+      const { fixtures, calls } = withProjectDatabase({ interactive: true, answer: true });
+      const homes: (string | undefined)[] = [];
+      const runners: DevRunners = {
+        ...fixtures.runners,
+        removeConnectionKeys: async (keysHome, name) => {
+          calls.push(`remove keys ${name}`);
+          homes.push(keysHome);
+          return remove();
+        },
+      };
+      return { fixtures: { ...fixtures, runners }, calls, homes };
+    }
+
+    test("the database's connection keys go with it, before it's made again", async () => {
+      const { fixtures, calls, homes } = removingKeys(async () => true);
+      const { out, log } = await boot(fixtures, ['--reset'], { HOME: home });
+      expect(out.exitCode).toBe(0);
+      expect(calls).toEqual([
+        'drop kindgi_acme',
+        'remove keys kindgi_acme',
+        `ensure kindgi_acme ${CLI_VERSION}`,
+      ]);
+      expect(homes).toEqual([home]);
+      expect(log).toContain("  🧹 --reset: removed kindgi_acme's connection keys\n");
+    });
+
+    test('no connection keys to remove: nothing said of them', async () => {
+      const { fixtures, calls } = removingKeys(async () => false);
+      const { out, log } = await boot(fixtures, ['--reset'], { HOME: home });
+      expect(out.exitCode).toBe(0);
+      expect(calls).toContain('remove keys kindgi_acme');
+      expect(log).not.toContain('connection keys');
+    });
+
+    test("connection keys that can't be removed: said under --quiet too, and the start goes on", async () => {
+      const { fixtures, calls } = removingKeys(async () => {
+        throw new Error('EACCES: permission denied');
+      });
+      const { out, log } = await boot(fixtures, ['--reset', '--quiet'], { HOME: home });
+      expect(out.exitCode).toBe(0);
+      expect(calls).toEqual([
+        'drop kindgi_acme',
+        'remove keys kindgi_acme',
+        `ensure kindgi_acme ${CLI_VERSION}`,
+      ]);
+      expect(log).toContain(
+        "  ⚠ --reset: couldn't remove kindgi_acme's connection keys (EACCES: permission denied); the next start keeps them\n",
+      );
+    });
+  });
+
+  test('a changed connections key: the start failure names the key file, and --reset to start over', async () => {
+    const changed =
+      "The secrets' AAD key changed: tenant 7a1c0000-0000-5000-8000-00000000aaaa's secrets were stored under another one";
+    const folder = join(home, 'pair');
+    const { fixtures } = withProjectDatabase();
+    const asked: unknown[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      connectionKeys: async (keysHome, database) => {
+        asked.push([keysHome, database]);
+        return {
+          kind: 'on',
+          keys: {
+            folder,
+            localKeyPath: join(folder, 'local.key'),
+            aadKeyPath: join(folder, 'aad.key'),
+            made: true,
+          },
+        };
+      },
+      startApiServer: async () => {
+        throw new Error(changed);
+      },
+    };
+    const { out } = await boot({ ...fixtures, runners }, [], { HOME: home });
+    expect(out.exitCode).toBe(1);
+    // The bundled Postgres's database: its pair is kept by its name.
+    expect(asked).toEqual([[home, { bundled: 'kindgi_acme' }]]);
+    expect(out.stderr).toBe(
+      `kindgi dev couldn't start the Kindgi runtime: ${changed}\nkindgi dev keeps this database's connection keys in ${folder}, and ${join(folder, 'aad.key')} isn't the key its token sets were stored under. It was made at this start: the one they were stored under isn't there. Put back the key files they were stored under. Or start connections over: \`kindgi dev --reset\` drops this database and starts it over with a new pair, then connect each connection again.\n`,
+    );
+  });
+});
+
+describe('kindgi dev — connections', () => {
+  const URI = 'http://localhost:4000/console/connect/callback';
+  const ON = `on · redirect URI ${URI} · register your app in the console (Connection apps)`;
+  const NEW_PORT = `  ⚠ Connections: port 4000 is new for this database. Each of your apps needs ${URI} among its redirect URIs at its provider, or its sign-in fails with redirect_uri_mismatch.\n`;
+  const CHANGED =
+    "The secrets' local key changed: tenant 00000000-0000-4000-8000-000000000001's secrets were stored under another one";
+
+  /** A pair for this database, kept in `folder` (`made`: made at this start). */
+  function pairIn(folder: string, made = false): DevConnectionKeys {
+    return {
+      kind: 'on',
+      keys: {
+        folder,
+        localKeyPath: join(folder, 'local.key'),
+        aadKeyPath: join(folder, 'aad.key'),
+        made,
+      },
+    };
+  }
+
+  /**
+   * The fixtures with `keys` for the database, and a runtime whose
+   * `GET /v1/runtime` answered `connections` (absent: it couldn't be read).
+   */
+  function withConnections(keys: DevConnectionKeys, connections?: RunningApiServer['connections']) {
+    const fixtures = makeFixtures();
+    const asked: unknown[] = [];
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      connectionKeys: async (keysHome, database) => {
+        asked.push([keysHome, database]);
+        return keys;
+      },
+      startApiServer: async () => ({
+        ...fixtures.server,
+        ...(connections !== undefined && { connections }),
+      }),
+    };
+    return { fixtures: { ...fixtures, runners }, asked };
+  }
+
+  /** Boot once, HOME the test's home: the result, the runtime's options, and all it said. */
+  async function boot(fixtures: Fixtures, flags: readonly string[] = []) {
+    const start = vi.spyOn(fixtures.runners, 'startApiServer');
+    const { writes, restore } = captureStderr();
+    try {
+      const out = await runCli({
+        ...baseInputs(fixtures),
+        env: { ...baseInputs(fixtures).env, HOME: home },
+        argv: ['dev', '--no-watch', `--path=${packDir}`, ...flags],
+      });
+      return { out, opts: start.mock.calls[0]?.[0], said: writes.join('') + out.stderr };
+    } finally {
+      restore();
+    }
+  }
+
+  test('on: the pair goes to the runtime, and both banners give the redirect URI', async () => {
+    const folder = join(home, 'pair');
+    await mkdir(folder);
+    const { fixtures, asked } = withConnections(pairIn(folder), { on: true });
+    const { out, opts, said } = await boot(fixtures);
+    expect(out.exitCode).toBe(0);
+    // A database the developer named: its pair is kept by where it is.
+    expect(asked).toEqual([[home, { url: 'postgres://user:pass@localhost:5432/db' }]]);
+    expect(opts?.connectionKeys).toEqual({
+      localKeyPath: join(folder, 'local.key'),
+      aadKeyPath: join(folder, 'aad.key'),
+    });
+    expect(said).toContain(`    Connections  ${ON}\n`);
+    expect(out.stderr).toContain(`    Connections        ${ON}\n`);
+  });
+
+  test("off, as the runtime said: why, if it said; nothing when its answer couldn't be read", async () => {
+    const folder = join(home, 'pair');
+    await mkdir(folder);
+    const cases: readonly (readonly [RunningApiServer['connections'], string | undefined])[] = [
+      [{ on: false, reason: 'no key files were given' }, 'off: no key files were given'],
+      [{ on: false }, 'off'],
+      ['unsaid', "off, this runtime image doesn't say"],
+      [undefined, undefined],
+    ];
+    for (const [connections, line] of cases) {
+      const { out, said } = await boot(withConnections(pairIn(folder), connections).fixtures);
+      expect(out.exitCode).toBe(0);
+      if (line === undefined) expect(said).not.toContain('Connections');
+      else expect(said).toContain(`    Connections  ${line}\n`);
+      expect(said).not.toContain('is new for this database');
+    }
+    // Off: the port is never noted, so it's new when they're on.
+    expect(await readdir(folder)).toEqual([]);
+  });
+
+  test("no pair: the runtime gets none, and the line is kindgi dev's own reason", async () => {
+    const reason = "there's no home folder to keep their keys in (HOME is empty)";
+    // An answer that couldn't be read: the reason is still said.
+    const { fixtures } = withConnections({ kind: 'off', reason });
+    const { out, opts, said } = await boot(fixtures);
+    expect(out.exitCode).toBe(0);
+    expect(opts).not.toHaveProperty('connectionKeys');
+    expect(said).toContain(`    Connections  off: ${reason}\n`);
+  });
+
+  test("--runtime-url: no pair is asked for or given; the line is that runtime's answer, with no new-port line", async () => {
+    const { fixtures, asked } = withConnections(pairIn(join(home, 'pair')), { on: true });
+    const { out, opts, said } = await boot(fixtures, ['--runtime-url=http://127.0.0.1:4000']);
+    expect(out.exitCode).toBe(0);
+    expect(asked).toEqual([]);
+    expect(opts).not.toHaveProperty('connectionKeys');
+    expect(said).toContain(`    Connections  ${ON}\n`);
+    expect(said).not.toContain('is new for this database');
+  });
+
+  test('a new port is said once, under --quiet too; the next boot on it says nothing', async () => {
+    const folder = join(home, 'pair');
+    await mkdir(folder);
+    const first = await boot(withConnections(pairIn(folder), { on: true }).fixtures, ['--quiet']);
+    expect(first.out.exitCode).toBe(0);
+    expect(first.said.split(NEW_PORT).length - 1).toBe(1);
+    expect(JSON.parse(await readFile(join(folder, 'ports.json'), 'utf8'))).toEqual({
+      ports: [4000],
+    });
+    const second = await boot(withConnections(pairIn(folder), { on: true }).fixtures);
+    expect(second.out.exitCode).toBe(0);
+    expect(second.said).not.toContain('is new for this database');
+  });
+
+  test("a ports list that can't be kept: the new-port line is said anyway", async () => {
+    // A file where the pair's folder's parent would be: the list can't be read or written.
+    const file = join(home, 'not-a-folder');
+    await writeFile(file, '');
+    const { out, said } = await boot(
+      withConnections(pairIn(join(file, 'pair')), { on: true }).fixtures,
+    );
+    expect(out.exitCode).toBe(0);
+    expect(said).toContain(NEW_PORT);
+  });
+
+  test('a changed key: the start failure names the key file, and a new database to start over', async () => {
+    const folder = join(home, 'pair');
+    const { fixtures } = withConnections(pairIn(folder));
+    const runners: DevRunners = {
+      ...fixtures.runners,
+      startApiServer: async () => {
+        throw new Error(CHANGED);
+      },
+    };
+    const { out } = await boot({ ...fixtures, runners });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `kindgi dev couldn't start the Kindgi runtime: ${CHANGED}\nkindgi dev keeps this database's connection keys in ${folder}, and ${join(folder, 'local.key')} isn't the key its token sets were stored under. Put back the key files they were stored under. Or start connections over: for a database you named, point kindgi dev at a new one (it never drops yours), then connect each connection again.\n`,
+    );
+  });
+
+  test('no hint with no pair given, or for another failure', async () => {
+    const cases: readonly (readonly [DevConnectionKeys, string])[] = [
+      [{ kind: 'off', reason: 'not here' }, CHANGED],
+      [pairIn(join(home, 'pair')), 'mock start failure'],
+    ];
+    for (const [keys, message] of cases) {
+      const { fixtures } = withConnections(keys);
+      const runners: DevRunners = {
+        ...fixtures.runners,
+        startApiServer: async () => {
+          throw new Error(message);
+        },
+      };
+      const { out } = await boot({ ...fixtures, runners });
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toBe(`kindgi dev couldn't start the Kindgi runtime: ${message}\n`);
+    }
   });
 });
 
@@ -3336,7 +3558,7 @@ describe('kindgi dev — flag precedence', () => {
   });
 });
 
-describe("kindgi dev — the runtime's port (T218)", () => {
+describe("kindgi dev — the runtime's port", () => {
   /** The fixture's runners, with `taken` ports in use and the bundled Postgres counted. */
   function withPorts(taken: readonly number[]) {
     const fixtures = makeFixtures();
@@ -3457,7 +3679,7 @@ describe("kindgi dev — the runtime's port (T218)", () => {
   });
 });
 
-describe('kindgi dev — the console (T374)', () => {
+describe('kindgi dev — the console', () => {
   test('the ready block leads with the console and how to sign in; the exit banner and --json name it', async () => {
     const fixtures = makeFixtures({ consoleMounted: true });
     const err = captureStderr();

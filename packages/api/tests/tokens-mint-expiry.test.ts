@@ -51,6 +51,7 @@ function makeKeys() {
         role: input.role,
         capabilities: input.capabilities,
         ...(input.expiresAt !== undefined && { expiresAt: input.expiresAt }),
+        ...(input.mintedWith !== undefined && { mintedWith: input.mintedWith }),
         createdAt: new Date(),
       };
       records.set(tokenId, record);
@@ -161,6 +162,7 @@ type Answer = {
   body: {
     tokenId?: string;
     expiresAt?: string;
+    mintedWith?: string;
     error?: { code: string; message: string; details?: Record<string, unknown> };
   };
 };
@@ -321,6 +323,44 @@ describe('POST /v1/tokens from a session', () => {
       const res = await mintWith(app, session.token as string);
       expect(res.status).toBe(201);
       expect(res.body.expiresAt).toBeUndefined();
+    },
+  );
+});
+
+describe('POST /v1/tokens: the key a new key is minted with', () => {
+  test("a key's mint records its key; the deployment's token records none", async () => {
+    const { app, aliceKey } = makeApp();
+    const minter = await aliceKey();
+    const res = await mintWith(app, minter.token);
+    expect(res.status).toBe(201);
+    expect(res.body.mintedWith).toBe(minter.record.tokenId);
+    const boot = await mintWith(app, BOOT);
+    expect(boot.status).toBe(201);
+    expect(boot.body.mintedWith).toBeUndefined();
+  });
+
+  test('a session token sign-in opened records its key', async () => {
+    const { app, aliceKey } = makeApp();
+    const minter = await aliceKey();
+    const res = await mintFromConsole(app, await signIn(app, minter.token));
+    expect(res.status).toBe(201);
+    expect(res.body.mintedWith).toBe(minter.record.tokenId);
+  });
+
+  test.each(['oidc-acme', 'email-link'])(
+    'a session from another sign-in (%s) records none: its key stands alone',
+    async (providerId) => {
+      const { app, sessions } = makeApp();
+      const session = await sessions.create({
+        tenantId,
+        userId: alice,
+        providerId,
+        expiresAt: new Date(Date.now() + HOUR).toISOString() as Timestamp,
+        scopes: [],
+      });
+      const res = await mintWith(app, session.token as string);
+      expect(res.status).toBe(201);
+      expect(res.body.mintedWith).toBeUndefined();
     },
   );
 });

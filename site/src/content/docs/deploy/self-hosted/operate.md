@@ -96,12 +96,13 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 
 | Check | What it lists |
 | --- | --- |
-| `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
+| `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. Runtime 0.7.0 or later also lists each webhook trigger and connection app registration that names one, and says on each line what's refused. Where the name is also a texts registration's account key, it says that the provider's own calls fail too. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. A webhook trigger's incoming webhooks and a connection app's connections are refused too. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
 | `secret-scopes` | Each tool version, MCP endpoint and webhook trigger in a project or an org that reads a secret at the tenant, registered by an earlier runtime that didn't record where its secrets are read. They keep reading at the tenant. One a tenant admin registered can stay. Register each other one again so where its secrets are read is recorded: a tool, publish a new version; an MCP endpoint, unregister it and register it again; a webhook trigger, `kindgi webhooks update <trigger-id> --secret=<name>`. The check ends with what to do about each, and also lists an unregistered tool version a flow or agent version still pins. |
 | `mcp-header-credentials` | Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered by an earlier runtime that allowed it. They keep working, and their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../../guides/tools/mcp-servers/#not-in-configheaders). |
 | `mcp-env-credentials` | Runtime 0.4.0 or later. Each stdio MCP endpoint that keeps a credential in plaintext `config.env` (`GITHUB_TOKEN`, `OPENAI_API_KEY`, …), or a `secretRef`, which a stdio server is never sent, registered by an earlier runtime that allowed it. They keep working. For each, store each variable's value as a secret, and register the endpoint again with `secretEnv` in place of the variable and without `secretRef`. See [Give a stdio server a secret](../../../guides/tools/mcp-servers/#give-a-stdio-server-a-secret). |
+| `identity-provider-keys` | Runtime 0.7.0 or later. Each tool version, MCP or webhook endpoint, webhook trigger, connection app registration and model provider that names a secret an identity provider references, and each deployment whose pack declares one in `env`. That secret is sign-in's only, so each is refused it: a tool's calls, an endpoint's connections or deliveries, a trigger's incoming webhooks, a registration's connections, a provider's calls, and a deployment's pack service and its pack's next deploy. Where the name is also a model provider's key, or an account key a connection app registration holds, sign-in with that identity provider is refused too. For each, store the secret it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Store the client secret](../../../guides/sso/google/#3-store-the-client-secret). |
 | `stored-secrets` | Each live version of a stored secret that doesn't decrypt with the secrets' keys: the KMS key, the runtime's access to it, and the AAD key. Run it after a restore, before the runtime serves, since a restore brings back the database, not the keys. It needs `KINDGI_SECRETS_BACKEND=postgres`. See [Back up and restore](../back-up-and-restore/#restore-into-a-fresh-database). |
-| `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS` and `KINDGI_OPENFGA_API_URL`, deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
+| `purged-tenants` | Each tenant marked purged that still holds rows, with each table and its count: rows written after its mark, by work in flight then. Rows only, not the bytes under its prefix. Run it a day after a purge. For each tenant it lists, `kindgi-runtime tenants purge <tenant id> --confirm <its slug>`, with the server's `KINDGI_ARTIFACTS`, `KINDGI_OPENFGA_API_URL` and `KINDGI_SECRETS_MANAGER` (with that secret manager's settings), deletes them and leaves its mark and its record as they were. See [Close and purge a tenant](../serve-many-tenants/#close-and-purge-a-tenant). |
 
 Here `check provider-keys` runs on a 0.1.5 database where a tool and an MCP endpoint name Anthropic's key (exit `1`):
 
@@ -471,8 +472,8 @@ What to check before you upgrade, and what's different after:
     If your code reads one of them, declare it
     ([Declare the environment your code reads](../../../guides/secrets/pack-env/)).
     To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
-    the pack service. A Python pack's image always names `GPG_KEY`: its base
-    image sets it, and nothing reads it.
+    the pack service. The line leaves out `GPG_KEY`, which Python's base image
+    sets: the service drops it too, so declare it if your code reads it.
   - **A tool call has an idempotency key,** `ctx.idempotencyKey`, the same
     every time the same call runs. Pass it to the system a tool writes to, so
     a step that runs again doesn't refund or email twice
@@ -762,7 +763,8 @@ and set `server_image` to its digest.
 **If you removed someone from a project or a team on an earlier version,
 after re-adding them with another role,** they may still hold that role.
 Remove them again on 0.1.5.1: the removal now clears it. For a leftover
-`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+`owner` on a project, as a tenant admin, add the person as `owner`, then
+remove them. 0.1.6
 adds a check that finds who needs it.
 
 ### From 0.1.4 to 0.1.5
@@ -1050,17 +1052,20 @@ and what's different after:
 - **Safari can't sign in to `kindgi dev`'s console.** The console's sign-in
   is a `Secure` cookie, and Safari doesn't keep one over plain `http`, even at
   `http://localhost`, where Chrome and Firefox do. Open the local console in
-  Chrome or Firefox. A fix is planned. A deployment's console needs `https`
-  in every browser (above).
+  Chrome or Firefox. 0.1.6 fixes it
+  ([upgrading to 0.1.6](#from-015-to-016)). A deployment's console needs
+  `https` in every browser (above).
 - **Run one runtime instance.** Several aren't supported yet (the Cloud Run
   module runs one). For one thing, a guardrail change reaches other instances
   only when they restart: registering, unregistering or deploying a guardrail
   takes effect at once on the instance that took the request, and other
   instances keep the guardrails they had. If you run several anyway, restart
-  the others after changing a guardrail. A fix is planned.
+  the others after changing a guardrail. 0.1.6 fixes it
+  ([0.1.6's known limitations](#known-limitations-in-016)).
 - **Cancelling a flow while it runs a loop can let a few more of the loop's
   steps start** before it stops: in our tests up to a few dozen, within
-  seconds. The run still ends `cancelled`. A later release fixes it.
+  seconds. The run still ends `cancelled`. 0.1.6 fixes it
+  ([upgrading to 0.1.6](#from-015-to-016)).
 
 ### Runtime 0.1.4.2
 

@@ -2,7 +2,7 @@
 Contributors: <wordpress-org-username>
 Tags: ai, agents, approvals, woocommerce, staff
 Tested up to: 7.1
-Stable tag: 0.2.0
+Stable tag: 0.2.1
 License: Apache-2.0
 License URI: https://www.apache.org/licenses/LICENSE-2.0
 
@@ -26,6 +26,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 = What you need =
 
+* **A Kindgi server at 0.4.0 or later.** For an older Kindgi server, take the plugin from the Kindgi SDK release of the server's version.
 * **Kindgi with site sign-in on.** Kindgi Cloud's is coming. A Kindgi server you run needs it turned on: see [the WordPress page of Kindgi's docs](https://docs.kindgi.com/sites/wordpress/).
 * **PHP with sodium.** WordPress ships a fallback for PHP builds without ext/sodium.
 
@@ -66,7 +67,7 @@ Kindgi is told, for good. Deleting their user, removing them from the site on a 
 
 = What does deleting the plugin remove? =
 
-The Kindgi URL, the connection, the signing key it made, each person's cached session, its scheduled runs, and its record of when WooCommerce turned off each webhook to Kindgi. Each person's random id and Kindgi id stay, and so does the list of people Kindgi knows, with any change still waiting to reach Kindgi. They say who each person is, so the plugin installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. While the plugin is active, erasing a person's data under **Tools → Erase Personal Data** removes their ids here, and tells Kindgi they left.
+The Kindgi URL, the connection, the signing key it made, each person's cached session, its scheduled runs, its record of when WooCommerce turned off each webhook to Kindgi, and which agents the Ask page offers. Each person's random id and Kindgi id stay, and so does the list of people Kindgi knows, with any change still waiting to reach Kindgi. They say who each person is, so the plugin installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. While the plugin is active, erasing a person's data under **Tools → Erase Personal Data** removes their ids here, and tells Kindgi they left.
 
 = Does it need wp-cron? =
 
@@ -98,12 +99,24 @@ When WooCommerce turns off a webhook to Kindgi after refused deliveries, **Kindg
 
 The agents send what they work on to the AI model provider they're set up with, and to the tools they call.
 
-With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run the store's agents: see the [Kindgi Cloud terms](<terms URL>) and the [privacy policy](<privacy URL>). With a Kindgi server the site's owner runs, the data goes to that server.
+With Kindgi Cloud, Kindgi Inc. processes this data for the store, only to run the store's agents: see the [Kindgi Cloud terms](https://www.kindgi.com/legal/hosted-terms) and the [privacy policy](https://www.kindgi.com/privacy). With a Kindgi server the site's owner runs, the data goes to that server.
 
 == Changelog ==
 
+= 0.2.1 =
+
+* **A card about an order shows the order's money.** A tool call shows on its order when it names the order's ID as `orderId`, with amounts in the currency's whole units, and only when that order is on this store: the order chip, the order's Kindgi box, the Orders list column and the private order note. An amount shows in the order's currency and the store's price format, and the "Order ID" field drops, since the chip names the order. What the approval itself says it's about, when Kindgi sends it, wins.
+* **A decided card drops its deadline.** A decision removes the "Expires … if no one decides" line along with the buttons, wherever the card is.
+* **Cards and conversations link their runs.** A card's meta line ends with "See the run", and in Ask the last words of each run link that run on Activity, a live turn as it starts.
+* **Deleting the plugin removes the offered agents,** the list of agents staff see on the Ask page.
+* **Activity says which waiting runs need a person.** A run waiting for an approval of its own reads as "Needs a person"; a run waiting on a run it started still reads as waiting.
+* **A run's wait links to the Inbox, for reviewers only.** Activity links each approval to its card in the Inbox for a reviewer; anyone else reads what the run waits for in words.
+* **A card reads a rejection that says a reviewer decided.** When Kindgi's rejected result carries `by: "reviewer"`, the card still shows the call as rejected, not as used.
+* **The terms and privacy links name the published pages.** External services and the wp-admin privacy guide link the Kindgi Cloud terms and the privacy policy at their published addresses, in place of placeholders.
+
 = 0.2.0 =
 
+* **Needs a Kindgi server at 0.4.0 or later,** the release it first shipped with.
 * **A Kindgi menu, in place of one page with two tabs.** Inbox, Activity, Ask and Settings each open with Kindgi's mark, take the person's admin color scheme, and say in staff words what's loading, what an empty list is for, and what went wrong. Kindgi's own words about an error show only to administrators.
 * **The Inbox: what waits for you, and what was decided.** It lists what waits for you, what waits for someone else and why, and the project's decided approvals, whoever decided. That includes an approval assigned to you or in review, which 0.1.0 didn't list, and one that expired, was withdrawn or was passed on. A card reads in words: the tool's title or name, the call's fields, the agent's own words quoted as written, who asked and when, and what happens if no one decides in time. A mail tool's reply reads as the email it sends, and an approval about a WooCommerce order links to it for whoever may edit orders.
 * **Buttons that say what each decision does.** A reply's card reads "Approve and send" and "Don't send…"; other calls keep Approve and Reject…. The box for a reason opens only on a rejection and says what it does, and once Kindgi records the decision, the card says what follows. A new version of an agent waiting to go live reads as an update, such as "Update Support desk to version 1.2.0", with "Approve the update" and "Don't update…".

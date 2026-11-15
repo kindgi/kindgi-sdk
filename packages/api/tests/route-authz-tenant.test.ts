@@ -2,13 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Tenant-wide routes ask for the tenant (T243 A, finding g): providers,
+ * Tenant-wide routes ask for the tenant: providers,
  * policies, adapters, capabilities, signing keys, deployments and the
  * sign-in provider catalog (`/v1/auth/providers`) need
  * `read` on the tenant to read and `admin` to change (a deployment's
  * secrets sync asks `admin` where it writes them instead, and a
  * deployment's own reads ask its project too:
- * deployment-reads-in-project.test.ts); webhook endpoints
+ * deployment-reads-in-project.test.ts); webhook endpoints, destinations
+ * (but for one project's list: destinations-routes.test.ts)
  * and compliance evidence need `admin` for every call. Each route, with
  * no grants, is refused 403 having asked the PDP for exactly that, and
  * every pair asked is one the authorization model defines
@@ -18,7 +19,9 @@
  * `/v1/secrets` ask for the same values; a member key, or a key limited
  * to a project, takes no `admin` action on the tenant, so neither reads it.
  * Changing it still takes the capability of the binding it writes
- * (tenant-config-routes.test.ts).
+ * (tenant-config-routes.test.ts). A key limited to a project reads none of
+ * the settings: it's refused before the PDP is asked. The deployments GETs
+ * ask the tenant as its projects' root, which that key reads.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -106,6 +109,7 @@ function harness(
     providerRegistry: unreached(),
     adapterRegistry: unreached(),
     webhookEndpoints: unreached(),
+    destinations: unreached(),
     policyRegistry: unreached(),
     signingKeyRegistry: unreached(),
     deploymentRegistry: unreached(),
@@ -166,6 +170,14 @@ const ROUTES: readonly (readonly [string, string, string])[] = [
   ['GET', '/v1/webhook-endpoints/e/deliveries', ADMIN],
   ['POST', '/v1/webhook-endpoints/e/deliveries/d/redeliver', ADMIN],
   ['POST', '/v1/webhook-endpoints/e/test', ADMIN],
+  ['GET', '/v1/destinations', ADMIN],
+  ['GET', '/v1/destinations/d', ADMIN],
+  ['POST', '/v1/destinations', ADMIN],
+  ['PATCH', '/v1/destinations/d', ADMIN],
+  ['DELETE', '/v1/destinations/d', ADMIN],
+  ['GET', '/v1/destinations/d/deliveries', ADMIN],
+  ['POST', '/v1/destinations/d/deliveries/x/redeliver', ADMIN],
+  ['POST', '/v1/destinations/d/test', ADMIN],
   ['GET', '/v1/auth/providers', READ],
   ['POST', '/v1/auth/providers', ADMIN],
   ['GET', '/v1/auth/providers/p', READ],
@@ -193,6 +205,35 @@ describe('tenant-wide routes ask for the tenant', () => {
     for (const [, , needs] of ROUTES) {
       const [action, type] = needs.split(' ') as [Action, ObjectType];
       expect(OBJECT_ACTIONS[type], needs).toContain(action);
+    }
+  });
+});
+
+describe("a key limited to a project reads none of the workspace's settings", () => {
+  const SETTINGS = ROUTES.filter(
+    ([method, path, needs]) =>
+      method === 'GET' && needs === READ && !path.startsWith('/v1/deployments'),
+  );
+
+  test.each(SETTINGS)('%s %s: 403, refused before the PDP is asked', async (method, path) => {
+    const { app, asked } = harness([READ]);
+    const res = await app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${PROJECT_KEY}` },
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toContain('the API key is limited to project');
+    expect(asked).toEqual([]);
+  });
+
+  test("the deployments GETs ask the tenant as its projects' root, and the key goes past it", async () => {
+    for (const path of ['/v1/deployments', '/v1/deployments/d']) {
+      const { app, asked } = harness([READ]);
+      const res = await app.request(path, { headers: { authorization: `Bearer ${PROJECT_KEY}` } });
+      // Past the tenant's check, the registry (`unreached`) answers.
+      expect(res.status, path).not.toBe(403);
+      expect(asked, path).toEqual([READ]);
     }
   });
 });

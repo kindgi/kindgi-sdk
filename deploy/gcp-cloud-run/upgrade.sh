@@ -72,7 +72,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.6.0] [--from <version>] \
+#                [--to 0.7.0] [--from <version>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
 #   --var-file         A tfvars file the deployment uses (.tfvars or
@@ -98,7 +98,7 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.4.0 or later (default
-#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
+#                      0.7.0). An rc such as 0.7.0-rc.0 works too, and so does
 #                      a server-only release such as 0.4.0.1: a server fix for
 #                      0.4.0, with no SDK release of its own. The module here
 #                      is 0.4.0's, which needs the 0.4.0 runtime or later: to
@@ -106,7 +106,7 @@
 #                      release's @kindgi/sdk@<version> tag (for X.Y.Z.N,
 #                      X.Y.Z's tag), and below 0.2.0, which isn't on
 #                      registry.kindgi.com, as of the @kindgi/sdk@0.1.10 tag.
-#                      This script knows the steps up to 0.6.0; for a later
+#                      This script knows the steps up to 0.7.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag or, before that release is
 #                      out, its newest @kindgi/sdk@<version>-rc.N tag.
@@ -141,13 +141,15 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
-# How long to wait for the new revision to become ready (step 6).
+# How long to wait for the new revision to become ready (step 6): longer
+# than the server's startup probe (10 minutes), so a start the platform
+# still lets run is never reported as failed.
 readonly POLL_INTERVAL=10
-readonly POLL_TRIES=60
+readonly POLL_TRIES=90
 # <<<
 
 # How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
@@ -163,6 +165,31 @@ readonly MODULE_RUNTIME_FLOOR="0.4.0"
 # The release that moved the deployment from the one pack service to one per
 # deployment: a run from before it makes the switch.
 readonly PACKS_RELEASE="0.4.0"
+# The first release whose orchestrator places each tenant's pack services as
+# that tenant's own account (pack_accounts = "per-tenant"). An older one
+# ignores the module's map of those accounts and goes on placing every pack
+# service as the pack account.
+readonly PER_TENANT_RELEASE="0.7.0"
+# Per-tenant mode's resources, one or more per tenant (tenants.tf), and the
+# pack account's own, which pack_shared_account = false deletes.
+readonly TENANT_RESOURCES=(
+  google_service_account.tenant
+  google_project_iam_member.tenant_reads_own_secrets
+  google_service_account_iam_member.orchestrator_acts_as_tenant
+  google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets
+  google_project_iam_member.tenant_sql_client
+  google_storage_bucket_iam_member.tenant_reads
+  google_cloud_run_v2_service_iam_member.tenant_invokes
+)
+readonly PACK_ACCOUNT_RESOURCES=(
+  google_service_account.pack
+  google_service_account_iam_member.orchestrator_acts_as_pack
+  google_project_iam_member.pack_reads_pack_secrets
+  google_secret_manager_secret_iam_member.pack_reads_cloud_secrets
+  google_project_iam_member.pack_sql_client
+  google_storage_bucket_iam_member.pack_reads
+  google_cloud_run_v2_service_iam_member.pack_invokes
+)
 # The names 0.4.0's module gives the server itself, which its plan refuses in
 # server_env and server_secret_env.
 readonly SERVER_ENV_SET_BY_MODULE=("KINDGI_PACK_ROUTING" "KINDGI_PACK_ENDPOINT_HOSTS" "KINDGI_PACK_ENDPOINT_KMS_KEY" "KINDGI_ENV_CLOUD_SECRETS")
@@ -432,7 +459,18 @@ EOT
 # run uses. A check job's name is at most 63 characters: the prefix is cut to
 # 45 (the rest adds 18) and loses a trailing "-". $2 is the run's HHMMSS.
 # >>> same in both modules: checks
-readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials" "identity-provider-keys")
+# The first release whose runtime has identity-provider-keys. A run to an
+# earlier release leaves the check out (RUN_CHECKS): its runtime has no such
+# check. The release's rcs and server fixes count as the release.
+readonly IDENTITY_PROVIDER_KEYS_RELEASE="0.7.0"
+# The release a check came with, for one an earlier target's runtime lacks;
+# nothing for the others.
+check_release() {
+  case "$1" in
+    identity-provider-keys) printf '%s' "$IDENTITY_PROVIDER_KEYS_RELEASE" ;;
+  esac
+}
 # <<<
 check_job_name() {
   local prefix="${NAME_PREFIX:0:45}" suffix
@@ -441,6 +479,7 @@ check_job_name() {
     provider-keys) suffix="pk" ;;
     secret-scopes) suffix="ss" ;;
     mcp-header-credentials) suffix="mhc" ;;
+    identity-provider-keys) suffix="ipk" ;;
   esac
   printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
 }
@@ -524,6 +563,27 @@ if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" 
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$MODULE_RUNTIME_FLOOR")" ]] \
   || die "--to $TARGET: the module here is ${MODULE_RUNTIME_FLOOR}'s, which needs the ${MODULE_RUNTIME_FLOOR} runtime or later. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
 
+# >>> same in both modules: target-checks
+# The checks this run makes: each of CHECKS that the target's runtime has.
+RUN_CHECKS=()
+for check in "${CHECKS[@]}"; do
+  since="$(check_release "$check")"
+  if [[ -z $since ]] || [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$since")" ]]; then
+    RUN_CHECKS+=("$check")
+  fi
+done
+# Each check the target's runtime lacks, said where a run lists its checks
+# ($1, the line's indent).
+say_checks_left_out() {
+  local check
+  for check in "${CHECKS[@]}"; do
+    if [[ " ${RUN_CHECKS[*]} " != *" $check "* ]]; then
+      info "${1}check $check isn't run: the $TARGET runtime doesn't have it ($(check_release "$check") and later do)"
+    fi
+  done
+}
+# <<<
+
 require_cmd terraform gcloud jq docker
 
 # >>> same in both modules: var-file
@@ -585,6 +645,11 @@ terraform output -json >"$TF_OUT" 2>"$WORK/output.err" \
 IMAGE_REPOSITORY="$(jq -r '.image_repository.value // empty' "$TF_OUT")"
 SERVER_SA="$(jq -r '.service_accounts.value.server // empty' "$TF_OUT")"
 SERVER_URL="$(jq -r '.server_url.value // empty' "$TF_OUT")"
+# The pack accounts the deployment has now: the shared one (null once
+# pack_shared_account = false is applied), and each tenant's by its id, in
+# lower case (none before per-tenant mode).
+NOW_PACK_SA="$(jq -r '.service_accounts.value.pack // empty' "$TF_OUT")"
+NOW_TENANT_SAS="$(jq -c '.service_accounts.value.tenants // {}' "$TF_OUT")"
 [[ -n $IMAGE_REPOSITORY && -n $SERVER_SA ]] \
   || die "the module's outputs are incomplete — has the deployment been applied?"
 
@@ -593,7 +658,7 @@ SERVER_URL="$(jq -r '.server_url.value // empty' "$TF_OUT")"
 # Its warnings, such as one for each variable a var file sets that the module
 # doesn't declare, come on stdout ahead of the value, so the value is its
 # last line.
-VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, seed_tenant_id=var.seed_tenant_id, server_image=var.server_image, database_instance=var.database_instance, orchestrator_key_version=var.orchestrator_key_version, server_env_names=keys(var.server_env), server_secret_env_names=keys(var.server_secret_env), pack_endpoint_hosts=lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "")})'
+VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, seed_tenant_id=var.seed_tenant_id, server_image=var.server_image, database_instance=var.database_instance, orchestrator_key_version=var.orchestrator_key_version, server_env_names=keys(var.server_env), server_secret_env_names=keys(var.server_secret_env), pack_endpoint_hosts=lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", ""), pack_accounts=var.pack_accounts, pack_tenants=var.pack_tenants, pack_shared_account=var.pack_shared_account})'
 VARS_RAW="$(terraform console "${TF_VAR_FILE_ARGS[@]}" <<<"$VARS_EXPR" 2>"$WORK/console.err")" \
   || die "couldn't read the module's variables with 'terraform console'. $(cat "$WORK/console.err")"
 VARS="$(jq 'fromjson' <<<"${VARS_RAW##*$'\n'}")" \
@@ -615,6 +680,10 @@ OLD_SERVER_IMAGE="$(jq -r '.server_image' <<<"$VARS")"
 ORCHESTRATOR_KEY_VERSION="$(jq -r '.orchestrator_key_version // ""' <<<"$VARS")"
 DATABASE_INSTANCE_NAME="$(jq -r '.database_instance.name // ""' <<<"$VARS")"
 DATABASE_INSTANCE_URL_SECRET="$(jq -r '.database_instance.url_secret // ""' <<<"$VARS")"
+PACK_ACCOUNTS="$(jq -r '.pack_accounts' <<<"$VARS")"
+# The tenants as the module keys them: by the id in lower case.
+PACK_TENANTS="$(jq -c '[.pack_tenants[] | ascii_downcase]' <<<"$VARS")"
+PACK_SHARED_ACCOUNT="$(jq -r '.pack_shared_account' <<<"$VARS")"
 
 SERVER_SERVICE="${NAME_PREFIX}-server"
 
@@ -977,6 +1046,95 @@ elif [[ $release_digest != "$RUNTIME_DIGEST" ]]; then
   fail_check "${RUNTIME_REPO}:${TARGET} is $release_digest, not the --runtime-digest $RUNTIME_DIGEST. Check the pair against the release notes."
 fi
 
+# The pack accounts (pack_accounts): what the var files set against what the
+# deployment has now, from its outputs. Each change these checks let through
+# is one the plan check then takes (plan_allowed_changes), and the dry run
+# lists it (PACK_ACCOUNT_SAID).
+# The services in the region that run as an account, and those whose move to
+# a tenant's account isn't finished, each with its labels: the same two lines
+# README "A pack account per tenant" gives. Reads only.
+services_as() {
+  gcloud run services list --project="$PROJECT" --region="$REGION" \
+    --filter="spec.template.spec.serviceAccountName=$1" \
+    --format='value(metadata.name,metadata.labels)' 2>"$WORK/list.err"
+}
+unfinished_moves() {
+  gcloud run services list --project="$PROJECT" --region="$REGION" \
+    --filter='metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done' \
+    --format='value(metadata.name,metadata.labels)' 2>"$WORK/list.err"
+}
+line_count() { if [[ -z $1 ]]; then printf '0'; else wc -l <<<"$1" | tr -d ' '; fi; }
+service_names() { awk '{print $1}' <<<"$1" | paste -sd, - | sed 's/,/, /g'; }
+
+PACK_ACCOUNT_SAID=()
+# The tenants whose accounts and grants the plan check takes: those added
+# (each one on a turn-on), made; those taken out with no service left on
+# their account, deleted. Ids in lower case, as the module keys them.
+TENANTS_ADDED=()
+TENANTS_REMOVED=()
+PER_TENANT_NOW=false
+if [[ $NOW_TENANT_SAS != "{}" ]]; then PER_TENANT_NOW=true; fi
+PER_TENANT_TURN_ON=false
+if [[ $PACK_ACCOUNTS == "per-tenant" ]]; then
+  if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$PER_TENANT_RELEASE")" ]]; then
+    fail_check "pack_accounts = \"per-tenant\" needs runtime ${PER_TENANT_RELEASE} or later, and this run's target is ${TARGET}: an older orchestrator ignores the tenants' accounts and goes on placing every pack service as the pack account. Keep \"shared\" for this run."
+  elif [[ $PER_TENANT_NOW == false ]]; then
+    PER_TENANT_TURN_ON=true
+    info "Turning it on is one-way: going back to shared isn't supported."
+    info "pack_accounts = \"per-tenant\" is new here: this run's plan gives each of the $(jq -r 'length' <<<"$PACK_TENANTS") tenants in pack_tenants a pack account of its own, and the steps after it move each pack service to its tenant's (README \"A pack account per tenant\")."
+    PACK_ACCOUNT_SAID+=("make an account and its grants for each tenant in pack_tenants, and give the orchestrator's Job the map of them")
+    while IFS= read -r tenant; do
+      [[ -n $tenant ]] && TENANTS_ADDED+=("$tenant")
+    done < <(jq -r '.[]' <<<"$PACK_TENANTS")
+  fi
+elif [[ $PER_TENANT_NOW == true ]]; then
+  fail_check "pack_accounts is \"shared\", but the deployment has a pack account per tenant, and going back to shared isn't supported: it would delete each tenant's account, and every pack service that runs as one would fail at its next start. Set pack_accounts = \"per-tenant\" again, with its pack_tenants."
+fi
+
+# A tenant added to pack_tenants gets its account with the apply. One taken
+# out loses its account, so no pack service may still run as it.
+if [[ $PER_TENANT_NOW == true && $PACK_ACCOUNTS == "per-tenant" ]]; then
+  while IFS= read -r tenant; do
+    [[ -n $tenant ]] || continue
+    PACK_ACCOUNT_SAID+=("make tenant ${tenant}'s account and its grants")
+    TENANTS_ADDED+=("$tenant")
+  done < <(jq -r --argjson now "$NOW_TENANT_SAS" '.[] | select(. as $t | $now | has($t) | not)' <<<"$PACK_TENANTS")
+  while IFS=$'\t' read -r tenant account; do
+    [[ -n $tenant ]] || continue
+    if ! listed="$(services_as "$account")"; then
+      fail_check "couldn't list the pack services that run as ${account}. $(cat "$WORK/list.err")"
+    elif [[ -n $listed ]]; then
+      fail_check "tenant $tenant is out of pack_tenants, but $(line_count "$listed") pack service(s) still run as its account ${account}: $(service_names "$listed"). Retire its deployments first, then run this again."
+    else
+      info "tenant $tenant leaves pack_tenants: no pack service runs as $account (ok)"
+      PACK_ACCOUNT_SAID+=("delete tenant ${tenant}'s account ${account} and its grants")
+      TENANTS_REMOVED+=("$tenant")
+    fi
+  done < <(jq -r --argjson keep "$PACK_TENANTS" 'to_entries[] | select(.key as $k | $keep | any(.[]; . == $k) | not) | "\(.key)\t\(.value)"' <<<"$NOW_TENANT_SAS")
+fi
+
+# pack_shared_account = false deletes the pack account. So no pack service
+# may still run as it, and no move may be unfinished: a service labelled
+# kindgi-move <n> or rollback runs as its tenant's account, but the runtime
+# may still hold its old token; a refused one is back on the pack account.
+if [[ $PACK_SHARED_ACCOUNT == false && -n $NOW_PACK_SA ]]; then
+  if ! left="$(services_as "$NOW_PACK_SA")"; then
+    fail_check "couldn't list the pack services that run as ${NOW_PACK_SA}. $(cat "$WORK/list.err")"
+  elif ! moving="$(unfinished_moves)"; then
+    fail_check "couldn't list the pack services with a move not finished. $(cat "$WORK/list.err")"
+  else
+    info "pack services left on the shared account: $(line_count "$left")"
+    if [[ -n $left ]]; then sed 's/^/    /' <<<"$left"; fi
+    info "pack services with a move not finished: $(line_count "$moving")"
+    if [[ -n $moving ]]; then sed 's/^/    /' <<<"$moving"; fi
+    if [[ -n $left || -n $moving ]]; then
+      fail_check "pack_shared_account = false deletes ${NOW_PACK_SA}, and the services above haven't moved off it yet. The orchestrator moves each one to its tenant's account; a refused move's reason is in its kindgi-move-code label. Fix the cause or retire the deployment, wait until both counts are 0, then run this again."
+    else
+      PACK_ACCOUNT_SAID+=("delete the pack account ${NOW_PACK_SA}, its grants and the orchestrator's act-as on it")
+    fi
+  fi
+fi
+
 # Stop on a failed precondition before spending anything: no image is mirrored
 # and no check job runs if one fails.
 if [[ $CHECK_FAILED == true ]]; then
@@ -1107,7 +1265,8 @@ EOT
       # The 0.4.0 release notes' Upgrade steps, but for three: the core file
       # limit is set in compose, docker run or systemd, which neither module
       # runs, and the two on Cloud Run's packs are that module's own changes,
-      # which it prints with its plan and after its apply.
+      # which it prints with its plan and after its apply. The first start's
+      # 10 minutes, after the lock lines, came after the notes.
       cat <<'EOT'
    - Eighteen new migrations: four new tables (block_version_prs,
      env_cloud_secrets, run_files and tool_file_tokens), new columns that
@@ -1129,7 +1288,11 @@ EOT
      A long transaction holding one of those tables makes the new revision
      fail after about a minute, naming the session that holds it (end it
      with pg_terminate_backend, or let it finish). The old revision keeps
-     serving meanwhile.
+     serving meanwhile. The first start has 10 minutes to run the
+     migrations (the module's startup probe): one that runs longer is
+     restarted and runs them again from the start, so it may never
+     finish. With many judgments or test runs, time the upgrade on a
+     copy of the database first.
    - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
      identity the server reads it as storage.buckets.get on that bucket
      first: the 0.4.0 runtime reads the bucket's settings at start, and
@@ -1324,6 +1487,47 @@ EOT
      target. Register the URL it redirects to.
 EOT
       ;;
+    0.7.0)
+      cat <<'EOT'
+   - The first start runs this release's migrations: they add tables and
+     columns, and fill nothing in.
+   - A server serving many tenants no longer brings every tenant's
+     authorization store up to the new model when it starts: it brings
+     each one up the first time it uses it, and logs "authz: store
+     brought up to the current model". One that fails logs "authz: could
+     not bring a store up to the current model" at WARN, goes on with the
+     store's model, and a later use tries again. A server serving one
+     tenant still does it when it starts.
+   - If this server served many tenants on 0.6.x, run this once after the
+     upgrade, with the new runtime's kindgi-runtime and the server's
+     database and OpenFGA settings (KINDGI_OPENFGA_API_URL, with its
+     preshared key and auth):
+       kindgi-runtime tenants repair --all
+     It brings each tenant's access in OpenFGA back in line with its
+     record, so it puts back the runner roles 0.6.x may have dropped.
+     With --dry-run it shows, for each tenant, what it would put back
+     and take away, and changes nothing. A server serving one tenant
+     doesn't need it.
+   - Within about a minute of the first start, the runtime ends each
+     unfinished run that was part of a run whose record was deleted (by
+     retention, for example). It fails it with "Interrupted: a run it was
+     part of was deleted, so nothing waits for it." So runs that showed as
+     running or waiting for a long time may change to failed.
+   - The runtime reports its usage to Kindgi at most once a day, with its
+     license key, to https://access.kindgi.com/v1/report, through
+     HTTPS_PROXY when that's set: let the server reach it. A report that
+     can't be sent never stops the runtime; it tries again within the
+     hour. Its answer can renew the key: the runtime keeps a renewed key
+     in its database, and runs on it from then on. A key marked offline
+     never reports: a server that can't reach Kindgi can ask for one.
+   - With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants
+     purge and tenants repurge erase a tenant's secrets in the secret
+     manager too. Run them with the server's secret manager settings
+     (KINDGI_SECRETS_MANAGER and that manager's): without them, a purge
+     of a tenant with secrets there is refused, and says how many and in
+     which manager.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1429,6 +1633,21 @@ EOT
      the server has now. INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER is for a
      server behind your own load balancer, with public_url and
      network_mode = "direct".
+EOT
+      ;;
+    0.7.0)
+      cat <<'EOT'
+   - The plan makes one Secret Manager secret, empty: the renewer key's,
+     <name_prefix>-license-renewer (or license_renewer_secret), which
+     kindgi license enroll fills once. It gives the server two plain env
+     vars, KINDGI_LICENSE_KEY_REF and KINDGI_LICENSE_RENEWER_REF, so its
+     expiry warning names the exact kindgi license renew.
+   - The plan also changes the server in place: its startup probe allows
+     10 minutes, 120 tries 5 s apart, so a first start has that long to run
+     the migrations.
+   - Turn on the renewal job (license_renewal_schedule) after this
+     upgrade, in an apply of its own: its job, schedule and alerts are
+     more than this release's plan check allows.
 EOT
       ;;
   esac
@@ -1571,6 +1790,66 @@ EOT
   fi
 }
 
+# A pack account per tenant (README "A pack account per tenant"): the steps,
+# printed, never run. $1 = "offer" after a run that crossed
+# PER_TENANT_RELEASE with tenancy = "multi" (every step), or "turned-on"
+# after a run whose plan turned it on (steps 2 and 3).
+pack_account_steps_mode() {
+  if [[ $PER_TENANT_TURN_ON == true ]]; then
+    printf 'turned-on'
+  elif [[ $TENANCY == "multi" && $PACK_ACCOUNTS == "shared" \
+    && "$(ver_num "$(release_of "$CURRENT")")" -lt "$(ver_num "$PER_TENANT_RELEASE")" \
+    && "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$PER_TENANT_RELEASE")" ]]; then
+    printf 'offer'
+  fi
+}
+print_pack_account_steps() {
+  local pack_sa="${NOW_PACK_SA:-${NAME_PREFIX}-pack@${PROJECT}.iam.gserviceaccount.com}"
+  if [[ $1 == "offer" ]]; then
+    step "A pack account per tenant, if you want one, by hand"
+    cat <<EOT
+ Turning it on is one-way: going back to shared isn't supported.
+
+ Each tenant's pack services then run as an account of the tenant's own,
+ which reads only that tenant's secrets (README "A pack account per tenant"
+ says what it isolates and what it doesn't).
+
+ 0. It needs runtime ${PER_TENANT_RELEASE} or later. This deployment now runs ${TARGET}.
+
+ 1. List the tenants, with a system key holding system:tenants (behind Cloud
+    Run IAM, add the X-Serverless-Authorization line README "5. The pack
+    orchestrator" gives):
+      curl -fsS -H "Authorization: Bearer <system key>" "${SERVER_URL}/v1/system/tenants?limit=100" | jq -r '.data[].id'
+    In the var files, set pack_accounts = "per-tenant" and pack_tenants to
+    those ids, and give each pack_secret_readers entry its tenants: the
+    tenants whose pack services read that secret. Then plan, read the plan,
+    and apply it. It adds each tenant's account and its grants, and keeps
+    ${pack_sa}.
+EOT
+  else
+    step "Steps that finish the move to a pack account per tenant, by hand"
+  fi
+  cat <<EOT
+
+ 2. The orchestrator moves each live pack service to its tenant's account,
+    and logs two counts at each pass. Wait until both of these list
+    nothing: the services left on the shared account, and those whose move
+    isn't finished. Each line shows the service's labels; a refused move's
+    reason is in kindgi-move-code. Fix the cause or retire the deployment.
+      gcloud run services list --project=${PROJECT} --region=${REGION} \\
+        --filter='spec.template.spec.serviceAccountName=${pack_sa}' \\
+        --format='value(metadata.name,metadata.labels)'
+      gcloud run services list --project=${PROJECT} --region=${REGION} \\
+        --filter='metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done' \\
+        --format='value(metadata.name,metadata.labels)'
+
+ 3. Set pack_shared_account = false in the var files, then plan, read the
+    plan, and apply it. It deletes ${pack_sa}, its grants and the
+    orchestrator's act-as on it. Only from then on does each tenant's pack
+    services' isolation hold.
+EOT
+}
+
 # 5. The plan's check. Besides the new image(s), a plan may change only what
 # the module's releases after the current one (MODULE_CROSSED) change in
 # place, as their steps to confirm by hand say (module_changes):
@@ -1578,9 +1857,9 @@ EOT
 # an env var or a database flag by its name. A resource the release makes or
 # takes away is "<resource type>.<name> (created)" or "(deleted)", and one
 # instance of it "<resource type>.<name>[<index>]". The module's own changes
-# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf). $1
-# is the plan (terraform show -json), for a change allowed only beside
-# another.
+# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf,
+# renewal.tf). $1 is the plan (terraform show -json), for a change allowed
+# only beside another.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
@@ -1593,6 +1872,9 @@ plan_allowed_changes() {
   if plan_readds_one_attempt "$1"; then
     printf '%s\n' "google_cloud_scheduler_job.orchestrator retry_config.retry_count"
   fi
+  # The license renewal's Job runs the server's image too, with
+  # license_renewal_schedule set.
+  printf '%s\n' "google_cloud_run_v2_job.license_renewal template.template.containers.image"
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)
@@ -1685,8 +1967,53 @@ plan_allowed_changes() {
             "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
         fi
         ;;
+      0.7.0)
+        # The renewer key's secret, made empty in every shape, and where the
+        # server finds the key and the renewer key (renewal.tf, services.tf).
+        printf '%s\n' \
+          "google_secret_manager_secret.license_renewer (created)" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_KEY_REF" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_LICENSE_RENEWER_REF"
+        # The server's startup probe.
+        printf '%s\n' "google_cloud_run_v2_service.server template.containers.startup_probe.failure_threshold"
+        ;;
     esac
   done
+  # The pack accounts' changes step 2's checks let through: the account and
+  # grants of each tenant added, made, and of each one taken out with none of
+  # its services left, deleted, with the Job's map of them; and the pack
+  # account's own, deleted once no service runs as it. A grant made or
+  # deleted for a tenant that stays isn't among them.
+  if [[ $PACK_ACCOUNTS == "per-tenant" ]]; then
+    tenant_instances "$1" create ${TENANTS_ADDED[@]+"${TENANTS_ADDED[@]}"}
+    tenant_instances "$1" delete ${TENANTS_REMOVED[@]+"${TENANTS_REMOVED[@]}"}
+    if ((${#TENANTS_ADDED[@]} + ${#TENANTS_REMOVED[@]} > 0)); then
+      printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS"
+    fi
+    if [[ $PACK_SHARED_ACCOUNT == false ]]; then
+      for r in "${PACK_ACCOUNT_RESOURCES[@]}"; do printf '%s\n' "$r (deleted)"; done
+    fi
+  fi
+}
+
+# The instances of TENANT_RESOURCES that a plan (terraform show -json, $1)
+# makes ($2 create) or deletes ($2 delete) for the tenants $3 and on: each
+# keyed by the tenant's id, or by a key that ends with "|<id>". One line each,
+# "<type>.<name>[<index>] (created)" or "(deleted)".
+tenant_instances() {
+  local plan="$1" action="$2" types tenants
+  shift 2
+  (($# > 0)) || return 0
+  types="$(printf '%s\n' "${TENANT_RESOURCES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+  tenants="$(printf '%s\n' "$@" | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+  jq -r --arg action "$action" --argjson types "$types" --argjson tenants "$tenants" '
+    .resource_changes[]?
+    | select(.mode == "managed" and .change.actions == [$action] and (.index | type) == "string")
+    | "\(.type).\(.name)" as $key
+    | select($types | any(.[]; . == $key))
+    | .index as $i
+    | select($tenants | any(.[]; . as $t | $i == $t or ($i | endswith("|" + $t))))
+    | "\($key)[\($i | tojson)] (\(if $action == "create" then "created" else "deleted" end))"' "$plan"
 }
 
 # Whether a plan (terraform show -json) turns on Google's deletion protection
@@ -1832,10 +2159,11 @@ if [[ $DRY_RUN == true ]]; then
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to Artifact Registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
-  info "2. create, run and then delete ${#CHECKS[@]} Cloud Run jobs with the new image, one per check:"
-  for check in "${CHECKS[@]}"; do
+  info "2. create, run and then delete ${#RUN_CHECKS[@]} Cloud Run jobs with the new image, one per check:"
+  for check in "${RUN_CHECKS[@]}"; do
     info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
   done
+  say_checks_left_out "   "
   if [[ -n $JOB_NET_SAID ]]; then info "   with the server's VPC egress: ${JOB_NET_SAID}"; fi
   if [[ $DATABASE_PRIVATE == true ]]; then
     info "   reaching the database at its private IP, its certificate checked against the instance's CAs"
@@ -1850,11 +2178,17 @@ if [[ $DRY_RUN == true ]]; then
   info "   set server_image = \"${NEW_SERVER_IMAGE}\" in ${VAR_FILE}"
   info "   plan, check the plan as below, show it and ask you to type yes"
   info "   apply exactly that plan, kept as $(plan_kept_name "<YYYYMMDDTHHMMSSZ>")"
+  if ((${#PACK_ACCOUNT_SAID[@]} > 0)); then
+    info "   with it, the pack accounts' changes in the var files:"
+    for said in "${PACK_ACCOUNT_SAID[@]}"; do info "     ${said}"; done
+  fi
   info "6. wait for the new revision of ${SERVER_SERVICE}"
   if [[ $SWITCH == true ]]; then info "   then print the steps that finish the switch to 0.4.0's packs (below)"; fi
 
   print_by_hand_steps
   if [[ $SWITCH == true ]]; then print_switch_steps; fi
+  pack_mode="$(pack_account_steps_mode)"
+  if [[ -n $pack_mode ]]; then print_pack_account_steps "$pack_mode"; fi
 
   step "Terraform plan for the new image (read-only; ${VAR_FILE} is untouched)"
   terraform plan "${TF_VAR_FILE_ARGS[@]}" -var "server_image=${NEW_SERVER_IMAGE}" -lock=false -out="$WORK/dry-run.tfplan" \
@@ -1888,10 +2222,12 @@ info "mirrored to $NEW_SERVER_IMAGE"
 # need only KINDGI_DATABASE_URL: nothing starts, no migrations, no license. The
 # check name is baked into the job's args at create time, since `jobs execute`
 # can't override them across gcloud versions. provider-keys, secret-scopes and
-# mcp-header-credentials apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore
+# mcp-header-credentials apply for 0.1.8 -> 0.1.10, and identity-provider-keys
+# to IDENTITY_PROVIDER_KEYS_RELEASE or later (stored-secrets is a restore
 # check; purged-tenants is multi-tenant only).
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
+say_checks_left_out ""
 # The way to the database, as the server's: its VPC egress, then the /cloudsql
 # socket, or the CAs a private-IP database's certificate is checked against
 # (PEM text over several lines, so it goes in an env-vars file: YAML, which
@@ -1903,7 +2239,7 @@ if [[ $DATABASE_PRIVATE == true ]]; then
 else
   job_db_args+=(--set-cloudsql-instances="$SQL_CONNECTION_NAME")
 fi
-for check in "${CHECKS[@]}"; do
+for check in "${RUN_CHECKS[@]}"; do
   job="$(check_job_name "$check" "$check_stamp")"
   args="check,${check}"
   if [[ -n $CHECK_TENANT ]]; then args="${args},--tenant,${CHECK_TENANT}"; fi
@@ -2066,4 +2402,6 @@ step "Done"
 info "$CURRENT -> $TARGET applied. Check it with:  kindgi health --url \"$SERVER_URL\" --token <api token>"
 info "Backup kept at $EXPORT_URI; the previous var-file at $VARFILE_BACKUP; the plan applied at $PLAN_KEPT."
 if [[ $SWITCH == true ]]; then print_switch_steps; fi
+pack_mode="$(pack_account_steps_mode)"
+if [[ -n $pack_mode ]]; then print_pack_account_steps "$pack_mode"; fi
 exit 0

@@ -14,15 +14,23 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type ItemRights,
   type ItemServing,
+  heldProjects,
+  itemHold,
   itemMiddleware,
   itemPathCheck,
+  recordedProjects,
   shownLatest,
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { holdLimitedCaller } from '../middleware/key-project.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import { isReadMethod } from '../read-method.js';
 import {
   type ReferenceScopeBinding,
@@ -31,6 +39,7 @@ import {
 } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
+import { type ServedEnvRule, refuseUnservedToolSecret } from '../served-env.js';
 import type {
   ToolKindMismatch,
   ToolRecord,
@@ -39,6 +48,7 @@ import type {
   ToolVersionRow,
 } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import type { VersionLocksBinding } from '../version-locks-binding.js';
 import { includeRetiredOf } from './include-retired.js';
 import { clampLimit } from './pagination.js';
 import {
@@ -50,6 +60,7 @@ import {
 } from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
 import { bodyProjectResourceRef, parseScopeParams } from './scope-params.js';
+import { lockedByField } from './version-locks.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
@@ -90,11 +101,26 @@ export function toolsRouter(
   onWrite?: ToolWriteHook,
   options: {
     readonly providerKeys?: ProviderKeys;
+    /**
+     * A texts registration's account key is never named here
+     * (`connection-key-refused`); absent, not checked.
+     */
+    readonly connectionKeys?: ConnectionKeys;
+    /**
+     * An identity provider's secret is never named here
+     * (`identity-provider-key-refused`); absent, not checked.
+     */
+    readonly identityProviderKeys?: IdentityProviderKeys;
     /** Where each secret a tool names is read is recorded at publish (`secret-scope.ts`). */
     readonly secrets?: SecretScopeDeps['secrets'];
     readonly projects?: SecretScopeDeps['projects'];
     /** The env the runtime serves: where the secrets a tool's code declares are read. */
     readonly envName?: EnvName;
+    /**
+     * A runtime that refuses other envs: a tool whose `secretRef` names
+     * another env is refused (`refuseUnservedToolSecret`). Absent: any env.
+     */
+    readonly servedEnv?: ServedEnvRule;
     /**
      * The tenant's environment orders: a publish into a later environment is
      * refused (`environment-entry.ts`). Absent: no project is a later
@@ -109,9 +135,23 @@ export function toolsRouter(
     readonly referenceScope?: ReferenceScopeBinding;
     /** The tools' pinned versions; absent → no pin routes, and a lock takes the newest version. */
     readonly pinnedVersions?: PinnedVersionBinding;
+    /** What can still run a version, for the unregister answer's `lockedBy`; absent → no `lockedBy`. */
+    readonly versionLocks?: VersionLocksBinding;
   } = {},
 ): Hono<AppEnv> {
   const { itemRights, pinnedVersions } = options;
+  // Without a store, where a tool's projects are read: the host's, else
+  // its record's (`heldProjects`).
+  const held = heldProjects(options.itemServing, 'tool', (c, id) =>
+    recordedProjects(
+      binding.listVersions({
+        tenantId: c.get('tenantId') as TenantId,
+        toolId: id as ToolId,
+        limit: 1,
+        includeTombstoned: true,
+      }),
+    ),
+  );
   const pinDeps = {
     ...(authorizer !== undefined && { authorizer }),
     ...(itemRights !== undefined && { itemRights }),
@@ -119,6 +159,7 @@ export function toolsRouter(
     ...(options.environmentOrders !== undefined && {
       environmentOrders: options.environmentOrders,
     }),
+    held,
   };
   const pinWrite = (c: Context<AppEnv>) =>
     pinnedVersions !== undefined && isPinWrite(c.req.method, c.req.path);
@@ -183,6 +224,18 @@ export function toolsRouter(
     if (pinnedVersions !== undefined) {
       r.use('/:toolId/*', pinRightsMiddleware('tool', 'toolId', pinDeps));
     }
+    // Nor changes a tool by its id beyond its project, as a store asks it
+    // (`itemHold`): a version. A pin write is held above.
+    r.use(
+      '/:toolId/*',
+      itemHold({
+        kind: 'tool',
+        id: (c) => c.req.param('toolId') ?? '',
+        today: (c) => (pinWrite(c) ? undefined : 'admin'),
+        check: itemPathCheck,
+        held,
+      }),
+    );
   }
 
   /** A version of the tool that isn't there, or that the caller can't see: one 404 for both. */
@@ -228,7 +281,7 @@ export function toolsRouter(
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...includeRetiredOf(c),
     });
-    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    // Only what the caller may read, as `GET …/:id` asks.
     const visible =
       authorizer === undefined
         ? page.data
@@ -491,16 +544,24 @@ export function toolsRouter(
       );
     }
 
-    // A reserved `kindgi.` name or a model provider's key is never a tool's.
+    // A reserved `kindgi.` name, a model provider's key or a texts
+    // registration's account key is never a tool's.
     const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       toolSecretNames(validated.value),
       'a tool',
+      { keys: options.connectionKeys },
+      options.identityProviderKeys,
     );
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
+    }
+    const unserved = refuseUnservedToolSecret(options.servedEnv, validated.value);
+    if (unserved !== undefined) {
+      c.status(statusFor(unserved.code) as never);
+      return c.json(toWireError(unserved, requestId));
     }
 
     const principal = c.get('principal') as Principal | undefined;
@@ -615,10 +676,21 @@ export function toolsRouter(
         // See publish path — hooks are advisory.
       }
     }
+    const locks = await lockedByField(
+      c,
+      { versionLocks: options.versionLocks, authorizer, itemRights },
+      {
+        tenantId,
+        kind: 'tool',
+        id: toolId as unknown as string,
+        version: version as unknown as string,
+      },
+    );
     return c.json({
       toolId: toolId as unknown as string,
       version: version as unknown as string,
       unregistered: true,
+      ...locks,
     });
   });
 
@@ -645,6 +717,8 @@ export function toolsRouter(
             tenantId,
             toolSecretNames(retired),
             'a tool',
+            { keys: options.connectionKeys },
+            options.identityProviderKeys,
           );
     if (named !== undefined) {
       c.status(statusFor(named.code) as never);
@@ -811,6 +885,7 @@ const OPTIONAL_TOOL_FIELDS = [
   'pauses',
   'storesFiles',
   'readsFiles',
+  'updatesFiles',
   'resultIsOutsideData',
   'sandbox',
   'limits',

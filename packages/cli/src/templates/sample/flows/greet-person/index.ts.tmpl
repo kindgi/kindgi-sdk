@@ -1,0 +1,59 @@
+// {{PACK_ID}}.greet-person — greets a name with the greet tool, then hands
+// the greeting to the greeter as an agent step, and returns both.
+//
+// It shows the parts most flows use:
+//   - a tool step whose input is mapped from the run input
+//     (`inputMapping` — `runInput.name`);
+//   - an agent step: the agent runs one turn as a child run, gets the
+//     step's input as structured input (`{{ input.text }}` in its
+//     instructions) and as its message, and its answer is
+//     `nodeOutputs.respond.text` (`.output.<field>` with a typed `output`);
+//   - a declared `output`, checked against its schema.
+// The kindgi-authoring-flows skill covers branches, loops and the rest.
+//
+// Run it:  kindgi runs start --flow={{PACK_ID}}.greet-person --input='{"name":"Ada"}'
+
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: '{{PACK_ID}}.greet-person',
+  version: '{{PACK_VERSION}}',
+  name: 'Greet a person',
+  description: 'Greets a name, then has the greeter respond to the greeting.',
+  nodes: [
+    {
+      id: 'greet',
+      kind: 'tool',
+      ref: '{{PACK_ID}}.greet',
+      inputMapping: { name: { path: 'runInput.name' } },
+    },
+    {
+      id: 'respond',
+      kind: 'agent',
+      ref: '{{PACK_ID}}.greeter',
+      inputMapping: { text: { path: 'nodeOutputs.greet.message' } },
+    },
+  ],
+  edges: [
+    { id: 'e-start', from: '$start', to: 'greet' },
+    { id: 'e-respond', from: 'greet', to: 'respond' },
+    { id: 'e-end', from: 'respond', to: '$end' },
+  ],
+  output: {
+    mapping: {
+      greeting: { path: 'nodeOutputs.greet.message' },
+      reply: { path: 'nodeOutputs.respond.text' },
+    },
+    schema: {
+      type: 'object',
+      properties: { greeting: { type: 'string' }, reply: { type: 'string' } },
+      required: ['greeting', 'reply'],
+    },
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.greet-person failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

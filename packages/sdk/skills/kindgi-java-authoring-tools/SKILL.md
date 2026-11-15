@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.8"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -123,8 +123,8 @@ final class Citator {
 - **Id:** `<pack-id>.<tool-name>`, kebab-case, dot-namespaced.
 - **Description:** what it does and returns. The model reads it to decide
   when to call the tool. It isn't enforced, so never leave it out.
-- **Version:** the pack's (`pack.version`), or `.version("1.2.0")` (an exact
-  semver).
+- **Version:** the pack's (`pack.version`), or `.version("1.2.0")`
+  (`MAJOR.MINOR.PATCH`).
 - **Schemas:** from the records `input(…)` and `output(…)` name. A record's
   components are the object's properties, by their Jackson names
   (`@JsonProperty("canonicalCite")` renames one). Unknown properties are
@@ -170,7 +170,12 @@ final class Citator {
   it writes to (an `Idempotency-Key` header, a client reference, a unique
   column) or looks for it there first: a refund never goes out twice. A
   UUID; `null` outside a run and from a runtime before 0.1.6. Docs:
-  https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+- `ctx.timeZone()`: the workspace's time zone, an IANA name such as
+  `"America/Toronto"`: an agent turn reads it once, so all its calls get the
+  same one, `"UTC"` when the workspace sets none. `null` outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
 - `ctx.projectId()`, `ctx.orgId()`: the run's project, and its org (`null`
   when it has none). The runtime sets them from the run, never from the
   input. To check an id the input names, compare it with these.
@@ -187,6 +192,51 @@ final class Citator {
   --scope=project:<id> --env=<env>`), with a declared `default` filled in.
   Strings, and not secret.
 - `ctx.config()`: **reserved, empty today**.
+
+### A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```java
+// src/main/java/acme/tools/Today.java
+package acme.tools;
+
+import com.kindgi.pack.Tool;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.TextStyle;
+import java.util.Locale;
+
+public final class Today {
+  public record Input() {}
+
+  public record Output(String date, String weekday, String time, String timeZone) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.today")
+      .description("Today's date, weekday and time in the workspace's time zone. "
+          + "Call it before answering anything that depends on today's date.")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        String zone = ctx.timeZone() != null ? ctx.timeZone() : "UTC";
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.of(zone));
+        return new Output(
+            now.toLocalDate().toString(),
+            now.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+            now.format(DateTimeFormatter.ofPattern("HH:mm")),
+            zone);
+      });
+
+  private Today() {}
+}
+```
+
+Test it with `ToolContext.forTest(new ToolContext.Builder().withTimeZone("Asia/Tokyo"))`.
+Docs: https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 
@@ -210,7 +260,7 @@ with `ctx.idempotencyKey()`, return its id at once, and give the other
 system a webhook trigger that starts the next flow with its answer; when it
 can't call back, check the job from a scheduled flow.
 
-Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+Docs: https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
 
 ## Configuration and secrets
 
@@ -267,7 +317,7 @@ public static final Tool<Input, Output> TOOL = Tool.define("my-pack.send-mail")
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `.mutating(false)` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needsApprovalWhenUnattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `.mutating(false)`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.forTest(Map.of("mail", new ToolConnection("c-1", "google", "Google", "test", new ConnectionAccount("1", "ana@acme.com"), null, null)))`; the last two arguments, the connection's name and when the token expires, can be `null`. `ctx.connections()` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.7/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -275,6 +325,13 @@ Docs: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
   exception's message. In an agent turn, the model sees the failure only
   when the agent's `toolErrors` policy includes `tool-error`, so retrying
   must be safe for that tool.
+- Throw `ToolFailureException` when the tool ran and knows why the call
+  can't give an answer:
+  `throw new ToolFailureException("order-not-found", "No order " + id, Map.of("orderId", id))`.
+  The call fails with `tool-failed`, the code as `reason`, the message as
+  written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. An agent sends it to the model only with
+  `tool-failed` in `toolErrors.retryOn`. An outcome the caller acts on
+  belongs in the output record instead (`found: false`).
 - What the handler logs (your app's logger, `System.err`) goes to the pack
   service's output (`kindgi dev` shows it as `[pack] …`), never into a
   result.
@@ -330,7 +387,7 @@ public record FetchOrder(String orderId) {}
 public record Order(String id, String status, double total) {}
 
 public static final Tool<FetchOrder, Order> TOOL =
-    Tool.define("shop.fetch-order")
+    Tool.define("acme.fetch-order")
         .description("Fetch an order by id from the storefront API.")
         .version("0.1.0")
         .mutating(false)
@@ -340,8 +397,7 @@ public static final Tool<FetchOrder, Order> TOOL =
             HttpToolSpec.builder()
                 .method(HttpMethod.GET)
                 .urlTemplate("https://api.shop.example/orders/{orderId}")
-                .authorization(
-                    new HttpAuthSpec.Bearer(new ToolSecretRef("production", "shop-api-token")))
+                .authorization(new HttpAuthSpec.Bearer(ToolSecretRef.named("shop-api-token")))
                 .successStatus(200, 299)
                 .build());
 ```
@@ -350,7 +406,7 @@ Every `{placeholder}` in the URL — in the path and query only, never in the
 host or port — is a field of the input, and so is one in a
 `HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. Authorization
 is a `secretRef` (`HttpAuthSpec.Bearer` or `HttpAuthSpec.Header`), named for the
-runtime to resolve, never a literal credential. A request body is
+runtime to resolve in the env it serves, never a literal credential. A request body is
 `HttpRequestBodySpec.JsonInput` (the input as JSON), `InputPassthrough` or
 `Text`. `timeoutMs` (default 30 seconds) covers the whole call, the response
 read included, and a run's cancel does too; a response body over 10 MiB,
@@ -374,7 +430,7 @@ In a run a person started (signed in, or with their own API key), the agent's ru
       .needsApprovalWhenUnattended(true)
 ```
 
-Docs: https://docs.kindgi.com/v0.6/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.7/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `resultIsOutsideData`
 
@@ -477,7 +533,7 @@ removed field, a narrower type), not on every save.
    `kindgi dev` and fails in the image, which copies the runtime classpath
    only. Use `compile` or `runtime` scope.
 8. **A read-only tool without `mutating(false)`.** A dry run stops at it, an
-   approval gate asks before it on first use, and an agent runs each call to
+   approval gate asks before each call to it, and an agent runs each call to
    it on its own.
 9. **`mutating(false)` on a tool that writes.** A dry run then runs it for
    real, and an agent may run it at the same time as other calls.
@@ -491,7 +547,7 @@ removed field, a narrower type), not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.6/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.7/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

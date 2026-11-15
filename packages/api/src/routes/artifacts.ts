@@ -10,18 +10,47 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { actsForOf } from '../caller.js';
-import { statusFor, toWireError } from '../errors.js';
-import type { Authorizer } from '../middleware/authorize.js';
+import { retryAfterSeconds, statusFor, toWireError } from '../errors.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import { takeBody } from '../middleware/request-body.js';
+import type { RunUploadCheck, RunUploadLimiter } from '../run-upload-limiter.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { isOwnRun, readableOrRun } from './runner-reach.js';
 import { savedFileHeaders } from './stored-bytes.js';
+import { type ValidationResult, uploadProject, validateUploadForm } from './upload-form.js';
 
 /** The default upload cap: 100 MiB. */
 export const DEFAULT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
+
+/**
+ * The page that says what replaces the artifacts routes, and that 0.8.0
+ * removes them, as a `deprecation` link (RFC 9745). It's on this release
+ * line's docs, as every link a package ships: a version change moves it to
+ * its new line (`scripts/sync-docs-line.mjs`).
+ */
+export const ARTIFACTS_DEPRECATION_LINK =
+  '<https://docs.kindgi.com/v0.7/concepts/files-and-versions/#what-080-removes>; rel="deprecation"';
+
+/**
+ * {@link ARTIFACTS_DEPRECATION_LINK} on every `/v1/artifacts` answer, an
+ * error's too: set after the route answers, beside any `Link` it sets.
+ */
+export function artifactsDeprecationLink(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    await next();
+    try {
+      c.res.headers.append('Link', ARTIFACTS_DEPRECATION_LINK);
+    } catch {
+      // A response whose headers can't change (one passed through as fetched): a copy can.
+      c.res = new Response(c.res.body, c.res);
+      c.res.headers.append('Link', ARTIFACTS_DEPRECATION_LINK);
+    }
+  };
+}
 
 export interface ArtifactsRouterDeps {
   /**
@@ -37,6 +66,11 @@ export interface ArtifactsRouterDeps {
    * their own for a run's input (`artifactsRouter`).
    */
   readonly authorizer?: Authorizer;
+  /**
+   * The deployment's limit on uploads that pass on `run` alone. Without
+   * it, those uploads are limited only by each one's size.
+   */
+  readonly runUploadLimiter?: RunUploadLimiter;
 }
 
 /**
@@ -61,6 +95,41 @@ export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv>
       );
     },
   });
+}
+
+/** `429 upload-limit-reached`: the limit, what's used, and when this upload fits. */
+function uploadLimitReached(
+  c: Context<AppEnv>,
+  over: Extract<RunUploadCheck, { kind: 'over' }>,
+): Response {
+  const count = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+  const files = (n: number) => count(n, 'file');
+  const limits = [
+    ...(over.maxBytes !== undefined ? [`${over.maxBytes} bytes`] : []),
+    ...(over.maxFiles !== undefined ? [files(over.maxFiles)] : []),
+  ].join(' and ');
+  const window =
+    over.windowMs % 3_600_000 === 0
+      ? count(over.windowMs / 3_600_000, 'hour')
+      : count(Math.ceil(over.windowMs / 1000), 'second');
+  const retryAt = new Date(Date.now() + over.retryAfterMs).toISOString();
+  c.header('Retry-After', String(retryAfterSeconds(over.retryAfterMs)));
+  c.status(statusFor('upload-limit-reached') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'upload-limit-reached',
+        message: `Uploads for your own runs, without \`write\` on the project, are limited to ${limits} per person in ${window} in this workspace; you've uploaded ${over.usedBytes} bytes in ${files(over.usedFiles)}, and this one fits from ${retryAt}`,
+        ...(over.maxBytes !== undefined && { maxBytes: over.maxBytes }),
+        ...(over.maxFiles !== undefined && { maxFiles: over.maxFiles }),
+        usedBytes: over.usedBytes,
+        usedFiles: over.usedFiles,
+        windowSeconds: Math.ceil(over.windowMs / 1000),
+        retryAt,
+      },
+      c.get('requestId'),
+    ),
+  );
 }
 
 /**
@@ -94,7 +163,10 @@ export function artifactUploadLimit(maxBytes: number): MiddlewareHandler<AppEnv>
  * files (`runner-reach.ts`): downloading one they uploaded or one a run of
  * their own stored, listing an own run's files (`?ownerRunId=`), and
  * uploading a file of their own that names no run, to start a run with.
- * An upload's size limit is `artifactUploadLimit`'s.
+ * An upload's size limit is `artifactUploadLimit`'s. An upload that
+ * passes on `run` alone is also counted against the deployment's
+ * `runUploadLimiter`, when it sets one: past it, the upload is
+ * `429 upload-limit-reached` and nothing is stored.
  */
 export function artifactsRouter(
   binding: BlobStorageBinding,
@@ -102,13 +174,21 @@ export function artifactsRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const { authorizer } = deps;
-  /** The artifact's project; a blob stored before projects were recorded answers to the tenant. */
+  /**
+   * The artifact's project; a blob stored before projects were recorded answers
+   * to the whole workspace (`tenantWide`), which a key limited to a project doesn't read.
+   */
   const scopeOf = (c: Context<AppEnv>, m: BlobMeta): ResourceRef =>
     m.projectId !== undefined
       ? ref('project', m.projectId as unknown as string)
-      : ref('tenant', c.get('tenantId') as unknown as string);
+      : tenantWide(c.get('tenantId') as unknown as string);
   const may = async (c: Context<AppEnv>, action: 'read' | 'write', m: BlobMeta) =>
     authorizer === undefined || (await authorizer.can(c, action, scopeOf(c, m)));
+  /** Without a store, a project-limited key's write, held where a store refuses it. */
+  const held = (c: Context<AppEnv>, m: BlobMeta) =>
+    authorizer === undefined
+      ? limitedCallerRefusal(c, 'write', scopeOf(c, m), 'the artifact')
+      : undefined;
   /** The run, when it's the caller's own (`isOwnRun`). */
   const ownRun = async (c: Context<AppEnv>, runId: RunId) => {
     const run =
@@ -225,10 +305,15 @@ export function artifactsRouter(
       );
     }
 
-    const validated = validateMultipart(form);
+    const validated = validateUploadForm(form);
     if (validated.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: validated.message }, requestId));
+    }
+    const forRun = forRunOf(form.get('forRun'), validated.value.ownerRunId);
+    if (forRun.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: forRun.message }, requestId));
     }
     const project = await uploadProject(c, deps, validated.value);
     if (project.kind === 'err') {
@@ -250,21 +335,25 @@ export function artifactsRouter(
     const userId = c.get('userId') as unknown as string | undefined;
     const createdBy = userId !== undefined ? `user:${userId}` : undefined;
     // `write`, or `run` for a file of the caller's own that names no run:
-    // an input for a run they start. One that names a run stays `write`.
-    if (
-      authorizer !== undefined &&
-      !(await authorizer.can(
+    // an input for a run they start, so it's `forRun` whatever the form
+    // says. One that names a run stays `write`.
+    const writes =
+      authorizer === undefined ||
+      (await authorizer.can(
         c,
         'write',
         project.projectId !== undefined
           ? ref('project', project.projectId as unknown as string)
           : ref('tenant', tenantId as unknown as string),
-      )) &&
+      ));
+    if (
+      !writes &&
       !(
         project.projectId !== undefined &&
         validated.value.ownerRunId === undefined &&
         createdBy !== undefined &&
         createdBy === actsForOf(c) &&
+        authorizer !== undefined &&
         (await authorizer.can(c, 'run', ref('project', project.projectId as unknown as string)))
       )
     ) {
@@ -276,10 +365,19 @@ export function artifactsRouter(
         ),
       );
     }
+    if (!writes && deps.runUploadLimiter !== undefined && createdBy !== undefined) {
+      const room = await deps.runUploadLimiter.check({
+        tenantId,
+        createdBy,
+        size: validated.value.size ?? 0,
+      });
+      if (room.kind === 'over') return uploadLimitReached(c, room);
+    }
     const input: BlobPutInput = {
       ...validated.value,
       ...(project.projectId !== undefined && { projectId: project.projectId }),
       ...(createdBy !== undefined && { createdBy }),
+      ...((forRun.value || !writes) && { forRun: true }),
     };
 
     const outcome = await binding.put(tenantId, input);
@@ -324,6 +422,8 @@ export function artifactsRouter(
     const blobId = c.req.param('blobId') as ArtifactId;
 
     const found = await binding.head(tenantId, blobId);
+    const refused = found === null ? undefined : held(c, found);
+    if (refused !== undefined) return refused;
     if (found !== null) {
       if (!(await maySee(c, found))) return notFound(c, blobId);
       if (!(await may(c, 'write', found))) {
@@ -360,49 +460,6 @@ function notFound(c: Context<AppEnv>, blobId: string) {
   );
 }
 
-type UploadProject =
-  | { readonly kind: 'ok'; readonly projectId?: ProjectId }
-  | { readonly kind: 'err'; readonly code: string; readonly message: string };
-
-/**
- * The project an upload belongs to: its owner run's (the upload's
- * `projectId`, if any, must agree), else the upload's `projectId`, else
- * the project the caller's API key is limited to, else the tenant's
- * default project.
- */
-async function uploadProject(
-  c: Context<AppEnv>,
-  deps: ArtifactsRouterDeps,
-  input: BlobPutInput,
-): Promise<UploadProject> {
-  const tenantId = c.get('tenantId') as TenantId;
-  const named = input.projectId;
-  if (input.ownerRunId !== undefined && deps.runBinding !== undefined) {
-    const run = await deps.runBinding.getRun(tenantId, input.ownerRunId);
-    if (run === null) {
-      return {
-        kind: 'err',
-        code: 'run-not-found',
-        message: `No run "${input.ownerRunId as unknown as string}"`,
-      };
-    }
-    const runProject = run.projectId as unknown as ProjectId;
-    if (named !== undefined && named !== runProject) {
-      return {
-        kind: 'err',
-        code: 'bad-input',
-        message: `\`projectId\` must be the owner run's project ("${runProject as unknown as string}"), or absent`,
-      };
-    }
-    return { kind: 'ok', projectId: runProject };
-  }
-  if (named !== undefined) return { kind: 'ok', projectId: named };
-  const keyProject = c.get('tokenProjectId');
-  if (keyProject !== undefined) return { kind: 'ok', projectId: keyProject as ProjectId };
-  const fallback = (await deps.projectBinding?.getDefault(tenantId))?.id;
-  return { kind: 'ok', ...(fallback !== undefined && { projectId: fallback }) };
-}
-
 // -------------------- serialization --------------------
 
 function serializeMeta(m: BlobMeta): Record<string, unknown> {
@@ -418,8 +475,11 @@ function serializeMeta(m: BlobMeta): Record<string, unknown> {
     ...(m.projectId !== undefined && { projectId: m.projectId as unknown as string }),
     ...(m.createdBy !== undefined && { createdBy: m.createdBy }),
     createdAt: m.createdAt as unknown as string,
+    ...(m.expiresAt !== undefined && { expiresAt: m.expiresAt as unknown as string }),
     ...(m.bucket !== undefined && { bucket: m.bucket }),
     ...(m.key !== undefined && { key: m.key }),
+    ...(m.fileId !== undefined && { fileId: m.fileId as unknown as string }),
+    ...(m.version !== undefined && { version: m.version }),
   };
 }
 
@@ -435,100 +495,23 @@ function downloadHeaders(meta: BlobMeta, requestId: string): Record<string, stri
 
 // -------------------- request parsing --------------------
 
-type ValidationResult<T> =
-  | { readonly kind: 'ok'; readonly value: T }
-  | { readonly kind: 'err'; readonly message: string };
-
-/**
- * Parse the multipart form into a `BlobPutInput`. `file` is required —
- * every other field is optional metadata. `tags` is a JSON-encoded
- * object; `ownerRunId` is a plain string; `expectedHash` is
- * `sha256`-hex; `contentType` overrides the file part's own MIME.
- * `name` defaults to the file part's filename.
- */
-function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
-  const file = form.get('file');
-  if (file === null) {
-    return { kind: 'err', message: 'Multipart form must include a `file` part' };
+/** The form's `forRun`: absent or empty is `false`; `true` names no run. */
+function forRunOf(
+  field: ReturnType<FormData['get']>,
+  ownerRunId: RunId | undefined,
+): ValidationResult<boolean> {
+  if (field === null || field === '' || field === 'false') return { kind: 'ok', value: false };
+  if (field !== 'true') {
+    return { kind: 'err', message: 'Field `forRun` must be `true` or `false`' };
   }
-  if (typeof file === 'string') {
-    return { kind: 'err', message: '`file` part must be a file, not a string field' };
+  if (ownerRunId !== undefined) {
+    return {
+      kind: 'err',
+      message:
+        "Field `forRun` is for a run that hasn't started; an upload with `ownerRunId` belongs to that run",
+    };
   }
-
-  const nameField = form.get('name');
-  const name =
-    typeof nameField === 'string' && nameField.length > 0
-      ? nameField
-      : file.name !== undefined && file.name.length > 0
-        ? file.name
-        : 'unnamed';
-
-  const contentTypeField = form.get('contentType');
-  const contentType =
-    typeof contentTypeField === 'string' && contentTypeField.length > 0
-      ? contentTypeField
-      : file.type.length > 0
-        ? file.type
-        : 'application/octet-stream';
-
-  let tags: Record<string, string> | undefined;
-  const tagsField = form.get('tags');
-  if (typeof tagsField === 'string' && tagsField.length > 0) {
-    try {
-      const parsed = JSON.parse(tagsField) as unknown;
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return { kind: 'err', message: 'Field `tags` must be a JSON object' };
-      }
-      const flat: Record<string, string> = {};
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        if (typeof v !== 'string') {
-          return { kind: 'err', message: `Field \`tags["${k}"]\` must be a string` };
-        }
-        flat[k] = v;
-      }
-      tags = flat;
-    } catch {
-      return { kind: 'err', message: 'Field `tags` must be valid JSON' };
-    }
-  }
-
-  let ownerRunId: RunId | undefined;
-  const ownerField = form.get('ownerRunId');
-  if (typeof ownerField === 'string' && ownerField.length > 0) {
-    ownerRunId = ownerField as RunId;
-  }
-
-  let projectId: ProjectId | undefined;
-  const projectField = form.get('projectId');
-  if (typeof projectField === 'string' && projectField.length > 0) {
-    projectId = projectField as ProjectId;
-  }
-
-  let expectedHash: string | undefined;
-  const hashField = form.get('expectedHash');
-  if (typeof hashField === 'string' && hashField.length > 0) {
-    if (!/^[0-9a-f]{64}$/.test(hashField)) {
-      return {
-        kind: 'err',
-        message: 'Field `expectedHash` must be sha256, hex-encoded, lowercase (64 chars)',
-      };
-    }
-    expectedHash = hashField;
-  }
-
-  return {
-    kind: 'ok',
-    value: {
-      name,
-      contentType,
-      bytes: file.stream(),
-      size: file.size,
-      ...(tags !== undefined && { tags }),
-      ...(ownerRunId !== undefined && { ownerRunId }),
-      ...(projectId !== undefined && { projectId }),
-      ...(expectedHash !== undefined && { expectedHash }),
-    },
-  };
+  return { kind: 'ok', value: true };
 }
 
 function decodeListFilter(

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { type Context, Hono } from 'hono';
+import { type Context, Hono, type MiddlewareHandler } from 'hono';
 
 import type {
   Conversation,
@@ -18,9 +18,20 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import { callerRef } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, runIn } from '../item-rights.js';
+import {
+  type HeldItems,
+  type ItemRights,
+  limitedItemRefusal,
+  limitedStartRefusal,
+  runIn,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { databaseBusyAnswer } from '../middleware/error-mapper.js';
+import {
+  beforeHandler,
+  beforeHandlerAnswer,
+  databaseBusyAnswer,
+} from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -90,8 +101,89 @@ export function conversationsRouter(
    * one project.
    */
   itemRights?: ItemRights,
+  /**
+   * Without a store, where a project-limited key's close of a
+   * conversation with an agent beyond its project is held. Absent: only
+   * the conversation's own project is held.
+   */
+  held?: HeldItems,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Without a store, the project a conversation is held on: its own, else
+   * its agent version's (one lookup), as `othersCloseRefusal` reads it.
+   */
+  const heldProject = async (c: Context<AppEnv>, conv: Conversation) =>
+    (conv.projectId as unknown as string | undefined) ??
+    ((
+      await agentRegistry?.getVersion({
+        tenantId: c.get('tenantId') as TenantId,
+        agentId: conv.agentId,
+        version: conv.agentVersion,
+      })
+    )?.projectId as unknown as string | undefined);
+
+  /**
+   * Without a store, a project-limited key's or session's unregistering of
+   * a conversation in another project, held there as a store refuses it.
+   */
+  const limitedUnregisterRefusal = async (c: Context<AppEnv>, conv: Conversation) => {
+    if (authorizer !== undefined || c.get('tokenProjectId') === undefined) return undefined;
+    const project = await heldProject(c, conv);
+    return project === undefined
+      ? undefined
+      : limitedCallerRefusal(c, 'write', ref('project', project), 'the conversation');
+  };
+
+  /**
+   * Without a store, a project-limited key's or session's close of a
+   * conversation beyond its limit, held before the route as a store
+   * refuses it: the conversation's project (`call` there, when it's one of
+   * the projects that serve its agent), else `execute` on the agent, on
+   * its project or each one that serves it. One that isn't there is the
+   * route's 404.
+   */
+  const heldClose: MiddlewareHandler<AppEnv> = async (c, next) => {
+    if (authorizer !== undefined || c.get('tokenProjectId') === undefined) return next();
+    // Before the handler, so a database too busy to read the conversation
+    // (its busy err) or its agent (a throw, `beforeHandler`) answers 503 on
+    // any method. Any other err is left to the route's 404 or 500.
+    const refused = await beforeHandler(c, async () => {
+      const existing = await conversationBinding.getConversation(
+        c.get('tenantId') as TenantId,
+        c.req.param('conversationId') as ConversationId,
+      );
+      if (existing.kind === 'err') return beforeHandlerAnswer(existing.error, c);
+      const conv = existing.value;
+      const project = await heldProject(c, conv);
+      const projects = (await held?.agents.projects(c, conv.agentId as unknown as string)) ?? [];
+      const callsIn = projects.length > 1 && projects.includes(project as ProjectId);
+      const onConversation =
+        project === undefined
+          ? undefined
+          : limitedCallerRefusal(
+              c,
+              callsIn ? 'call' : 'execute',
+              ref('project', project),
+              'the conversation',
+            );
+      return onConversation ?? (callsIn ? undefined : await limitedOnAgent(c, conv));
+    });
+    return refused ?? next();
+  };
+
+  /** `execute` on a conversation's agent, on its project or each one that serves it. */
+  const limitedOnAgent = (c: Context<AppEnv>, conv: Conversation) =>
+    held === undefined
+      ? undefined
+      : limitedItemRefusal(c, {
+          kind: 'agent',
+          id: conv.agentId as unknown as string,
+          today: 'execute',
+          check: { rule: 'every', action: 'execute' },
+          held: held.agents,
+        });
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {
@@ -300,9 +392,29 @@ export function conversationsRouter(
           version: parsed.value.agentVersion,
         })
       )?.projectId ?? (await projectBinding?.getDefault(tenantId))?.id;
+    // Without a store, a limited caller's conversation, held and placed as a
+    // store holds and places it (`limitedStartRefusal`).
+    const limited =
+      authorizer === undefined && held !== undefined
+        ? await limitedStartRefusal(c, {
+            kind: 'agent',
+            id: agentId,
+            held: held.agents,
+            unnamed: supplied === undefined,
+          })
+        : undefined;
+    if (limited?.refused !== undefined) return limited.refused;
     // Also before the named project's existence: a caller refused there gets
     // the same answer whether it exists or not.
-    const open = await openIn(c, authorizer, itemRights, served, agentId, supplied, own);
+    const open = await openIn(
+      c,
+      authorizer,
+      itemRights,
+      served,
+      agentId,
+      supplied ?? limited?.placed,
+      own,
+    );
     if (open.refused !== undefined) return open.refused;
     if (
       supplied !== undefined &&
@@ -365,7 +477,7 @@ export function conversationsRouter(
   });
 
   // ---------- POST /:conversationId/close (idempotent) ----------
-  r.post('/:conversationId/close', refuseMalformedConversationId, async (c) => {
+  r.post('/:conversationId/close', refuseMalformedConversationId, heldClose, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const conversationId = c.req.param('conversationId') as ConversationId;
@@ -456,6 +568,8 @@ export function conversationsRouter(
     }
     const existing = await conversationBinding.getConversation(tenantId, conversationId);
     if (existing.kind === 'err') return lookupFailed(c, conversationId, existing.error, requestId);
+    const held = await limitedUnregisterRefusal(c, existing.value);
+    if (held !== undefined) return held;
     const refused = await deniedBy(authorizer, c, 'write', conversationRef(existing.value));
     if (refused !== undefined) {
       return hiddenOr(c, authorizer, conversationId, existing.value, refused);

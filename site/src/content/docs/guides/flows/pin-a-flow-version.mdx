@@ -23,7 +23,7 @@ meanwhile runs only when a run names it.
   1.0.0, and publishes a 1.1.0.
 - **A project's id:** `kindgi projects list` lists them.
 - **For your app:** Node 22.12 or later, Python 3.11 or later, or Java 17 or
-  later, with Kindgi 0.6's client, and `KINDGI_API_URL` and
+  later, with Kindgi 0.7's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## Which version a run takes
@@ -298,7 +298,8 @@ every pin and unpin, newest first: the scope, the version before and after,
 who asked, and their reason.
 
 Deleting an org removes its pins and records an unpin for each, by the
-deletion. Deleting a project removes its pins.
+deletion. Deleting a project keeps its pins, and a restore brings them back
+with it.
 
 ## Who can pin
 

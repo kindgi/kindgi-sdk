@@ -5,22 +5,31 @@ import { type InvokeAgentError, parseFailureMessage } from '@kindgi/agents';
 
 /** Why a run failed, on the wire (`Run.failure`). */
 export interface RunFailure {
-  /** The error's own code (`budget-exceeded`, `capability-routing-failed`, …), or `run-failed`. */
+  /**
+   * The error's own code (`budget-exceeded`, `capability-routing-failed`,
+   * `tool-failed` for a tool that failed the call on purpose, …), or
+   * `run-failed`.
+   */
   readonly code: string;
   readonly message: string;
-  /** What the error came from, when it says (e.g. the router's reasons, by provider). */
+  /**
+   * What the error came from, when it says (e.g. the router's reasons, by
+   * provider). For `tool-failed`, the tool: `{ toolId }`.
+   */
   readonly cause?: unknown;
   /**
    * The error's own reason, when it gives one: for a turn that ended at its
-   * approval, `timeout` (nobody decided in time) or `approval-withdrawn`.
+   * approval, `timeout` (nobody decided in time) or `approval-withdrawn`;
+   * for `tool-failed`, the tool's own code (`order-not-found`).
    * Absent from an older runtime, and from errors without one: read `code`.
    */
   readonly reason?: string;
   /**
    * The error's own facts, for a code that has them: for
    * `rate-limit-exceeded`, `limit` and `budgetMs`, as the API's 429 names
-   * them. Never a wait: one read back later is stale. Absent for any
-   * other code, and from an older runtime.
+   * them; for `tool-failed`, the details the tool gave, when it gave any.
+   * Never a wait: one read back later is stale. Absent for any other code,
+   * and from an older runtime.
    */
   readonly details?: Readonly<Record<string, unknown>>;
 }
@@ -35,6 +44,8 @@ type Detail<C extends InvokeAgentError['code']> = Exclude<
  * The fields a turn's error keeps in `details` when its run is read back,
  * by code. Only these: an error's other fields can hold the turn's
  * content (a tool's input), and a wait (`retryAfterMs`) is stale by then.
+ * `tool-failed` keeps its own `details` whole instead: the facts the tool
+ * chose to give, a JSON object of at most 4 KiB, masked.
  */
 const DETAILS_BY_CODE: { readonly [C in InvokeAgentError['code']]?: readonly Detail<C>[] } = {
   'rate-limit-exceeded': ['limit', 'budgetMs'],
@@ -42,6 +53,7 @@ const DETAILS_BY_CODE: { readonly [C in InvokeAgentError['code']]?: readonly Det
 
 /** `error`'s `DETAILS_BY_CODE` fields that it has, or `undefined` for none. */
 function detailsOf(error: InvokeAgentError): Readonly<Record<string, unknown>> | undefined {
+  if (error.code === 'tool-failed') return error.details;
   const fields: readonly string[] = DETAILS_BY_CODE[error.code] ?? [];
   const own = error as unknown as Readonly<Record<string, unknown>>;
   const details = Object.fromEntries(
@@ -66,7 +78,11 @@ export function runFailure(row: {
   const raw = row.failureMessage ?? undefined;
   const error = parseFailureMessage(raw);
   if (error !== undefined) {
-    const { cause, reason } = error as { readonly cause?: unknown; readonly reason?: unknown };
+    const { reason } = error as { readonly reason?: unknown };
+    const cause =
+      error.code === 'tool-failed'
+        ? { toolId: error.toolId }
+        : (error as { readonly cause?: unknown }).cause;
     const details = detailsOf(error);
     return {
       code: error.code,

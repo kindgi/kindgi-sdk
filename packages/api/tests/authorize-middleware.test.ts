@@ -86,7 +86,7 @@ describe('authorize(): a denial', () => {
   });
 });
 
-describe('a check the authorization model has no relation for (T243 A)', () => {
+describe('a check the authorization model has no relation for', () => {
   /** An authorizer whose PDP allows everything, and records what it was asked. */
   function allowing() {
     const asked: string[] = [];

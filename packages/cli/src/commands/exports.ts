@@ -100,7 +100,7 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Export the whole workspace as files: every kind of record the API reads, one JSON line per record, as the API answers it, and the signed exports (each decided approval's audit bundle, each run's provenance, the compliance evidence). Run it as a tenant admin. manifest.json says what each file holds. Exit 0 when every kind is exported or skipped, 1 when any failed.",
+    "Export the whole workspace as files: every kind of record the API reads, one JSON line per record, as the API answers it, and the signed exports (each decided approval's audit bundle, each run's provenance, the compliance evidence). Run it as a tenant admin. manifest.json says what each file holds. An export is the workspace's own copy of its records, not a backup to restore: no runtime loads one. Exit 0 when every kind is exported or skipped, 1 when any failed.",
   usage: 'kindgi exports create --out <dir> [--resume] [--no-signed] [--yes]',
   optionSpec: {
     out: {
@@ -125,6 +125,23 @@ const create: LeafCommand = {
     },
   },
   run: async (ctx): Promise<CommandResult> => {
+    // Each kind's line, as it ends: out as it comes when the CLI streams them
+    // (`ctx.progress`), else kept for the result's stderr, as `kindgi build`'s.
+    const kept: string[] = [];
+    const progress =
+      ctx.progress ??
+      ((line: string) => {
+        kept.push(line);
+      });
+    const withKept = (result: CommandResult): CommandResult => {
+      const said = kept.join('');
+      if (said === '') return result;
+      if (result.kind === 'error') return { ...result, stderr: `${said}${result.stderr}` };
+      return {
+        ...result,
+        rendered: { ...result.rendered, stderr: `${said}${result.rendered.stderr}` },
+      };
+    };
     try {
       const out = stringFlag(ctx, 'out');
       if (out === undefined || out === '') {
@@ -155,18 +172,14 @@ const create: LeafCommand = {
         reader,
         server: ctx.apiUrl().replace(/\/+$/, ''),
         cliVersion: CLI_VERSION,
-        progress:
-          seam.progress ??
-          ((line) => {
-            process.stderr.write(line);
-          }),
+        progress,
         quiet: ctx.globals.format === 'quiet',
         ...(seam.now !== undefined && { now: seam.now }),
         ...(ctx.stopSignal !== undefined && { stopSignal: ctx.stopSignal }),
       });
-      return exported(ctx, manifest, out);
+      return withKept(exported(ctx, manifest, out));
     } catch (err) {
-      return commandResultFromThrown(err, ctx, 'exports create');
+      return withKept(commandResultFromThrown(err, ctx, 'exports create'));
     }
   },
 };

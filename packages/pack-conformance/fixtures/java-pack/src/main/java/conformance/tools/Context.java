@@ -24,6 +24,9 @@ public final class Context {
         if (ctx.idempotencyKey() != null) {
           out.put("idempotencyKey", ctx.idempotencyKey());
         }
+        if (ctx.timeZone() != null) {
+          out.put("timeZone", ctx.timeZone());
+        }
         if (ctx.projectId() != null) {
           out.put("projectId", ctx.projectId());
         }

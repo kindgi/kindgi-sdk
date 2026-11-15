@@ -76,9 +76,13 @@ with a conflict, `idempotency-key-in-flight`. See
 ### If the runtime stops
 
 A runtime that's shut down, by a deploy or `docker stop`, gives the runs
-it's executing a few seconds to finish. [Restart the runtime](../../deploy/self-hosted/restart-and-check-health/#restart-the-runtime)
-has the details. A runtime can also stop without a shutdown: it's killed, it
-runs out of memory, or it crashes. It then leaves its runs mid-way.
+it's executing a few seconds to finish. Each one still executing then
+fails, and `run.finished` tells your app
+([Restart the runtime](../../deploy/self-hosted/restart-and-check-health/#restart-the-runtime)
+has the details). A run parked at a waitpoint isn't executing, so it goes
+on waiting, unless it's part of a run the stop fails. A runtime can also
+stop without a shutdown: it's killed, it runs out of memory, or it
+crashes. It then leaves its runs mid-way.
 
 Kindgi finds those runs by their **lease**. The server executing a run renews
 the run's lease while the run goes on. Every server sweeps for leases that ran
@@ -99,6 +103,10 @@ Within about a lease plus a sweep:
   was cancelled, otherwise failed:
   `Interrupted: its parent run had ended (failed), so nothing waits for it.`
   So an approval inside a cancelled flow can't run its tools.
+- **A run whose parent run was deleted is failed too:** its parent ended,
+  and [retention](../../deploy/retention/) removed it before a sweep got
+  to this run:
+  `Interrupted: a run it was part of was deleted, so nothing waits for it.`
 
 A new run gets at least a minute before a sweep can pick it up, whatever
 the lease.

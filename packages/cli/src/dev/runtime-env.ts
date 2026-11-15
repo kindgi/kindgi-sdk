@@ -12,6 +12,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { TENANT_EGRESS_NO_PROXY_VAR, TENANT_EGRESS_PROXY_VAR } from '@kindgi/env-schema';
 import { LOCAL_ENV_NAME, readPackEnv } from '@kindgi/secrets-dotenv';
 
 import { writePrivateFile } from '../private-file.js';
@@ -22,6 +23,9 @@ export const RUNTIME_PACK_DIR = '/pack';
 export const RUNTIME_GOOGLE_CREDENTIALS = '/run/kindgi/google-credentials.json';
 export const RUNTIME_PUBLIC_TOKEN_KEY = '/run/kindgi/public-token-signing.pem';
 export const RUNTIME_EXPORT_SIGNING_KEY = '/run/kindgi/export-signing.pem';
+/** Where the connections' key files are mounted in the runtime container. */
+export const RUNTIME_SECRETS_LOCAL_KEY = '/run/kindgi/secrets-local.key';
+export const RUNTIME_SECRETS_AAD_KEY = '/run/kindgi/secrets-aad.key';
 
 /** `<pack>/.kindgi/dev/runtime.env`. */
 export function runtimeEnvPath(packDir: string): string {
@@ -64,12 +68,24 @@ export interface RuntimeEnvInput {
   /** The developer's Google Application Default Credentials, as the runtime sees them. */
   readonly googleCredentialsPath?: string;
   /**
+   * The key files for connections' token sets, as the runtime sees them:
+   * one pair per dev database, which `kindgi dev` makes. With them the
+   * runtime keeps token sets in that database (`KINDGI_CONNECTIONS_STORE=postgres`);
+   * without them connections are off.
+   */
+  readonly connectionKeys?: { readonly localKeyPath: string; readonly aadKeyPath: string };
+  /**
    * `KINDGI_LOG_*`: the levels `kindgi dev` shows, and `KINDGI_LOG_FORMAT=json`
    * when `kindgi dev` reads the runtime's output (the container's). A
    * runtime the developer runs (`--runtime-url`) writes to their terminal,
    * which picks the format. An older runtime ignores the names.
    */
   readonly log?: Readonly<Record<string, string>>;
+  /**
+   * `KINDGI_TENANT_EGRESS_PROXY` and `KINDGI_TENANT_EGRESS_NO_PROXY`, as
+   * `kindgi dev` has them (`tenantEgressOf`).
+   */
+  readonly tenantEgress?: Readonly<Record<string, string>>;
   /**
    * Values from the shell for `${VAR}` references the pack's env files
    * make and don't define. On the machine the server reads them from the
@@ -117,6 +133,17 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
     ...(input.googleCredentialsPath !== undefined && {
       GOOGLE_APPLICATION_CREDENTIALS: input.googleCredentialsPath,
     }),
+    ...input.tenantEgress,
+    // Token sets in the dev database, under keys only this database's
+    // runtime uses. The local key is a dev key on one machine: that's
+    // what the ack says.
+    ...(input.connectionKeys !== undefined && {
+      KINDGI_CONNECTIONS_STORE: 'postgres',
+      KINDGI_SECRETS_BACKEND_KMS: 'libsodium',
+      KINDGI_SECRETS_LOCAL_KEY_PATH: input.connectionKeys.localKeyPath,
+      KINDGI_SECRETS_AAD_KEY_PATH: input.connectionKeys.aadKeyPath,
+      KINDGI_SECRETS_LOCAL_KEY_ACK: 'single-node',
+    }),
   };
   for (const [name, value] of Object.entries(input.shellReferences)) {
     // The runtime's own settings come from kindgi dev, never from a
@@ -147,6 +174,31 @@ export async function shellReferencesOf(input: {
     if (d.kind !== 'unresolved') continue;
     const value = input.shellEnv[d.ref];
     if (value !== undefined) out[d.ref] = value;
+  }
+  return out;
+}
+
+/** The tenant egress proxy settings `kindgi dev` hands on from its own environment. */
+const TENANT_EGRESS_NAMES: readonly string[] = [
+  TENANT_EGRESS_PROXY_VAR,
+  TENANT_EGRESS_NO_PROXY_VAR,
+];
+
+/**
+ * The runtime's tenant egress proxy, for a machine whose network lets
+ * traffic out only through one: `KINDGI_TENANT_EGRESS_PROXY` and
+ * `KINDGI_TENANT_EGRESS_NO_PROXY` from `kindgi dev`'s own environment,
+ * each only when set and not empty, as they are. The runtime checks them
+ * when it starts, and refuses a proxy URL that carries credentials. They
+ * go only into `runtime.env`, never into what `kindgi dev` prints or logs.
+ */
+export function tenantEgressOf(
+  hostEnv: Readonly<Record<string, string | undefined>>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const name of TENANT_EGRESS_NAMES) {
+    const value = hostEnv[name];
+    if (value !== undefined && value !== '') out[name] = value;
   }
   return out;
 }

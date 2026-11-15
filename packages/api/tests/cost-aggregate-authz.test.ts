@@ -6,7 +6,8 @@
  * or an org), it counts only the projects the caller may read, applied in
  * the binding's query (`readableProjectIds`); a tenant admin's counts them
  * all. Records with no project are the tenant's, as `/v1/cost/records`
- * reads them. Both ways of working out the projects: the authorizer's list
+ * reads them: counted for a caller who reads the whole workspace, not for a
+ * key limited to a project (`includeTenantRecords: false`). Both ways of working out the projects: the authorizer's list
  * (`listObjects`), and each project checked.
  */
 
@@ -121,6 +122,15 @@ const ORG_OF: Readonly<Record<string, OrgId>> = { [projectA]: orgO, [projectB]: 
 
 const NO_TOKENS = { prompt: 0, completion: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 };
 
+/** Whether `r` is in an aggregate's `scope`. */
+function inScope(r: (typeof RECORDS)[number], scope: CostAggregateInput['scope']): boolean {
+  if (scope?.kind === 'project') return r.projectId === scope.projectId;
+  if (scope?.kind === 'org') {
+    return r.projectId !== undefined && ORG_OF[r.projectId] === scope.orgId;
+  }
+  return true;
+}
+
 /** A binding that aggregates `RECORDS` as the runtime's query does, and keeps each input. */
 function costBinding(appliesReadable = true): {
   binding: CostBinding;
@@ -132,17 +142,14 @@ function costBinding(appliesReadable = true): {
     getRecord: async () => null,
     aggregate: async (input) => {
       inputs.push(input);
-      const { scope, readableProjectIds: readable } = input;
+      const { scope, readableProjectIds: readable, includeTenantRecords } = input;
       const counted = RECORDS.filter((r) => {
-        if (scope?.kind === 'project' && r.projectId !== scope.projectId) return false;
-        if (
-          scope?.kind === 'org' &&
-          (r.projectId === undefined || ORG_OF[r.projectId] !== scope.orgId)
-        )
-          return false;
-        if (appliesReadable && readable !== undefined && r.projectId !== undefined)
-          return readable.includes(r.projectId);
-        return true;
+        if (!inScope(r, scope)) return false;
+        if (!appliesReadable || readable === undefined) return true;
+        // A readable project's record, or one with no project unless the caller doesn't read those.
+        return r.projectId === undefined
+          ? includeTenantRecords !== false
+          : readable.includes(r.projectId);
       });
       const groups = new Map<string, CostAggregateGroup>();
       for (const r of counted) {
@@ -183,13 +190,14 @@ function harness(opts: {
   readonly withProjects?: boolean;
 }) {
   const { binding, inputs } = costBinding(opts.appliesReadable ?? true);
+  const items = [
+    ...[projectA, projectB].map((id) => ({ id, tenantId, orgId: orgO })),
+    { id: projectC, tenantId },
+  ] as unknown as Project[];
+  // `get` too: a key limited to a project reads only its project's org.
   const projectBinding = {
-    list: async () => ({
-      items: [
-        ...[projectA, projectB].map((id) => ({ id, tenantId, orgId: orgO })),
-        { id: projectC, tenantId },
-      ] as unknown as Project[],
-    }),
+    list: async () => ({ items }),
+    get: async (_t: TenantId, id: ProjectId) => items.find((p) => p.id === id) ?? null,
   } as unknown as ProjectBinding;
   const app = createApp({
     ...createStubAppBindings(),
@@ -229,6 +237,8 @@ describe.each([
     expect(keyValues(res.body)).not.toContain('model-b');
     expect(keyValues(res.body)).not.toContain(projectB);
     expect(h.inputs.at(-1)?.readableProjectIds).toEqual([projectA]);
+    // The tenant's own records count for a member, who reads the whole workspace.
+    expect(h.inputs.at(-1)?.includeTenantRecords).toBeUndefined();
   });
 
   test("an org scope counts only the org's projects the member may read", async () => {
@@ -250,22 +260,37 @@ describe.each([
     expect(h.inputs.at(-1)?.readableProjectIds).toBeUndefined();
   });
 
-  test("an admin's API key limited to project A counts only A (and the tenant's own records)", async () => {
+  test("an admin's API key limited to project A counts only A, not the tenant's own records", async () => {
     const h = harness({ authz });
     const res = await h.aggregate(ADMIN_KEY_A);
     expect(res.status).toBe(200);
-    expect(res.body.totalUsd).toBe(2.5);
+    expect(res.body.totalUsd).toBe(2);
     expect(keyValues(res.body)).not.toContain('agent-b');
-    expect(h.inputs.at(-1)?.readableProjectIds).toEqual([projectA]);
+    expect(keyValues(res.body)).not.toContain('agent-t');
+    expect(h.inputs.at(-1)).toMatchObject({
+      readableProjectIds: [projectA],
+      includeTenantRecords: false,
+    });
   });
 
-  test("an org scope, for a key whose project is outside the org, counts nothing (not the tenant's own either)", async () => {
+  test("an org scope, for a key whose project is outside the org: refused, as the key reads only its project's org", async () => {
     const h = harness({ authz });
     const res = await h.aggregate(ADMIN_KEY_C, `&scopeKind=org&scopeId=${orgO}`);
+    expect(res.status).toBe(403);
+    expect(res.body.error?.code).toBe('permission-denied');
+    expect(h.inputs).toEqual([]);
+  });
+
+  test("its project's org scope, for a key: only its project, not the tenant's own records", async () => {
+    const h = harness({ authz });
+    const res = await h.aggregate(ADMIN_KEY_A, `&scopeKind=org&scopeId=${orgO}`);
     expect(res.status).toBe(200);
-    expect(res.body.totalRecords).toBe(0);
-    expect(res.body.groups).toEqual([]);
-    expect(h.inputs.at(-1)?.readableProjectIds).toEqual([projectC]);
+    expect(res.body.totalUsd).toBe(2);
+    expect(keyValues(res.body)).not.toContain('agent-b');
+    expect(h.inputs.at(-1)).toMatchObject({
+      readableProjectIds: [projectA],
+      includeTenantRecords: false,
+    });
   });
 
   test('a project scope is checked as before, and not narrowed further', async () => {

@@ -256,6 +256,55 @@ describe('kindgi sso providers finish / update', () => {
     );
   });
 
+  test("finish SAML reads the service provider's certificates from files, beside their keys", async () => {
+    const { calls, rec } = recorder();
+    const pem = (body: string) =>
+      `-----BEGIN CERTIFICATE-----\n${body}\n-----END CERTIFICATE-----\n`;
+    const idp = join(cwd, 'idp.xml');
+    await writeFile(idp, '<EntityDescriptor entityID="https://idp.acme.example"/>');
+    const files = { signing: 'MIIC', next: 'MIID', decryption: 'MIIE' };
+    for (const [name, body] of Object.entries(files)) {
+      await writeFile(join(cwd, `${name}.pem`), pem(body));
+    }
+    const client = {
+      auth: { providers: { register: rec('register', { providerId: 'acme-saml' }) } },
+    };
+    const saml = [
+      'sso',
+      'providers',
+      'finish',
+      'acme-saml',
+      '--kind=saml',
+      `--idp-metadata=@${idp}`,
+    ];
+    const out = await run(
+      [
+        ...saml,
+        '--domains=acme.com',
+        '--sp-signing-key-ref=ACME_SP_KEY',
+        `--sp-signing-certificate=@${join(cwd, 'signing.pem')}`,
+        `--sp-signing-certificate=@${join(cwd, 'next.pem')}`,
+        '--sp-decryption-key-ref=ACME_SP_DECRYPTION_KEY',
+        `--sp-decryption-certificate=@${join(cwd, 'decryption.pem')}`,
+      ],
+      client,
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls[0]?.[1]).toMatchObject({
+      spSigningKeyRef: 'ACME_SP_KEY',
+      spSigningCertificates: [pem('MIIC'), pem('MIID')],
+      spDecryptionKeyRef: 'ACME_SP_DECRYPTION_KEY',
+      spDecryptionCertificates: [pem('MIIE')],
+    });
+    const inline = await run(
+      [...saml, '--domains=acme.com', '--sp-signing-certificate=-----BEGIN CERTIFICATE-----'],
+      client,
+    );
+    expect(inline.exitCode).toBe(1);
+    expect(inline.stderr).toContain('--sp-signing-certificate takes a file');
+    expect(calls).toHaveLength(1);
+  });
+
   test('update sends only the changes; --remove sends null', async () => {
     const { calls, rec } = recorder();
     const out = await run(
@@ -278,6 +327,67 @@ describe('kindgi sso providers finish / update', () => {
     });
     expect(nothing.exitCode).toBe(1);
     expect(nothing.stderr).toContain('Nothing to change');
+  });
+
+  test('--join and --join-role go as join and joinRole; finish refuses a role without --join=domain', async () => {
+    const { calls, rec } = recorder();
+    const finish = [
+      'sso',
+      'providers',
+      'finish',
+      'acme-okta',
+      '--kind=oidc',
+      '--issuer=https://acme.okta.example',
+      '--client-id=client-1',
+      '--client-secret-ref=ACME_OKTA_SECRET',
+      '--domains=acme.com',
+    ];
+    const providers = {
+      register: rec('register', { providerId: 'acme-okta' }),
+      update: rec('update', { providerId: 'acme-okta', provider: {} }),
+    };
+    const joined = await run([...finish, '--join=domain', '--join-role=runner'], {
+      auth: { providers },
+    });
+    expect(joined.exitCode, joined.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'register',
+        {
+          providerId: 'acme-okta',
+          kind: 'oidc',
+          issuer: 'https://acme.okta.example',
+          clientId: 'client-1',
+          clientSecretRef: 'ACME_OKTA_SECRET',
+          join: 'domain',
+          joinRole: 'runner',
+          domains: ['acme.com'],
+        },
+      ],
+    ]);
+
+    const roleAlone = await run([...finish, '--join-role=viewer'], { auth: { providers } });
+    expect(roleAlone.exitCode).toBe(1);
+    expect(roleAlone.stderr).toContain('--join-role needs --join=domain');
+
+    // On update the provider may already be set to `domain`: the server decides.
+    const update = await run(['sso', 'providers', 'update', 'acme-okta', '--join-role=none'], {
+      auth: { providers },
+    });
+    expect(update.exitCode, update.stderr).toBe(0);
+    expect(calls.at(-1)).toEqual(['update', 'acme-okta', { joinRole: 'none' }]);
+
+    const badJoin = await run(['sso', 'providers', 'update', 'acme-okta', '--join=anyone'], {
+      auth: { providers },
+    });
+    expect(badJoin.exitCode).toBe(1);
+    expect(badJoin.stderr).toContain('--join must be `invite` or `domain`');
+    const badRole = await run(['sso', 'providers', 'update', 'acme-okta', '--join-role=admin'], {
+      auth: { providers },
+    });
+    expect(badRole.exitCode).toBe(1);
+    expect(badRole.stderr).toContain('--join-role must be `viewer`, `runner` or `none`');
+    expect(calls).toHaveLength(2);
   });
 });
 

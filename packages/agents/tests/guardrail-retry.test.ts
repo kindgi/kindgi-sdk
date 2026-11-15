@@ -410,7 +410,8 @@ describe('budget-check with a retry guardrail', () => {
     ]);
     await failureOf(() => check(errored.ctx, 0, 'It shipped.'));
     expect(errored.seen.nodes).toEqual([
-      expect.objectContaining({ id: 'model-output:1' }),
+      // The answer is the agent's.
+      expect.objectContaining({ id: 'model-output:1', actor: 'agent:acme.helper@1.0.0' }),
       expect.objectContaining({
         id: 'guardrail-check:acme.polite',
         attributes: expect.objectContaining({ evaluated: false }),

@@ -109,8 +109,9 @@ function routeAnswer(url: URL, answer: Records | undefined): Response {
 async function cli(
   fake: ReturnType<typeof server>,
   args: readonly string[] = [],
-  extra: { stopSignal?: AbortSignal } = {},
+  extra: { stopSignal?: AbortSignal; stream?: boolean } = {},
 ) {
+  // Each kind's line as it ends (`ctx.progress`), as the CLI streams it to stderr.
   const progress: string[] = [];
   const pauses: number[] = [];
   const waits: number[] = [];
@@ -120,8 +121,8 @@ async function cli(
     cwd,
     home,
     fetchImpl: fake.fetchImpl,
+    ...(extra.stream !== false && { progress: (text: string) => progress.push(text) }),
     exportsSeam: {
-      progress: (line) => progress.push(line),
       now: () => new Date('2026-10-15T12:00:00.000Z'),
       pause: async (ms) => {
         pauses.push(ms);
@@ -159,6 +160,7 @@ async function manifest(): Promise<{
     }
   >;
   finishedAt?: string;
+  runtime?: { version: string };
   tenant: { id: string; state?: string };
   server: string;
   consistency: string;
@@ -375,6 +377,29 @@ describe('kindgi exports create', () => {
     ]);
   });
 
+  test('a removed trigger is read too, with its fires and its versions', async () => {
+    const removed = { triggerId: 'sched-1', unregisteredAt: '2026-10-14T09:00:00.000Z' };
+    const fake = server({
+      '/v1/schedules': (url) =>
+        json(200, {
+          data: url.searchParams.get('includeUnregistered') === 'true' ? [removed] : [],
+          hasMore: false,
+        }),
+      '/v1/schedules/sched-1/fires': [{ runId: 'run-1', version: 1 }],
+      '/v1/schedules/sched-1/versions': [{ triggerId: 'sched-1', version: 1 }],
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(await lines('schedules')).toEqual([removed]);
+    expect(fake.calls).toEqual(
+      expect.arrayContaining([
+        'GET /v1/schedules?includeUnregistered=true&limit=100',
+        'GET /v1/schedules/sched-1/fires?includeUnregistered=true&limit=100',
+        'GET /v1/schedules/sched-1/versions?includeUnregistered=true&limit=100',
+      ]),
+    );
+  });
+
   test('a 429 is waited out; a 5xx is sent again three times, then that kind fails and the rest go on', async () => {
     let flowsTries = 0;
     let agentsTries = 0;
@@ -582,7 +607,7 @@ describe('kindgi exports create', () => {
     const refused = await cli(server({}, { admin: false }));
     expect(refused.exitCode).toBe(1);
     expect(refused.stderr).toContain(
-      "You aren't a tenant admin here, so the export would skip team-memberships, team-project-grants, sites, users,",
+      "You aren't a tenant admin here, so the export would skip deleted-projects, team-memberships, team-project-grants, sites, users,",
     );
     expect(refused.stderr).toContain('pass --yes');
     await expect(readdir(out)).rejects.toThrow();
@@ -834,6 +859,66 @@ describe('kindgi exports create', () => {
     expect(thawed.consistency).toMatch(/^Records can change while the export reads them/);
   });
 
+  test("the manifest names the runtime's version only when every read found the same one", async () => {
+    let version = '0.3.0';
+    let flowsDown = false;
+    const runtime = () => json(200, { version, tenancy: 'single', development: false });
+    const answers: Record<string, Answer> = {
+      '/v1/runtime': runtime,
+      '/v1/flows': () =>
+        flowsDown
+          ? json(500, { error: { code: 'internal', message: 'Oops' } })
+          : json(200, { data: [], hasMore: false }),
+    };
+    expect((await cli(server(answers))).exitCode).toBe(0);
+    // Its version only: the runtime's tenancy isn't the workspace's to keep.
+    expect((await manifest()).runtime).toEqual({ version: '0.3.0' });
+
+    // A runtime that doesn't serve it.
+    await rm(out, { recursive: true, force: true });
+    expect((await cli(server())).exitCode).toBe(0);
+    expect(await manifest()).not.toHaveProperty('runtime');
+
+    // Stopped, then finished on the same runtime.
+    await rm(out, { recursive: true, force: true });
+    flowsDown = true;
+    expect((await cli(server(answers))).exitCode).toBe(1);
+    expect((await manifest()).runtime).toEqual({ version: '0.3.0' });
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    expect((await manifest()).runtime).toEqual({ version: '0.3.0' });
+
+    // Upgraded between a run and its --resume.
+    await rm(out, { recursive: true, force: true });
+    flowsDown = true;
+    expect((await cli(server(answers))).exitCode).toBe(1);
+    version = '0.3.1';
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    expect(await manifest()).not.toHaveProperty('runtime');
+
+    // Stopped where no version was read, then finished where one is.
+    await rm(out, { recursive: true, force: true });
+    flowsDown = true;
+    expect((await cli(server({ '/v1/flows': answers['/v1/flows'] as Answer }))).exitCode).toBe(1);
+    flowsDown = false;
+    expect((await cli(server(answers), ['--resume'])).exitCode).toBe(0);
+    expect(await manifest()).not.toHaveProperty('runtime');
+
+    // Upgraded while one run read the workspace.
+    let reads = 0;
+    answers['/v1/runtime'] = () =>
+      json(200, {
+        version: reads++ === 0 ? '0.3.1' : '0.3.2',
+        tenancy: 'single',
+        development: false,
+      });
+    await rm(out, { recursive: true, force: true });
+    expect((await cli(server(answers))).exitCode).toBe(0);
+    expect(reads).toBe(2);
+    expect(await manifest()).not.toHaveProperty('runtime');
+  });
+
   test('a kind skipped on a later run leaves none of what a run that stopped part way wrote of it', async () => {
     const refused = () => json(400, { error: { code: 'invalid-request', message: 'No' } });
     const first = await cli(
@@ -880,6 +965,20 @@ describe('kindgi exports create', () => {
     const quiet = await cli(server(answers), ['--quiet']);
     expect(quiet).toMatchObject({ exitCode: 0, stdout: '', stderr: '', progress: [] });
     expect((await manifest()).kinds.agents).toMatchObject({ status: 'ok', records: 1 });
+  });
+
+  test("given no progress to stream to, each kind's line comes in the outcome's stderr, as it would have streamed", async () => {
+    const answers = { '/v1/agents': [{ id: 'agent-a' }] };
+    const streamed = await cli(server(answers));
+    expect(streamed.exitCode, streamed.stderr).toBe(0);
+
+    await rm(out, { recursive: true, force: true });
+    const kept = await cli(server(answers), [], { stream: false });
+    expect(kept.exitCode, kept.stderr).toBe(0);
+    expect(kept.progress).toEqual([]);
+    expect(kept.stderr).toContain('agents: 1 record\n');
+    expect(kept.stderr).toBe(`${streamed.progress.join('')}${streamed.stderr}`);
+    expect(kept.stdout).toBe(streamed.stdout);
   });
 
   test('--quiet: a kind that fails says its line alone, then how to read it again', async () => {

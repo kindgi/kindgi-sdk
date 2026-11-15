@@ -51,10 +51,11 @@
 #     az acr login --expose-token, on docker login's stdin) and adds the
 #     image tag <registry>/runtime:<version> there.
 #   - It creates a Container Apps job for each check,
-#     <name_prefix>-upgchk-<HHMMSS>-pk, -ss and -mhc, runs it once, and
-#     deletes it when it ends, however it ends. It prints each job's name
-#     when it creates it: a run that's killed outright (kill -9, a closed
-#     laptop) can't delete them, so delete a leftover one by that name:
+#     <name_prefix>-upgchk-<HHMMSS>-pk, -ss, -mhc and, to 0.7.0 or later,
+#     -ipk, runs it once, and deletes it when it ends, however it ends. It
+#     prints each job's name when it creates it: a run that's killed
+#     outright (kill -9, a closed laptop) can't delete them, so delete a
+#     leftover one by that name:
 #       az containerapp job delete -n <name> -g <resource group> --yes
 #   - On a server tier that takes them, it takes an on-demand backup,
 #     pre-upgrade-<from>-to-<to>-<UTC time> (a server keeps up to seven).
@@ -77,7 +78,7 @@
 # Usage:
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
-#                [--to 0.6.0] [--from <version>] \
+#                [--to 0.7.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -100,12 +101,12 @@
 #                      release's tag, then copied into the module's registry
 #                      by its whole index.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.6.0). An rc such as 0.6.0-rc.0 works too, and so does
+#                      0.7.0). An rc such as 0.7.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
-#                      script knows the steps up to 0.6.0; for a later
+#                      script knows the steps up to 0.7.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -150,13 +151,15 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
-# How long to wait for the new revision to become ready (step 6).
+# How long to wait for the new revision to become ready (step 6): longer
+# than the server's startup probe (10 minutes), so a start the platform
+# still lets run is never reported as failed.
 readonly POLL_INTERVAL=10
-readonly POLL_TRIES=60
+readonly POLL_TRIES=90
 # <<<
 # The first release with this script. A run to an earlier one plans this
 # copy's module, and no earlier tag has a script to keep the module there.
@@ -406,7 +409,18 @@ EOT
 # run uses. A Container Apps job's name is at most 32 characters: the prefix
 # (12 at most, as the module takes it) and 18 more. $2 is the run's HHMMSS.
 # >>> same in both modules: checks
-readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials" "identity-provider-keys")
+# The first release whose runtime has identity-provider-keys. A run to an
+# earlier release leaves the check out (RUN_CHECKS): its runtime has no such
+# check. The release's rcs and server fixes count as the release.
+readonly IDENTITY_PROVIDER_KEYS_RELEASE="0.7.0"
+# The release a check came with, for one an earlier target's runtime lacks;
+# nothing for the others.
+check_release() {
+  case "$1" in
+    identity-provider-keys) printf '%s' "$IDENTITY_PROVIDER_KEYS_RELEASE" ;;
+  esac
+}
 # <<<
 check_job_name() {
   local prefix="${NAME_PREFIX:0:12}" suffix
@@ -415,6 +429,7 @@ check_job_name() {
     provider-keys) suffix="pk" ;;
     secret-scopes) suffix="ss" ;;
     mcp-header-credentials) suffix="mhc" ;;
+    identity-provider-keys) suffix="ipk" ;;
   esac
   printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
 }
@@ -494,6 +509,27 @@ if [[ -n $CHECK_TENANT ]]; then
   [[ $CHECK_TENANT =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] \
     || die "--check-tenant \"$CHECK_TENANT\" isn't a tenant id (a uuid)."
 fi
+
+# >>> same in both modules: target-checks
+# The checks this run makes: each of CHECKS that the target's runtime has.
+RUN_CHECKS=()
+for check in "${CHECKS[@]}"; do
+  since="$(check_release "$check")"
+  if [[ -z $since ]] || [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$since")" ]]; then
+    RUN_CHECKS+=("$check")
+  fi
+done
+# Each check the target's runtime lacks, said where a run lists its checks
+# ($1, the line's indent).
+say_checks_left_out() {
+  local check
+  for check in "${CHECKS[@]}"; do
+    if [[ " ${RUN_CHECKS[*]} " != *" $check "* ]]; then
+      info "${1}check $check isn't run: the $TARGET runtime doesn't have it ($(check_release "$check") and later do)"
+    fi
+  done
+}
+# <<<
 
 require_cmd terraform az jq docker
 
@@ -968,7 +1004,8 @@ EOT
       # The 0.4.0 release notes' Upgrade steps, but for three: the core file
       # limit is set in compose, docker run or systemd, which neither module
       # runs, and the two on Cloud Run's packs are that module's own changes,
-      # which it prints with its plan and after its apply.
+      # which it prints with its plan and after its apply. The first start's
+      # 10 minutes, after the lock lines, came after the notes.
       cat <<'EOT'
    - Eighteen new migrations: four new tables (block_version_prs,
      env_cloud_secrets, run_files and tool_file_tokens), new columns that
@@ -990,7 +1027,11 @@ EOT
      A long transaction holding one of those tables makes the new revision
      fail after about a minute, naming the session that holds it (end it
      with pg_terminate_backend, or let it finish). The old revision keeps
-     serving meanwhile.
+     serving meanwhile. The first start has 10 minutes to run the
+     migrations (the module's startup probe): one that runs longer is
+     restarted and runs them again from the start, so it may never
+     finish. With many judgments or test runs, time the upgrade on a
+     copy of the database first.
    - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
      identity the server reads it as storage.buckets.get on that bucket
      first: the 0.4.0 runtime reads the bucket's settings at start, and
@@ -1185,6 +1226,47 @@ EOT
      target. Register the URL it redirects to.
 EOT
       ;;
+    0.7.0)
+      cat <<'EOT'
+   - The first start runs this release's migrations: they add tables and
+     columns, and fill nothing in.
+   - A server serving many tenants no longer brings every tenant's
+     authorization store up to the new model when it starts: it brings
+     each one up the first time it uses it, and logs "authz: store
+     brought up to the current model". One that fails logs "authz: could
+     not bring a store up to the current model" at WARN, goes on with the
+     store's model, and a later use tries again. A server serving one
+     tenant still does it when it starts.
+   - If this server served many tenants on 0.6.x, run this once after the
+     upgrade, with the new runtime's kindgi-runtime and the server's
+     database and OpenFGA settings (KINDGI_OPENFGA_API_URL, with its
+     preshared key and auth):
+       kindgi-runtime tenants repair --all
+     It brings each tenant's access in OpenFGA back in line with its
+     record, so it puts back the runner roles 0.6.x may have dropped.
+     With --dry-run it shows, for each tenant, what it would put back
+     and take away, and changes nothing. A server serving one tenant
+     doesn't need it.
+   - Within about a minute of the first start, the runtime ends each
+     unfinished run that was part of a run whose record was deleted (by
+     retention, for example). It fails it with "Interrupted: a run it was
+     part of was deleted, so nothing waits for it." So runs that showed as
+     running or waiting for a long time may change to failed.
+   - The runtime reports its usage to Kindgi at most once a day, with its
+     license key, to https://access.kindgi.com/v1/report, through
+     HTTPS_PROXY when that's set: let the server reach it. A report that
+     can't be sent never stops the runtime; it tries again within the
+     hour. Its answer can renew the key: the runtime keeps a renewed key
+     in its database, and runs on it from then on. A key marked offline
+     never reports: a server that can't reach Kindgi can ask for one.
+   - With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants
+     purge and tenants repurge erase a tenant's secrets in the secret
+     manager too. Run them with the server's secret manager settings
+     (KINDGI_SECRETS_MANAGER and that manager's): without them, a purge
+     of a tenant with secrets there is refused, and says how many and in
+     which manager.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1223,6 +1305,18 @@ EOT
     0.6.0)
       cat <<'EOT'
    - 0.6.0 doesn't change the module.
+EOT
+      ;;
+    0.7.0)
+      cat <<'EOT'
+   - With license_renewal_schedule set, the plan changes the key-expiring
+     alert (license_key_expiring) in place: its description, and its query,
+     which now fires on any "It expires in N days" line the renewal job
+     logs, from the key's warning window (30 days before it expires, or
+     fewer when the key sets its own) rather than its last 7 days.
+   - The plan also changes the server in place: its startup probe allows
+     10 minutes, 120 tries 5 s apart, so a first start has that long to run
+     the migrations.
 EOT
       ;;
   esac
@@ -1276,6 +1370,14 @@ plan_allowed_changes() {
           "azurerm_container_app.pack template.container.startup_probe.interval_seconds" \
           "azurerm_container_app.pack template.container.startup_probe.timeout" \
           "azurerm_container_app.pack template.container.startup_probe.failure_count_threshold"
+        ;;
+      0.7.0)
+        # The key-expiring alert, there only with license_renewal_schedule set.
+        printf '%s\n' \
+          "azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring description" \
+          "azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring criteria.query"
+        # The server's startup probe.
+        printf '%s\n' "azurerm_container_app.server template.container.startup_probe.failure_count_threshold"
         ;;
     esac
   done
@@ -1396,10 +1498,11 @@ if [[ $DRY_RUN == true ]]; then
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to the module's registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
-  info "2. create, run and then delete ${#CHECKS[@]} Container Apps jobs with the new image, one per check:"
-  for check in "${CHECKS[@]}"; do
+  info "2. create, run and then delete ${#RUN_CHECKS[@]} Container Apps jobs with the new image, one per check:"
+  for check in "${RUN_CHECKS[@]}"; do
     info "     $(check_job_name "$check" "<HHMMSS>")  (check $check)"
   done
+  say_checks_left_out "   "
   info "   in the environment ${ENVIRONMENT}, as the server's identity, reading database-url from the vault ${KEY_VAULT}"
   info "   A dry run doesn't run them; a real run stops before the plan if one fails."
   info "3. nothing yet: the backup is ${DB_SERVER}'s point-in-time restore (${RETENTION_DAYS} days kept, the earliest restore point ${EARLIEST_RESTORE})"
@@ -1515,7 +1618,8 @@ run_check() {
 # l.151-155), and gets the database URL as a Key Vault reference without a
 # version, as the server does. The check name is baked into the job's args
 # at create time. provider-keys, secret-scopes and mcp-header-credentials
-# apply for 0.1.8 -> 0.1.10 (stored-secrets is a restore check;
+# apply for 0.1.8 -> 0.1.10, and identity-provider-keys to
+# IDENTITY_PROVIDER_KEYS_RELEASE or later (stored-secrets is a restore check;
 # purged-tenants is multi-tenant only).
 #
 # Each job is made from its whole resource, through Resource Manager, which
@@ -1550,7 +1654,8 @@ check_job_spec() {
 }
 step "Running the new runtime's read-only checks (as jobs)"
 check_stamp="$(date -u +%H%M%S)"
-for check in "${CHECKS[@]}"; do
+say_checks_left_out ""
+for check in "${RUN_CHECKS[@]}"; do
   job="$(check_job_name "$check" "$check_stamp")"
   spec="$WORK/$job.json"
   (umask 077 && check_job_spec "$job" "$check" >"$spec")

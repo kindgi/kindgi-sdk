@@ -102,7 +102,7 @@ describe('expandEnv — escapes, cycles, diagnostics', () => {
     );
   });
 
-  test("a key that refers to itself takes the environment's value: no cycle (T377)", () => {
+  test("a key that refers to itself takes the environment's value: no cycle", () => {
     const env = { KEY: 'from-shell', PATH: '/bin' };
     const r = expandEnv(
       { KEY: '${KEY}', BARE: '$KEY', PATH: '$PATH:/extra', DFLT: '${DFLT:-fallback}' },

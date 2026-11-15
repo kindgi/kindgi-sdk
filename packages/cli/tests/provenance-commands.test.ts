@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi provenance list / get / export` (T238), through the client's `provenance`. */
+/** `kindgi provenance list / get / export`, through the client's `provenance`. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,7 +62,7 @@ async function provenance(
   return { out, calls };
 }
 
-describe('kindgi provenance (T238)', () => {
+describe('kindgi provenance', () => {
   test('list, with every filter', async () => {
     const { out, calls } = await provenance([
       'list',

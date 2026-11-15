@@ -1,6 +1,6 @@
 ---
 title: Choose where the runtime keeps files
-description: Keep artifacts, the erasure ledger's copies and purge records in a directory, a Google Cloud Storage bucket, or an AWS S3 bucket or S3-compatible store, with the permissions each needs and what the runtime checks before it serves.
+description: Keep files and their versions, the erasure ledger's copies and purge records in a directory, a Google Cloud Storage bucket, or an AWS S3 bucket or S3-compatible store, with the permissions each needs and what the runtime checks before it serves.
 sidebar:
   order: 3.85
 ---
@@ -25,13 +25,14 @@ These settings and flags each name a place:
 
 | Setting or flag | What goes there |
 | --- | --- |
-| `KINDGI_ARTIFACTS` | Artifacts' bytes ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)). Unset, the runtime serves no artifacts |
+| `KINDGI_ARTIFACTS` | The bytes of files and their versions ([Files and versions](../../../concepts/files-and-versions/)). Unset, the runtime serves no files |
 | `KINDGI_ERASURE_LEDGER_EXPORT` | The server's copies of the erasure ledger ([Back up and restore](../back-up-and-restore/#copies-the-runtime-keeps-on-its-own)) |
-| `KINDGI_TENANT_PURGE_RECORD` | Purge records, from a purge through the system API ([Serve many tenants](../serve-many-tenants/#close-and-purge-a-tenant)) |
+| `KINDGI_TENANT_PURGE_RECORD` | Purge records, from a purge through the system API ([Serve many tenants](../serve-many-tenants/#close-and-purge-a-tenant)), and the records of kept repos' erasures ([Kept repos](../serve-many-tenants/#kept-repos)) |
 | `tenants purge --record` | Purge records, from the command |
 | `tenants repurge --from`, `--ledger` | Where it reads the records, and the ledger's copies |
 | `erasures export --out` | One copy of the ledger, written when you run it |
 | `erasures replay --from` | Where it reads the ledger's copies. It also takes one file by its absolute path |
+| `erasures replay --records` | Where it reads the records of kept repos' erasures |
 
 A place has one of three forms:
 
@@ -46,8 +47,9 @@ s3:<bucket>[/<prefix>]     an S3 bucket, on AWS or in an S3-compatible store
 - **A prefix** keeps a setting's files apart in a shared bucket. Artifacts
   go under `tenants/<tenant id>/` in the bucket, then the prefix:
   `s3:acme-artifacts/prod` puts them under `tenants/<tenant id>/prod/`. The
-  ledger's copies go under the prefix itself, and purge records under
-  `<prefix>/purged/`.
+  ledger's copies go under the prefix itself, purge records under
+  `<prefix>/purged/`, and the records of kept repos' erasures under
+  `<prefix>/kept-repos/erased/`.
   `gcs://` and `s3://` work too, and a trailing `/` is dropped.
 
 The `kindgi-runtime tenants` and `erasures` commands read the server's own
@@ -61,11 +63,16 @@ startup refusal on this page does:
 KINDGI_ARTIFACTS must be `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or `s3:<bucket>[/<prefix>]`; the directory must be absolute. Got "local:artifacts".
 ```
 
-The startup output says where artifacts go, or that they're off:
+The startup output says where files go, or that they're off. With
+`KINDGI_ARTIFACTS` set, the line under it says the setting's next name, as
+[What 0.8.0 removes](../../../concepts/files-and-versions/#what-080-removes)
+lists. `KINDGI_ARTIFACT_MAX_BYTES` gets a line of its own when it's set:
 
 ```text
-  Artifacts: off (KINDGI_ARTIFACTS=local:<dir>, gcs:<bucket> or s3:<bucket> turns on /v1/artifacts)
+  Artifacts: off (KINDGI_ARTIFACTS=local:<dir>, gcs:<bucket> or s3:<bucket> turns on /v1/files and /v1/artifacts)
   Artifacts: on, files under /var/lib/kindgi/artifacts
+  ⚠ KINDGI_ARTIFACTS becomes KINDGI_FILES in 0.8.0; with the old name set, 0.8.0 refuses to start
+  ⚠ KINDGI_ARTIFACT_MAX_BYTES becomes KINDGI_FILE_MAX_BYTES in 0.8.0; with the old name set, 0.8.0 refuses to start
 ```
 
 ## A directory
@@ -285,7 +292,8 @@ overwritten or deleted: `KINDGI_ERASURE_LEDGER_EXPORT`,
 - **Retention on these buckets is fine:** the runtime only adds files.
   Keep the ledger's copies longer than your backups. If a bucket's rule
   deletes a purge record, the ledger's copy still names the tenant
-  ([`tenants repurge --ledger`](../serve-many-tenants/#after-a-restore-tenants-repurge)).
+  ([`tenants repurge --ledger`](../serve-many-tenants/#after-a-restore-tenants-repurge)),
+  and a kept repo's erasure the same way (`erasures replay`).
   Reading them back needs read access too, as the tables above say.
 
 A store that overwrites the probe is refused, since a copy or a record

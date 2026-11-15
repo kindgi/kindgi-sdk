@@ -24,7 +24,10 @@ import org.jspecify.annotations.Nullable;
  *   <li>{@code KINDGI_API_URL} and {@code KINDGI_API_TOKEN} from the environment;
  *   <li>outside production, the running {@code kindgi dev}, from the nearest {@code
  *       .kindgirc.json} at or above the working directory, with a one-time warning to put them in
- *       the app's env file;
+ *       the app's env file. The two go together: a token set without a URL never goes to the
+ *       file's {@code apiUrl}, and the file's token goes only to its own {@code apiUrl}. With only
+ *       one of them set, and the URL not the file's own, the client takes nothing from the file
+ *       and throws, naming it and what to set;
  *   <li>otherwise, an error that says what to set.
  * </ol>
  *
@@ -71,6 +74,10 @@ public final class RuntimeSettings {
     String url = nonEmpty(baseUrl) != null ? baseUrl : nonEmpty(env.get("KINDGI_API_URL"));
     String secret = nonEmpty(token) != null ? token : nonEmpty(env.get("KINDGI_API_TOKEN"));
     if ((url == null || secret == null) && dev != null) {
+      String halfSet = halfSetRefusal(nonEmpty(baseUrl) != null, nonEmpty(token) != null, url, secret, dev);
+      if (halfSet != null) {
+        throw new IllegalStateException(halfSet);
+      }
       List<String> used = new ArrayList<>();
       if (url == null) {
         url = dev.apiUrl();
@@ -109,6 +116,29 @@ public final class RuntimeSettings {
               + " changes: copy the new one into " + ENV_FILE_HINT + ".");
     }
     return new Settings(url, secret);
+  }
+
+  /**
+   * Why the client takes nothing from the running {@code kindgi dev}'s file when only one of the
+   * URL and the token is set, or {@code null} when it may: a token set without a URL would go to
+   * the file's {@code apiUrl}, and the file's token goes only to its own {@code apiUrl}. A URL that
+   * is the file's own takes the file's token, as with neither set.
+   */
+  private static @Nullable String halfSetRefusal(
+      boolean urlPassed, boolean tokenPassed, @Nullable String url, @Nullable String secret, DevRuntime dev) {
+    String fix = "Set KINDGI_API_URL and KINDGI_API_TOKEN in " + ENV_FILE_HINT
+        + ", or pass baseUrl and token to the builder. To use the running kindgi dev, set neither.";
+    if (url == null && secret != null) {
+      String given = tokenPassed ? "the builder's token is passed" : "KINDGI_API_TOKEN is set";
+      return "Kindgi: " + given + ", and KINDGI_API_URL isn't set. The client won't send that token to the URL in "
+          + dev.path() + ", the running kindgi dev's. " + fix;
+    }
+    if (url != null && secret == null && !sameUrl(url, dev.apiUrl())) {
+      String given = urlPassed ? "the builder's baseUrl is passed" : "KINDGI_API_URL is set";
+      return "Kindgi: " + given + ", and KINDGI_API_TOKEN isn't set. The token in " + dev.path()
+          + " is the running kindgi dev's, for " + dev.apiUrl() + " only, so the client won't send it to another URL. " + fix;
+    }
+    return null;
   }
 
   static boolean isProduction(Map<String, String> env) {

@@ -89,7 +89,8 @@ gcloud scheduler jobs create http kindgi-pack-orchestrator --location=<region> \
 | `KINDGI_ORCHESTRATOR_SYSTEM_KEY` | The system key, from a secret. |
 | `KINDGI_ORCHESTRATOR_PROJECT` | The project the pack services run in. |
 | `KINDGI_ORCHESTRATOR_REGION` | Their region, such as `us-central1`. |
-| `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT` | The account every pack service runs as. |
+| `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT` | The account every pack service runs as. With `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS`, still required: the install's name, and the account the pack services move off. |
+| `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS` | A pack account per tenant, as JSON: each tenant's id, in lower case, to its account. Optional: unset, every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`. |
 | `KINDGI_ORCHESTRATOR_PACK_SERVICE` | How each runs, as JSON. Optional. |
 | `KINDGI_ORCHESTRATOR_RUNTIME_AUTH` | `google-id-token` for a runtime behind Cloud Run IAM: each call also carries, in `X-Serverless-Authorization` beside the system key, the orchestrator's own Google ID token (on Cloud Run, the Job's account's). Its audience is the origin of `KINDGI_ORCHESTRATOR_RUNTIME_URL`, which must then be the runtime's `run.app` URL or one of its custom audiences. Optional: unset, the key alone. |
 
@@ -112,13 +113,29 @@ Every field is optional. `egress` is `subnet` (with `subnetwork` and
 field and its default. A setting that's missing or wrong stops the pass
 before it calls anything, naming the setting but never its value.
 
+**A pack account per tenant.** With `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS`,
+each tenant's pack services run as that tenant's account, and a tenant not
+in it has nowhere to run them: its deployments wait with
+`tenant-not-provisioned`. Each account's id (the part before `@`) is `kp-t`
+and 16 lower-case hex digits, the key that tenant's services' secrets are
+named under, so no two tenants may share one. In a project shared with
+another installation, keep each key to one of them. The Cloud Run module
+makes the accounts and the map
+([A pack account per tenant](../cloud-run/#a-pack-account-per-tenant)). By
+hand, the map's commas don't fit `--set-env-vars`'s list, so give it gcloud's
+own delimiter
+(`--update-env-vars='^;^KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS=<the map>'`, see
+`gcloud topic escaping`), and give each tenant's account only what its own
+pack services need.
+
 ## The roles to grant the Job's account
 
 - **Cloud Run:** `roles/run.developer` on the project. It creates, reads,
   updates, lists and deletes the project's services, and reads a service's
   policy, but never sets one.
 - **Acting as the pack service account:** `roles/iam.serviceAccountUser` on
-  that account alone.
+  that account alone, and with `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS` on each
+  tenant's account in it.
 - **A runtime behind Cloud Run IAM:** `roles/run.invoker` on the runtime's
   service, so its calls, with the Job's ID token, pass Cloud Run's check
   (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`).

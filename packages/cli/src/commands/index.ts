@@ -26,6 +26,7 @@ import { environmentsCommand } from './environments.js';
 import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
+import { filesCommand } from './files.js';
 import { flowsCommand } from './flows.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
@@ -58,6 +59,7 @@ import { tenantCommand } from './tenant.js';
 import { testRunsCommand } from './test-runs.js';
 import { testSetsCommand } from './test-sets.js';
 import { testCommand } from './test.js';
+import { textTriggersCommand } from './text-triggers.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
@@ -102,11 +104,13 @@ export const ROOT_COMMANDS: readonly Command[] = [
   suggestedChangesCommand,
   provenanceCommand,
   exportsCommand,
+  filesCommand,
   artifactsCommand,
   flowsCommand,
   schedulesCommand,
   webhooksCommand,
   mailTriggersCommand,
+  textTriggersCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,

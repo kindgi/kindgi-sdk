@@ -156,6 +156,22 @@ class SchemaValidatorStrictTest {
   }
 
   @Test
+  void aPropertyNameWithALoneSurrogateIsRefusedWhereItsSchemaCompiles() {
+    // The runtime writes the name into the path of the schema it compiles for it, URI encoded.
+    String refusal = "#/properties: URI malformed: a name holds a lone surrogate";
+    refused("{\"type\": \"object\", \"properties\": {\"\\ud835\": {\"type\": \"string\"}}}", refusal);
+    refused("{\"type\": \"object\", \"properties\": {\"a\\udc00\": false}}", refusal);
+    refused("{\"type\": \"object\", \"properties\": {\"\\ud835\": {\"$comment\": \"x\"}}}", refusal);
+    refused(
+        "{\"type\": \"object\", \"properties\": {\"o\": {\"type\": \"object\", \"properties\": {\"\\udc00\\ud835\": {\"type\": \"string\"}}}}}",
+        "#/properties/o/properties: URI malformed: a name holds a lone surrogate");
+    // Under a schema any data passes, the runtime compiles nothing; a pair is a name like any other.
+    compiles("{\"type\": \"object\", \"properties\": {\"\\ud835\": {}}}");
+    compiles("{\"type\": \"object\", \"properties\": {\"\\ud835\": true, \"\\udc00\": {\"description\": \"x\"}}}");
+    compiles("{\"type\": \"object\", \"properties\": {\"\\ud835\\udc00\": {\"type\": \"string\"}}}");
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void everyVectorItCanCheckGetsTheRuntimesVerdict() throws IOException {
     Map<String, Object> corpus = (Map<String, Object>) Json.parse(Files.readAllBytes(VECTORS.resolve("corpus.json")));

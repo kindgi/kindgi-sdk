@@ -208,8 +208,13 @@ export const CLI_DEFAULTS = {
     domains: 'required',
     'idp-metadata': 'none',
     issuer: 'none',
+    join: '`invite`',
+    'join-role': '`viewer`',
     kind: 'required',
     name: 'none',
+    'sp-decryption-certificate': 'none',
+    'sp-decryption-key-ref': 'none',
+    'sp-signing-certificate': 'none',
     'sp-signing-key-ref': 'none',
     spec: 'none',
   },
@@ -219,9 +224,14 @@ export const CLI_DEFAULTS = {
     domains: 'none',
     'idp-metadata': 'none',
     issuer: 'none',
+    join: 'none: the provider keeps its own',
+    'join-role': 'none: the provider keeps its own',
     kind: 'none',
     name: 'none',
     remove: 'none',
+    'sp-decryption-certificate': 'none',
+    'sp-decryption-key-ref': 'none',
+    'sp-signing-certificate': 'none',
     'sp-signing-key-ref': 'none',
     spec: 'none',
   },
@@ -551,6 +561,43 @@ export const CLI_DEFAULTS = {
   'exports verify': {
     trust: "none (checks against the export's own key only)",
   },
+  'files list': {
+    'content-type': 'none',
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+    run: 'none',
+  },
+  'files versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'files download': {
+    o: "the version's own name, in the current directory",
+  },
+  'files upload': {
+    'content-type': "from the file's extension, else `application/octet-stream`",
+    'expected-version': 'none: the last write wins',
+    name: "the file's name; with `--to`, Latest's",
+    project:
+      "with `--run`, the run's project; else the project your API key is limited to; else the workspace's default project",
+    run: 'none',
+    tag: 'none',
+    to: 'none: version 1 of a file',
+  },
+  'files restore': {
+    'expected-version': 'none: the last write wins',
+  },
+  'files pin': {
+    reason: 'none',
+  },
+  'files unpin': {
+    reason: 'none',
+  },
+  'files pin-history': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
   'artifacts list': {
     'content-type': 'none',
     cursor: 'none',
@@ -561,7 +608,8 @@ export const CLI_DEFAULTS = {
   'artifacts upload': {
     'content-type': '`application/octet-stream`',
     name: "the file's name",
-    project: "with `--run`, the run's project; else the workspace's default project",
+    project:
+      "with `--run`, the run's project; else the project your API key is limited to; else the workspace's default project",
     run: 'none',
     tag: 'none',
   },
@@ -624,7 +672,8 @@ export const CLI_DEFAULTS = {
     input: '`{}`',
     label: 'none',
     overlap: '`skip`',
-    project: "the workspace's default project; required with `--improve`, the project it improves",
+    project:
+      "the project the API key or session is limited to, else the workspace's default project; required with `--improve`, the project it improves",
     'run-as': 'none (you own the schedule)',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
@@ -667,7 +716,8 @@ export const CLI_DEFAULTS = {
     input: 'none (the flow gets the event)',
     label: 'none',
     preset: 'none (with no `--signature-header` either: a hex HMAC-SHA256 in `X-Kindgi-Signature`)',
-    project: "the workspace's default project",
+    project:
+      "the project the API key or session is limited to, else the workspace's default project",
     'rate-limit': '`600` a minute',
     'run-as': 'none (you own the trigger)',
     secret: 'required',
@@ -725,7 +775,8 @@ export const CLI_DEFAULTS = {
     label: 'none',
     mailbox: 'required',
     poll: '`60` (seconds)',
-    project: "the workspace's default project",
+    project:
+      "the project the API key or session is limited to, else the workspace's default project",
     'run-as': 'none (you own the trigger)',
     'runs-per-hour': '`60`',
   },
@@ -754,6 +805,48 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
   },
   'mail-triggers take-ownership': {
+    'run-as': 'none (you own the trigger)',
+  },
+  'text-triggers list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+    project: 'none',
+    status: 'none (both active and paused)',
+  },
+  'text-triggers create': {
+    agent: 'none',
+    'agent-version': 'none (its pinned version, else the latest)',
+    'allow-unattended': 'none (a tool that waits for a person still waits)',
+    connection: 'required',
+    flow: 'none',
+    'flow-version': 'required with `--flow`',
+    label: 'none',
+    'per-sender-per-hour': '`10`',
+    project: "the workspace's default project",
+    'run-as': 'none (you own the trigger)',
+    'runs-per-hour': '`60`',
+  },
+  'text-triggers update': {
+    agent: 'unchanged',
+    'agent-version': 'unchanged',
+    'allow-unattended':
+      'unchanged; a trigger that has a list and moves to another flow, agent or connection must name it again, or `none`',
+    connection: 'unchanged',
+    flow: 'unchanged',
+    'flow-version': 'unchanged',
+    label: 'unchanged',
+    'per-sender-per-hour': 'unchanged',
+    'runs-per-hour': 'unchanged',
+  },
+  'text-triggers fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'text-triggers versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'text-triggers take-ownership': {
     'run-as': 'none (you own the trigger)',
   },
   'sites register': {
@@ -1106,6 +1199,7 @@ export const CLI_DEFAULTS = {
   'connections connect': {
     'app-id': "none: the app's one registration",
     label: "none: named by its account's label",
+    number: 'none (required for `texts`)',
     permissions:
       "none picked: at a terminal it asks about each one the app's entry offers; required without one",
     project: 'none',
@@ -1138,11 +1232,14 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
   },
   'connection-apps add': {
-    'client-id': 'required',
-    'client-secret-ref': 'required',
+    'api-key-ref': 'required for `texts`',
+    'client-id': 'required, except for `texts`',
+    'client-secret-ref': 'required, except for `texts`',
     'github-app-id': 'required for `github`',
     'private-key-ref': 'required for `github`',
     projects: 'none: every project',
+    provider: 'required for `texts`',
+    'public-key': 'required for `texts`',
     slug: 'required for `github`',
     tenant: "none: required where the app's entry names no default (`microsoft`)",
     'webhook-secret-ref': 'required for `github`',
@@ -1153,6 +1250,9 @@ export const CLI_DEFAULTS = {
   },
   'sign-in settings': {
     'require-second-factor': 'unchanged: the settings are read',
+  },
+  'sign-in join-domains allow': {
+    role: '`viewer`',
   },
   'people list': {
     cursor: 'none',
@@ -1232,6 +1332,8 @@ export const CLI_DEFAULTS = {
 export const GLOBAL_FLAG_DEFAULTS = {
   hosted:
     "off, unless the env the command acts in has `build: 'hosted'` in `kindgi.config.ts` (`--env`, else `staging` for `kindgi build` and `kindgi deploy`)",
+  profile:
+    '`KINDGI_PROFILE`; with neither set, no profile: the command uses `KINDGI_API_URL` and `KINDGI_API_TOKEN`, then `./.kindgirc.json`, then the login without a name in `~/.kindgi/config.json`. No current profile is stored. `kindgi dev` refuses `--profile` and ignores `KINDGI_PROFILE`',
   json: 'on when no format flag is given: pretty JSON (commands for people, such as `kindgi dev`, print JSON only when asked)',
   table: 'off; a command with no table prints JSON',
   token:
@@ -1244,11 +1346,63 @@ export const GLOBAL_FLAG_DEFAULTS = {
  * then the line. The guides' own lines are added after these.
  */
 export const CLI_EXAMPLES = {
+  'artifacts list': [
+    {
+      purpose:
+        'The artifacts one run produced. `kindgi files list` takes its place, with the same flags; 0.8.0 removes `kindgi artifacts`.',
+      line: 'kindgi artifacts list --run=<run-id> --table',
+    },
+  ],
+  'artifacts get': [
+    {
+      purpose:
+        "An artifact's name, type, size and sha256. `kindgi files get <file-id> <version>` takes its place: the id an upload answered is the file's id, at version 1.",
+      line: 'kindgi artifacts get <blob-id>',
+    },
+  ],
+  'artifacts upload': [
+    {
+      purpose:
+        "Keep a run's report. `kindgi files upload` takes its place, and takes the type from the file's extension.",
+      line: 'kindgi artifacts upload report.pdf --run=<run-id> --content-type=application/pdf',
+    },
+  ],
+  'artifacts download': [
+    {
+      purpose:
+        "Save an artifact's bytes to a file. `kindgi files download <file-id> <version>` takes its place, with the same flags.",
+      line: 'kindgi artifacts download <blob-id> -o report.pdf',
+    },
+  ],
+  'artifacts delete': [
+    {
+      purpose:
+        'Delete an artifact. `kindgi files delete <file-id> <version>` takes its place, and deletes that version only.',
+      line: 'kindgi artifacts delete <blob-id>',
+    },
+  ],
   'auth login': [
     {
       purpose:
         'Save the API URL, and the API token exported as `KINDGI_API_TOKEN`, to ~/.kindgi/config.json.',
       line: 'kindgi auth login --url=https://kindgi.acme.example',
+    },
+  ],
+  'auth logout': [
+    {
+      purpose: 'Remove the login without a name from ~/.kindgi/config.json.',
+      line: 'kindgi auth logout',
+    },
+    {
+      purpose: "Remove one Kindgi login profile's login.",
+      line: 'kindgi auth logout --profile=acme-prod',
+    },
+  ],
+  'auth list': [
+    {
+      purpose:
+        'The logins ~/.kindgi/config.json holds, each with its address and whether it can be used, never a key.',
+      line: 'kindgi auth list --table',
     },
   ],
   'auth whoami': [
@@ -1352,7 +1506,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: 'Scaffold it for a cloud secret manager, writing to a chosen file.',
-      line: 'kindgi env init --secrets-backend=secret-manager --secrets-manager=gcp --out=.env.production.example',
+      line: 'kindgi env init --secrets-backend=secret-manager --secrets-manager=gcp --out=.env.prod.example',
     },
   ],
   'environments list': [
@@ -1407,37 +1561,37 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: 'Page through the secrets whose names start with ACME_.',
-      line: 'kindgi secrets list --env=production --scope=tenant --name-prefix=ACME_ --limit=10',
+      line: 'kindgi secrets list --env=prod --scope=tenant --name-prefix=ACME_ --limit=10',
     },
     {
       purpose: 'List revoked secrets too, with when and why each was revoked.',
-      line: 'kindgi secrets list --env=production --scope=tenant --include-revoked',
+      line: 'kindgi secrets list --env=prod --scope=tenant --include-revoked',
     },
   ],
   'secrets rotate': [
     {
       purpose: 'Rotate a secret, entering the new value at a prompt.',
-      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=production --scope=tenant --new-value',
+      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=prod --scope=tenant --new-value',
     },
     {
       purpose: 'Rotate from stdin and revoke the old version after an hour.',
-      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=production --scope=tenant --from-stdin --revoke-old-after=3600000',
+      line: 'kindgi secrets rotate ACME_WEBHOOK_SECRET --env=prod --scope=tenant --from-stdin --revoke-old-after=3600000',
     },
   ],
   'secrets revoke': [
     {
       purpose: 'Revoke a secret, keeping an audit tombstone.',
-      line: 'kindgi secrets revoke ACME_WEBHOOK_SECRET --env=production --scope=tenant --reason="rotated after a leak"',
+      line: 'kindgi secrets revoke ACME_WEBHOOK_SECRET --env=prod --scope=tenant --reason="rotated after a leak"',
     },
     {
       purpose: "Erase a secret's value for good.",
-      line: 'kindgi secrets revoke ACME_OLD_KEY --env=production --scope=tenant --hard',
+      line: 'kindgi secrets revoke ACME_OLD_KEY --env=prod --scope=tenant --hard',
     },
   ],
   'secrets pull': [
     {
-      purpose: "Write the workspace's secret metadata to .secrets/production/manifest.json.",
-      line: 'kindgi secrets pull --env=production --scope=tenant',
+      purpose: "Write the workspace's secret metadata to .secrets/prod/manifest.json.",
+      line: 'kindgi secrets pull --env=prod --scope=tenant',
     },
     {
       purpose: 'Write the manifest under another pack directory.',
@@ -1452,6 +1606,11 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Add a second sign-in domain and drop the display name.',
       line: 'kindgi sso providers update acme-okta --domains=acme.com,acme-ops.com --remove=displayName',
+    },
+    {
+      purpose:
+        'Let colleagues at its domains join by signing in, as viewers of the default project.',
+      line: 'kindgi sso providers update acme-okta --join=domain --join-role=viewer',
     },
   ],
   'sso providers get': [
@@ -1744,6 +1903,73 @@ export const CLI_EXAMPLES = {
       line: 'kindgi exports create --out ./acme-export --resume',
     },
   ],
+  'files list': [
+    {
+      purpose: 'List the files one run made, as a table.',
+      line: 'kindgi files list --run=<run-id> --table',
+    },
+  ],
+  'files get': [
+    {
+      purpose:
+        "Show a file and its Latest version; add a version number for that version's details.",
+      line: 'kindgi files get <file-id>',
+    },
+  ],
+  'files download': [
+    {
+      purpose: "Save a file's version 2 under a name you pick.",
+      line: 'kindgi files download <file-id> 2 -o report-v2.pdf',
+    },
+  ],
+  'files upload': [
+    {
+      purpose: 'Keep a file in a project: it becomes version 1 of a file.',
+      line: 'kindgi files upload ./report.pdf --project=<project-id>',
+    },
+    {
+      purpose: 'Add a version to that file, unless someone added one after version 1.',
+      line: 'kindgi files upload ./report.pdf --to=<file-id> --expected-version=1',
+    },
+  ],
+  'files delete': [
+    {
+      purpose: "Delete a file's version 1, without being asked first.",
+      line: 'kindgi files delete <file-id> 1 --yes',
+    },
+  ],
+  'files versions': [
+    {
+      purpose:
+        "List a file's versions as a table, with which one is Latest, and which are deleted or pinned.",
+      line: 'kindgi files versions <file-id> --table',
+    },
+  ],
+  'files restore': [
+    {
+      purpose:
+        "Make version 2's bytes Latest again, as a version of its own, unless someone added a version after 5.",
+      line: 'kindgi files restore <file-id> 2 --expected-version=5',
+    },
+  ],
+  'files pin': [
+    {
+      purpose: "Keep version 3: it can't be deleted, and retention keeps it.",
+      line: 'kindgi files pin <file-id> 3 --reason="signed by the client"',
+    },
+  ],
+  'files unpin': [
+    {
+      purpose: "Take version 3's pin off, saying why.",
+      line: 'kindgi files unpin <file-id> 3 --reason="superseded by version 5"',
+    },
+  ],
+  'files pin-history': [
+    {
+      purpose: "See every pin and unpin of a file's versions, newest first.",
+      line: 'kindgi files pin-history <file-id> --table',
+    },
+  ],
   'memory facts retrieve': [
     {
       purpose: 'Search facts by keyword.',
@@ -1978,7 +2204,7 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         "Run a flow for each new mail in a folder of the company's Outlook mailbox, looking every two minutes.",
-      line: 'kindgi mail-triggers create --flow=acme.triage --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
+      line: 'kindgi mail-triggers create --flow=acme.triage-ticket --flow-version=1.0.0 --mailbox=microsoft --as=company --folder=<folder-id> --poll=120',
     },
     {
       purpose:
@@ -2029,6 +2255,85 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Remove a mail trigger: it stops looking for new mail.',
       line: 'kindgi mail-triggers unregister <trigger-id>',
+    },
+  ],
+  'text-triggers list': [
+    {
+      purpose: 'List the text triggers in a project.',
+      line: 'kindgi text-triggers list --project=<project-id>',
+    },
+    {
+      purpose: 'List only the paused ones, as a table, with why each is paused.',
+      line: 'kindgi text-triggers list --status=paused --table',
+    },
+  ],
+  'text-triggers get': [
+    {
+      purpose: 'Fetch a text trigger: what it runs, the number it answers, and its status.',
+      line: 'kindgi text-triggers get <trigger-id>',
+    },
+    {
+      purpose: 'Fetch version 2 of a text trigger: what it ran, and which number it answered.',
+      line: 'kindgi text-triggers get <trigger-id> 2',
+    },
+  ],
+  'text-triggers versions': [
+    {
+      purpose: "List a text trigger's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi text-triggers versions <trigger-id> --table',
+    },
+  ],
+  'text-triggers create': [
+    {
+      purpose:
+        "Run an agent for each text to the company's number, through the company connection named `support-line`.",
+      line: 'kindgi text-triggers create --agent=acme.order-desk --connection=support-line',
+    },
+    {
+      purpose:
+        "Run a flow for each text, at most 120 runs an hour and 5 for any one sender, whose ticket tool needn't wait for a yes.",
+      line: 'kindgi text-triggers create --flow=acme.triage --flow-version=1.0.0 --connection=support-line --runs-per-hour=120 --per-sender-per-hour=5 --allow-unattended=acme.create-ticket',
+    },
+  ],
+  'text-triggers update': [
+    {
+      purpose: 'Start at most 30 runs an hour, and 3 for any one sender.',
+      line: 'kindgi text-triggers update <trigger-id> --runs-per-hour=30 --per-sender-per-hour=3',
+    },
+    {
+      purpose: 'Answer another of the company numbers, keeping no unattended tools.',
+      line: 'kindgi text-triggers update <trigger-id> --connection=sales-line --allow-unattended=none',
+    },
+  ],
+  'text-triggers pause': [
+    {
+      purpose: "Pause a text trigger: texts that come while it's paused never start runs.",
+      line: 'kindgi text-triggers pause <trigger-id>',
+    },
+  ],
+  'text-triggers resume': [
+    {
+      purpose:
+        'Resume a paused text trigger; texts that came while it was paused never start runs.',
+      line: 'kindgi text-triggers resume <trigger-id>',
+    },
+  ],
+  'text-triggers fires': [
+    {
+      purpose: 'See the run each text started, or why it was refused, as a table.',
+      line: 'kindgi text-triggers fires <trigger-id> --table',
+    },
+  ],
+  'text-triggers take-ownership': [
+    {
+      purpose: 'Take over a trigger whose owner left, so its runs act as you.',
+      line: 'kindgi text-triggers take-ownership <trigger-id>',
+    },
+  ],
+  'text-triggers unregister': [
+    {
+      purpose: 'Remove a text trigger: it answers no more texts, and frees its connection.',
+      line: 'kindgi text-triggers unregister <trigger-id>',
     },
   ],
   'sites register': [
@@ -2500,6 +2805,11 @@ export const CLI_EXAMPLES = {
       purpose: 'Reconnect the connection named `support`, signing in again.',
       line: 'kindgi connections connect google --permissions=gmail.readonly --for-company --reconnect=support',
     },
+    {
+      purpose:
+        "Connect the company's number for texts: it's connected at once, with no link to open.",
+      line: 'kindgi connections connect texts --permissions=texts.reply,texts.send --for-company --number=+15551234567',
+    },
   ],
   'connections update': [
     {
@@ -2522,6 +2832,11 @@ export const CLI_EXAMPLES = {
       purpose: 'Disconnect a connection without being asked (for scripts).',
       line: 'kindgi connections disconnect <connection-id> --yes',
     },
+    {
+      purpose:
+        "Disconnect a number you've already pointed elsewhere, without putting its old inbound back.",
+      line: 'kindgi connections disconnect <connection-id> --skip-inbound-restore --yes',
+    },
   ],
   'connection-apps list': [
     {
@@ -2543,20 +2858,25 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         "Register the company's Google client, its secret stored first with `kindgi secrets set`.",
-      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET',
+      line: 'kindgi connection-apps add google --client-id=<client-id> --client-secret-ref=prod/ACME_GOOGLE_CONNECT_SECRET',
     },
     {
       purpose:
         "Register the company's Microsoft Entra app, a single-tenant one, at its own directory.",
-      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
+      line: 'kindgi connection-apps add microsoft --client-id=<client-id> --client-secret-ref=prod/ACME_MICROSOFT_CONNECT_SECRET --tenant=<tenant-id>',
     },
     {
       purpose: "Register the company's GitHub App.",
-      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=production/ACME_GITHUB_CLIENT_SECRET --private-key-ref=production/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=production/ACME_GITHUB_WEBHOOK_SECRET',
+      line: 'kindgi connection-apps add github --github-app-id=<n> --slug=<slug> --client-id=<client-id> --client-secret-ref=prod/ACME_GITHUB_CLIENT_SECRET --private-key-ref=prod/ACME_GITHUB_PRIVATE_KEY --webhook-secret-ref=prod/ACME_GITHUB_WEBHOOK_SECRET',
     },
     {
       purpose: "Register the company's LinkedIn app.",
-      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET',
+      line: 'kindgi connection-apps add linkedin --client-id=<client-id> --client-secret-ref=prod/ACME_LINKEDIN_CONNECT_SECRET',
+    },
+    {
+      purpose:
+        "Register the company's Telnyx account for texts, its API key stored first with `kindgi secrets set`.",
+      line: 'kindgi connection-apps add texts --provider=telnyx --api-key-ref=production/ACME_TELNYX_API_KEY --public-key=<base64>',
     },
   ],
   'connection-apps remove': [
@@ -2572,7 +2892,7 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose: "Have a flow of a project use one of the project's company Google connections.",
-      line: 'kindgi connection-choices set sales --flow=acme.triage --project=<project-id> --app=google',
+      line: 'kindgi connection-choices set sales --flow=acme.triage-ticket --project=<project-id> --app=google',
     },
     {
       purpose:
@@ -2582,7 +2902,7 @@ export const CLI_EXAMPLES = {
     {
       purpose:
         'Give a tool that only reads three of your own connections, `work` by default: each call names the one it reads.',
-      line: 'kindgi connection-choices set work home school --agent=acme.assistant --tool=acme.calendar.events --default=work --mine',
+      line: 'kindgi connection-choices set work home school --agent=acme.calendar-keeper --tool=acme.calendar.events --default=work --mine',
     },
   ],
   'connection-choices list': [
@@ -2643,6 +2963,24 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Require a second factor at sign-in (set up your own first).',
       line: 'kindgi sign-in settings --require-second-factor=on',
+    },
+  ],
+  'sign-in join-domains list': [
+    {
+      purpose: 'See which email domains people may join from, and what a joiner gets.',
+      line: 'kindgi sign-in join-domains list --table',
+    },
+  ],
+  'sign-in join-domains allow': [
+    {
+      purpose: "Let people at acme.com join as runner, signed in with the operator's key.",
+      line: 'kindgi sign-in join-domains allow acme.com --role=runner',
+    },
+  ],
+  'sign-in join-domains remove': [
+    {
+      purpose: 'Stop new joins from acme.com; the people who joined stay.',
+      line: 'kindgi sign-in join-domains remove acme.com',
     },
   ],
   'people list': [
@@ -2779,6 +3117,7 @@ export const CLI_EXAMPLES = {
 
 /** "See also" for a command group that no guide runs: page slugs. */
 export const CLI_GROUP_SEE_ALSO = {
+  artifacts: ['concepts/files-and-versions', 'guides/runs/keep-files-with-a-run'],
   auth: ['start/install', 'deploy/people-and-keys'],
   upgrade: ['start/quickstart-java', 'start/quickstart-scala'],
   console: ['deploy/self-hosted/sign-in', 'start/introduction'],
@@ -2792,8 +3131,11 @@ export const CLI_GROUP_SEE_ALSO = {
   'connection-choices': ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
-  environments: ['guides/projects/organize-by-org-and-project'],
-  promote: ['guides/projects/organize-by-org-and-project'],
+  environments: [
+    'guides/projects/organize-by-org-and-project',
+    'concepts/local-staging-production',
+  ],
+  promote: ['guides/projects/organize-by-org-and-project', 'concepts/local-staging-production'],
   flows: ['guides/flows/write-a-flow', 'guides/flows/index'],
   capabilities: ['guides/agents/choose-a-model'],
   adapters: ['guides/models/index', 'guides/models/serve-your-own-model'],
@@ -2804,4 +3146,5 @@ export const CLI_GROUP_SEE_ALSO = {
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
   'queue-rules': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
   'expert-queue': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
+  files: ['guides/runs/keep-files-with-a-run', 'deploy/self-hosted/store-files'],
 };

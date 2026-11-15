@@ -16,9 +16,14 @@ import {
   type MailTriggerDefinition,
   type MailTriggerRecord,
   type RegisterMailTriggerInput,
+  type RegisterTextTriggerInput,
   type RegisterTriggerInput,
   type RegisterWebhookTriggerInput,
   SCHEDULE_DEFAULTS,
+  type ScheduleResultTarget,
+  TEXT_TRIGGER_LIMITS,
+  type TextTriggerDefinition,
+  type TextTriggerRecord,
   type TriggerFire,
   type TriggerFirePage,
   type TriggerLifecycleInput,
@@ -29,6 +34,7 @@ import {
   type TriggerVersionPage,
   type TriggerVersionRecord,
   type UpdateMailTriggerInput,
+  type UpdateTextTriggerInput,
   type UpdateTriggerInput,
   WEBHOOK_BODY_LIMITS,
   WEBHOOK_RATE_LIMITS,
@@ -53,7 +59,11 @@ import { sameJson } from '../canonical-json.js';
  * to read (`webhookEvents`, `webhookAudit`). Versions as a runtime makes
  * them: register makes version 1, an update that changes the definition
  * and every take-ownership the next; pause, resume and unregister none.
- * A version is frozen once made.
+ * A version is frozen once made. A removed trigger stays, with
+ * `unregisteredAt`, and its versions and fires with it: a read answers
+ * them only when it asks (`includeUnregistered`). One live text trigger
+ * answers a connection, paused or not: a register or an update onto
+ * another's is refused (`trigger-connection-taken`).
  */
 export interface InMemoryTriggerRegistry extends TriggerRegistryBinding {
   /** Add a fire to a trigger's history, as a scheduler would. */
@@ -82,7 +92,7 @@ export function createInMemoryTriggerRegistry(
     readonly now?: () => Date;
   } = {},
 ): InMemoryTriggerRegistry {
-  const rows = new Map<string, TriggerRecord & { unregistered?: boolean }>();
+  const rows = new Map<string, TriggerRecord>();
   const fires: TriggerFire[] = [];
   /** Each trigger's versions, oldest first, by trigger id. */
   const versions = new Map<string, TriggerVersionRecord[]>();
@@ -96,11 +106,57 @@ export function createInMemoryTriggerRegistry(
   const defaultProject =
     options.defaultProjectId ?? ('00000000-0000-4000-8000-000000000000' as ProjectId);
 
-  const live = (tenantId: TenantId, triggerId: TriggerId) => {
+  /** The tenant's trigger, a removed one only with `includeUnregistered`. */
+  const known = (tenantId: TenantId, triggerId: TriggerId, includeUnregistered?: boolean) => {
     const row = rows.get(triggerId as unknown as string);
-    return row !== undefined && row.tenantId === tenantId && row.unregistered !== true
+    return row !== undefined &&
+      row.tenantId === tenantId &&
+      (row.unregisteredAt === undefined || includeUnregistered === true)
       ? row
       : undefined;
+  };
+  const live = (tenantId: TenantId, triggerId: TriggerId) => known(tenantId, triggerId);
+  /** A version as its trigger reads now: a removed trigger's carries when it was removed. */
+  const asOfTrigger = (v: TriggerVersionRecord, row: TriggerRecord): TriggerVersionRecord =>
+    row.unregisteredAt === undefined ? v : { ...v, unregisteredAt: row.unregisteredAt };
+  /** The live text trigger, other than `except`, that answers `connectionId`. */
+  const answering = (tenantId: TenantId, connectionId: string, except?: TriggerId) =>
+    [...rows.values()].find(
+      (r): r is TextTriggerRecord =>
+        r.kind === 'text' &&
+        r.tenantId === tenantId &&
+        r.unregisteredAt === undefined &&
+        r.triggerId !== except &&
+        r.config.connectionId === connectionId,
+    );
+  const takenMessage = (connectionId: string, holder: TextTriggerRecord) =>
+    `Text trigger "${holder.triggerId as unknown as string}" already answers connection "${connectionId}"`;
+  /** A register onto a connection another live text trigger answers; nothing while it's free. */
+  const connectionTaken = (tenantId: TenantId, connectionId: string) => {
+    const holder = answering(tenantId, connectionId);
+    if (holder === undefined) return undefined;
+    return {
+      kind: 'err' as const,
+      error: {
+        code: 'trigger-connection-taken' as const,
+        message: takenMessage(connectionId, holder),
+        heldBy: holder.triggerId,
+      },
+    };
+  };
+  /** An update of `row` onto a connection another live text trigger answers; nothing while it's free. */
+  const connectionTakenFor = (row: TriggerRecord, connectionId: string) => {
+    const holder = answering(row.tenantId, connectionId, row.triggerId);
+    if (holder === undefined) return undefined;
+    return {
+      kind: 'err' as const,
+      error: {
+        code: 'trigger-connection-taken' as const,
+        message: takenMessage(connectionId, holder),
+        heldBy: holder.triggerId,
+        triggerId: row.triggerId,
+      },
+    };
   };
   const notFound = (triggerId: TriggerId) => ({
     kind: 'err' as const,
@@ -113,10 +169,6 @@ export function createInMemoryTriggerRegistry(
   const save = (row: TriggerRecord): TriggerRecord => {
     rows.set(row.triggerId as unknown as string, row);
     return row;
-  };
-  const strip = (row: TriggerRecord & { unregistered?: boolean }): TriggerRecord => {
-    const { unregistered: _, ...rest } = row;
-    return rest as TriggerRecord;
   };
   /** `row` as its next version, which is recorded. */
   const versioned = <R extends TriggerRecord>(
@@ -166,11 +218,20 @@ export function createInMemoryTriggerRegistry(
               input.startingDeadlineSeconds ?? SCHEDULE_DEFAULTS.startingDeadlineSeconds,
             nextFireAt: null,
             ...toolsAllowed(input.toolsAllowedUnattended),
+            ...resultTargets(input.sendResultsTo),
           }),
         };
       }
       if (input.kind === 'mail') {
         return { kind: 'ok', value: registered(mailRecord(base, input, defaultProject)) };
+      }
+      if (input.kind === 'text') {
+        return (
+          connectionTaken(input.tenantId, input.config.connectionId) ?? {
+            kind: 'ok',
+            value: registered(textRecord(base, input, defaultProject)),
+          }
+        );
       }
       if (input.kind === 'event') {
         const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
@@ -191,7 +252,10 @@ export function createInMemoryTriggerRegistry(
       };
       if (row.kind === 'cron' && input.kind === 'cron') {
         const next = {
-          ...withToolsAllowed(row, input.toolsAllowedUnattended),
+          ...withResultTargets(
+            withToolsAllowed(row, input.toolsAllowedUnattended),
+            input.sendResultsTo,
+          ),
           ...common,
           config: { ...row.config, ...input.config },
           ...(input.target !== undefined && { target: input.target }),
@@ -232,6 +296,17 @@ export function createInMemoryTriggerRegistry(
           value: save(changed(row, updatedMail(row, input, common), 'edit', input.by)),
         };
       }
+      if (row.kind === 'text' && input.kind === 'text') {
+        const connectionId = input.config?.connectionId;
+        const taken =
+          connectionId === undefined ? undefined : connectionTakenFor(row, connectionId);
+        return (
+          taken ?? {
+            kind: 'ok',
+            value: save(changed(row, updatedText(row, input, common), 'edit', input.by)),
+          }
+        );
+      }
       const next = {
         ...row,
         ...common,
@@ -243,17 +318,15 @@ export function createInMemoryTriggerRegistry(
     },
 
     async list(input) {
-      const all = [...rows.values()]
-        .filter(
-          (r) =>
-            r.tenantId === input.tenantId &&
-            r.unregistered !== true &&
-            (input.kind === undefined || r.kind === input.kind) &&
-            (input.status === undefined || r.status === input.status) &&
-            (input.projectId === undefined ||
-              (r.kind !== 'event' && r.projectId === input.projectId)),
-        )
-        .map(strip);
+      const all = [...rows.values()].filter(
+        (r) =>
+          r.tenantId === input.tenantId &&
+          (r.unregisteredAt === undefined || input.includeUnregistered === true) &&
+          (input.kind === undefined || r.kind === input.kind) &&
+          (input.status === undefined || r.status === input.status) &&
+          (input.projectId === undefined ||
+            (r.kind !== 'event' && r.projectId === input.projectId)),
+      );
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
       const limit = input.limit ?? 50;
       const data = all.slice(start, start + limit);
@@ -264,15 +337,17 @@ export function createInMemoryTriggerRegistry(
     },
 
     async get(input) {
-      const row = live(input.tenantId, input.triggerId);
-      return row === undefined ? null : strip(row);
+      return known(input.tenantId, input.triggerId, input.includeUnregistered) ?? null;
     },
 
     async listVersions(input: ListTriggerVersionsInput): Promise<TriggerVersionPage> {
+      const row = known(input.tenantId, input.triggerId, input.includeUnregistered);
       const mine =
-        live(input.tenantId, input.triggerId) === undefined
+        row === undefined
           ? []
-          : [...(versions.get(input.triggerId as unknown as string) ?? [])].reverse();
+          : [...(versions.get(input.triggerId as unknown as string) ?? [])]
+              .reverse()
+              .map((v) => asOfTrigger(v, row));
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
       const limit = input.limit ?? 50;
       return {
@@ -282,9 +357,11 @@ export function createInMemoryTriggerRegistry(
     },
 
     async getVersion(input: GetTriggerVersionInput) {
-      if (live(input.tenantId, input.triggerId) === undefined) return null;
+      const row = known(input.tenantId, input.triggerId, input.includeUnregistered);
+      if (row === undefined) return null;
       const mine = versions.get(input.triggerId as unknown as string) ?? [];
-      return mine.find((v) => v.version === input.version) ?? null;
+      const found = mine.find((v) => v.version === input.version);
+      return found === undefined ? null : asOfTrigger(found, row);
     },
 
     async pause(input: TriggerLifecycleInput) {
@@ -298,7 +375,7 @@ export function createInMemoryTriggerRegistry(
     async unregister(input) {
       const row = live(input.tenantId, input.triggerId);
       if (row === undefined) return { triggerId: input.triggerId, unregistered: false };
-      rows.set(input.triggerId as unknown as string, { ...row, unregistered: true });
+      rows.set(input.triggerId as unknown as string, { ...row, unregisteredAt: now() });
       return { triggerId: input.triggerId, unregistered: true };
     },
 
@@ -308,7 +385,7 @@ export function createInMemoryTriggerRegistry(
           r.kind === 'webhook' && r.tenantId === input.tenantId && r.webhookId === input.webhookId,
       );
       if (row?.kind !== 'webhook') return null;
-      return { ...(strip(row) as WebhookTriggerRecord), unregistered: row.unregistered === true };
+      return { ...row, unregistered: row.unregisteredAt !== undefined };
     },
 
     async fireWebhook(input: FireWebhookInput) {
@@ -374,7 +451,11 @@ export function createInMemoryTriggerRegistry(
 
     async listFires(input: ListTriggerFiresInput): Promise<TriggerFirePage> {
       const mine = fires
-        .filter((f) => f.triggerId === input.triggerId && live(input.tenantId, f.triggerId))
+        .filter(
+          (f) =>
+            f.triggerId === input.triggerId &&
+            known(input.tenantId, f.triggerId, input.includeUnregistered),
+        )
         .reverse();
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
       const limit = input.limit ?? 50;
@@ -478,6 +559,7 @@ const CRON_DEFINITION: DefinitionFields<CronTriggerDefinition> = {
   startingDeadlineSeconds: true,
   label: true,
   toolsAllowedUnattended: true,
+  sendResultsTo: true,
 };
 
 const EVENT_DEFINITION: DefinitionFields<EventTriggerDefinition> = {
@@ -512,6 +594,15 @@ const MAIL_DEFINITION: DefinitionFields<MailTriggerDefinition> = {
   toolsAllowedUnattended: true,
 };
 
+const TEXT_DEFINITION: DefinitionFields<TextTriggerDefinition> = {
+  target: true,
+  projectId: true,
+  owner: true,
+  config: true,
+  label: true,
+  toolsAllowedUnattended: true,
+};
+
 /** `row`'s definition fields it sets, copied and frozen: nothing later reaches them. */
 function pick<D>(row: D, fields: DefinitionFields<D>): D {
   const out: Record<string, unknown> = {};
@@ -532,6 +623,8 @@ function definitionOf(row: TriggerRecord): TriggerVersionRecord['definition'] {
       return pick<WebhookTriggerDefinition>(row, WEBHOOK_DEFINITION);
     case 'mail':
       return pick<MailTriggerDefinition>(row, MAIL_DEFINITION);
+    case 'text':
+      return pick<TextTriggerDefinition>(row, TEXT_DEFINITION);
   }
 }
 
@@ -574,6 +667,12 @@ function versionOf(
         kind: 'mail',
         definition: pick<MailTriggerDefinition>(row, MAIL_DEFINITION),
       });
+    case 'text':
+      return frozen({
+        ...base,
+        kind: 'text',
+        definition: pick<TextTriggerDefinition>(row, TEXT_DEFINITION),
+      });
   }
 }
 
@@ -601,6 +700,25 @@ function withToolsAllowed<T extends { readonly toolsAllowedUnattended?: readonly
   if (tools === undefined) return row;
   const { toolsAllowedUnattended: _, ...rest } = row;
   return { ...rest, ...toolsAllowed(tools) } as T;
+}
+
+/** A schedule's `sendResultsTo`: only when it names any (absent is none). */
+function resultTargets(targets: readonly ScheduleResultTarget[] | undefined): {
+  sendResultsTo?: readonly ScheduleResultTarget[];
+} {
+  return targets !== undefined && targets.length > 0
+    ? { sendResultsTo: targets.map((t) => ({ to: t.to, on: [...t.on] })) }
+    : {};
+}
+
+/** `row` with its `sendResultsTo` replaced by `targets` (`[]` clears it), or as it is when absent. */
+function withResultTargets(
+  row: CronTriggerRecord,
+  targets: readonly ScheduleResultTarget[] | undefined,
+): CronTriggerRecord {
+  if (targets === undefined) return row;
+  const { sendResultsTo: _, ...rest } = row;
+  return { ...rest, ...resultTargets(targets) };
 }
 
 /** A webhook trigger as registered, its defaults filled in. */
@@ -701,4 +819,40 @@ function mailConfigAfter(
   if (!moved || edit?.folder !== undefined) return merged;
   const { folder: _, ...inbox } = merged;
   return inbox;
+}
+
+/** A text trigger as registered, its pace filled in. */
+function textRecord(
+  base: Omit<TextTriggerRecord, 'kind' | 'target' | 'projectId' | 'owner' | 'config'>,
+  input: RegisterTextTriggerInput,
+  defaultProject: ProjectId,
+): TextTriggerRecord {
+  const { runsPerHour, perSenderPerHour } = TEXT_TRIGGER_LIMITS;
+  return {
+    ...base,
+    kind: 'text',
+    target: input.target,
+    projectId: input.projectId ?? defaultProject,
+    owner: input.owner,
+    config: {
+      ...input.config,
+      runsPerHour: input.config.runsPerHour ?? runsPerHour.default,
+      perSenderPerHour: input.config.perSenderPerHour ?? perSenderPerHour.default,
+    },
+    ...toolsAllowed(input.toolsAllowedUnattended),
+  };
+}
+
+/** A text trigger after an update: the config fields given replace its own. */
+function updatedText(
+  row: TextTriggerRecord,
+  input: UpdateTextTriggerInput,
+  common: { readonly updatedAt: string; readonly label?: string | null },
+): TextTriggerRecord {
+  return {
+    ...withToolsAllowed(row, input.toolsAllowedUnattended),
+    ...common,
+    config: { ...row.config, ...input.config },
+    ...(input.target !== undefined && { target: input.target }),
+  };
 }

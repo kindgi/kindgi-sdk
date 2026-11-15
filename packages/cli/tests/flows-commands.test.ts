@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi flows` (T238), through the client's `flows` and `flows.versions`. */
+/** `kindgi flows`, through the client's `flows` and `flows.versions`. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -63,7 +63,7 @@ async function flows(argv: readonly string[]) {
   return { out, calls };
 }
 
-describe('kindgi flows (T238)', () => {
+describe('kindgi flows', () => {
   test('list, with its filters, and --table', async () => {
     const { out, calls } = await flows(['list', '--name=acme.', '--limit=5', '--cursor=c-1']);
     expect(out.exitCode, out.stderr).toBe(0);

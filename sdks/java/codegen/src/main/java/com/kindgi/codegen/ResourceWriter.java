@@ -199,19 +199,33 @@ final class ResourceWriter {
     tb.addMethod(ctor.build());
     for (OperationPlanner.Op op : r.ops) {
       for (MethodSpec m : methods(op, async)) {
-        tb.addMethod(m);
+        tb.addMethod(deprecated(op, m));
       }
       if (FOLLOWS.containsKey(op.id)) {
-        tb.addMethod(follow(op, async, FOLLOWS.get(op.id)));
+        tb.addMethod(deprecated(op, follow(op, async, FOLLOWS.get(op.id))));
       }
       if (op.pageItem != null && !async) {
-        tb.addMethod(autoPaging(op, true));
+        tb.addMethod(deprecated(op, autoPaging(op, true)));
         if (op.paramsOptional) {
-          tb.addMethod(autoPaging(op, false));
+          tb.addMethod(deprecated(op, autoPaging(op, false)));
         }
       }
     }
     return tb.build();
+  }
+
+  /**
+   * A deprecated operation's method: {@code @Deprecated}, with the operation's note (what to use
+   * instead) as its {@code @deprecated} tag. Any other method as it is.
+   */
+  private static MethodSpec deprecated(OperationPlanner.Op op, MethodSpec m) {
+    if (op.deprecated == null) {
+      return m;
+    }
+    return m.toBuilder()
+        .addAnnotation(Deprecated.class)
+        .addJavadoc("@deprecated $L\n", Docs.javadoc(op.deprecated))
+        .build();
   }
 
   private static String accessorChain(List<String> path) {
@@ -297,7 +311,11 @@ final class ResourceWriter {
     CodeBlock.Builder doc = CodeBlock.builder();
     String summary = op.summary == null || op.summary.isBlank() ? op.id : op.summary.strip();
     doc.add("$L\n\n<p><code>$L $L</code> ({@code $L})", Docs.javadoc(summary.endsWith(".") ? summary : summary + "."), op.method, Docs.javadoc(op.path), op.id);
-    String para = Docs.javadoc(Docs.firstParagraph(op.description));
+    // A deprecated operation's note opens its description and is its
+    // @deprecated tag, so the paragraph after it is the method's own.
+    String described =
+        op.deprecated == null ? op.description : Docs.afterFirstParagraph(op.description);
+    String para = Docs.javadoc(Docs.firstParagraph(described));
     if (!para.isEmpty()) {
       doc.add("\n\n<p>$L", para);
     }
@@ -371,6 +389,8 @@ final class ResourceWriter {
         req.add(
             "\n.query($S, params.$N() == null ? null : params.$N().stream().map(step -> step.key() + $S + step.value()).toList())",
             p.wire(), p.java(), p.java(), ":");
+      } else if (p.comma()) {
+        req.add("\n.queryJoined($S, params.$N())", p.wire(), p.java());
       } else {
         req.add("\n.$L($S, params.$N())", method, p.wire(), p.java());
       }
@@ -387,7 +407,10 @@ final class ResourceWriter {
     return m.build();
   }
 
-  /** The parts of a multipart body: binary members as files, the rest as text. */
+  /**
+   * The parts of a multipart body: binary members as files, the rest as text (an enum member as its
+   * value as the API spells it).
+   */
   private CodeBlock multipart(OperationPlanner.Op op) {
     Ir.Decl d = op.body instanceof ClassName ? models.index.get(op.body) : null;
     if (!(d instanceof Ir.RecordDecl)) {
@@ -399,6 +422,8 @@ final class ResourceWriter {
         b.add(".file($S, body.$N())", f.wire, f.java);
       } else if (f.type.equals(ModelPlanner.STRING) || f.type.isBoxedPrimitive() || f.type.toString().equals("java.util.UUID")) {
         b.add(".text($S, body.$N())", f.wire, f.java);
+      } else if (models.index.get(f.type) instanceof Ir.EnumDecl) {
+        b.add(".text($S, body.$N() == null ? null : body.$N().asString())", f.wire, f.java, f.java);
       } else {
         throw new GenerationException(op.id + ": multipart member " + f.wire + " of type " + f.type);
       }

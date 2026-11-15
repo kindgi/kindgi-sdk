@@ -24,6 +24,7 @@ export const ENV_DEFAULTS = {
     '`30000` (30 seconds); `0` turns it off; shorter than the statement timeout when both are on',
   KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '`30000` (30 seconds); `0` turns it off',
   KINDGI_DB_POOL_WAIT_TIMEOUT_MS: '`10000` (10 seconds); `0` turns it off',
+  KINDGI_DB_POOL_SIZE: '`10` connections per server process',
   KINDGI_OPENFGA_API_URL: 'none: authorization is not enforced',
   KINDGI_OPENFGA_PRESHARED_KEY: 'none: calls to OpenFGA carry no key',
   KINDGI_OPENFGA_AUTH: '`none`',
@@ -33,10 +34,15 @@ export const ENV_DEFAULTS = {
   KINDGI_API_TOKEN:
     'none: a new `kgi_bt_` token is generated at each start and printed in the startup banner',
   KINDGI_SEED_USER_ID: 'none: the user the token had at an earlier start, else a new user',
+  KINDGI_ADMIN_EMAILS:
+    'none: no one is a tenant admin by setting, and anyone an earlier list made one stops being one at the next start; People and `tenants make-admin` make tenant admins',
   KINDGI_DOCS: '`true`',
   KINDGI_DEV: '`false`',
   KINDGI_TENANT_HOST_ACCESS: '`local` when `KINDGI_DEV` is on, else `deployed`',
   KINDGI_WEBHOOK_PRIVATE_NETWORKS: '`deny`',
+  KINDGI_TENANT_EGRESS_PROXY: 'none: tenant-chosen hosts and webhooks connect directly',
+  KINDGI_TENANT_EGRESS_NO_PROXY:
+    'none: with `KINDGI_TENANT_EGRESS_PROXY` set, every host goes through it',
   KINDGI_PRODUCTION_GATE: '`off`: no gate, and any tenant admin can put a project in production',
   KINDGI_PRODUCTION_NEXT_URL:
     'none: `production-not-allowed` says to ask whoever runs the server, and `production-limit-reached` to take a project out of production or ask whoever runs the server to raise the limit',
@@ -45,6 +51,10 @@ export const ENV_DEFAULTS = {
     'none: outside development mode the server refuses to start; development mode needs none',
   KINDGI_LICENSE_KEY_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
+  KINDGI_ACCOUNT_KEY:
+    'none: the connections that sign in through Kindgi\'s own Meta app show "Needs a Kindgi account"',
+  KINDGI_LICENSE_REPORT_URL:
+    "`https://access.kindgi.com/v1/report`, also when it's empty: no setting here turns reports off, only a key that doesn't report",
   KINDGI_ENV:
     'none: `local` in development mode, else no env (a tool that declares secrets or env values fails its calls)',
   KINDGI_REFUSE_OTHER_ENVS: '`false`: a value or a registration under any env is taken',
@@ -90,6 +100,7 @@ export const ENV_DEFAULTS = {
   KINDGI_AUTH_TURNSTILE_SITE_KEY: 'none: no Turnstile widget',
   KINDGI_AUTH_TERMS_URL: 'none: the sign-in page links no terms',
   KINDGI_AUTH_PRIVACY_URL: 'none: the sign-in page links no privacy policy',
+  KINDGI_AUTH_SIGN_UP_URL: 'none: the sign-in page links no sign-up',
   KINDGI_CONSOLE_LINKS: "none: the console shows no links of the deployment's own",
   KINDGI_TRUSTED_PROXIES:
     "none: no trusted proxies; the connection's peer is the client address and `X-Forwarded-For` is ignored",
@@ -128,14 +139,18 @@ export const ENV_DEFAULTS = {
   KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS: '`3600000` (an hour); at least `60000`',
   KINDGI_TENANT_PURGE_RECORD:
     'none: `POST /v1/system/tenants/{tenantId}/purge` refuses every purge (`purge-record-unset`)',
+  KINDGI_KEPT_REPOS:
+    '`off`: no kept repos, and `POST /v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo/erasure` refuses (`kept-repos-off`)',
   KINDGI_PASSIVE: '`off`',
+  KINDGI_TICK_CALLER: "none: no tick; the background work runs on the server's own timers",
+  KINDGI_SERVICE_URL: 'none (with `KINDGI_TICK_CALLER` unset)',
   KINDGI_PAGINATION_KEY_PATH:
     'none (with `KINDGI_PAGINATION_KEY` unset): a random key made at start and kept nowhere',
   KINDGI_PAGINATION_KEY: 'none: same as `KINDGI_PAGINATION_KEY_PATH`',
   KINDGI_PAGINATION_PREVIOUS_KEY_PATH: 'none: no previous key',
   KINDGI_PAGINATION_PREVIOUS_KEY: 'none: no previous key',
   KINDGI_COMPLIANCE_CLASSIFIER: 'none: no compliance routes, and no audit event is purged',
-  KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
+  KINDGI_ARTIFACTS: 'none: no file store (no `/v1/files` or `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
   KINDGI_FILE_MEMORY_MIB:
@@ -145,6 +160,10 @@ export const ENV_DEFAULTS = {
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
+  KINDGI_RUN_UPLOAD_DAILY_BYTES:
+    '`1073741824` (1 GiB), or `KINDGI_ARTIFACT_MAX_BYTES` when larger; `off` for none',
+  KINDGI_RUN_UPLOAD_DAILY_FILES: '`1000`; `off` for none',
+  KINDGI_UNUSED_UPLOAD_TTL_MS: '`86400000` (24 hours)',
   KINDGI_S3_REGION:
     'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
   KINDGI_S3_ENDPOINT: 'none: AWS S3',
@@ -158,6 +177,7 @@ export const ENV_DEFAULTS = {
   KINDGI_SECRETS_BACKEND:
     "`none` (the secrets routes are not served, and a workspace's own identity providers can't be added or changed)",
   KINDGI_SECRETS_DOTENV_FILES: '`.env,.env.local`',
+  KINDGI_CONNECTIONS_STORE: '`none`: connections are off under the `dotenv` backend',
   KINDGI_SECRETS_AAD_KEY_PATH:
     'none (with `KINDGI_SECRETS_AAD_KEY` unset): no key; the postgres backend refuses to start without one of the two',
   KINDGI_SECRETS_AAD_KEY: 'none: same as `KINDGI_SECRETS_AAD_KEY_PATH`',
@@ -208,6 +228,8 @@ export const ENV_DEFAULTS = {
   KINDGI_ORCHESTRATOR_PACK_SERVICE:
     "none: each field's default, and no network of its own (ingress from anywhere, the invoker check still on)",
   KINDGI_ORCHESTRATOR_RUNTIME_AUTH: 'none: the system key alone',
+  KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS:
+    'none: every pack service runs as `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT`',
 };
 
 /**
@@ -224,6 +246,9 @@ export const ENV_EXAMPLES = {
   },
   KINDGI_LICENSE_KEY: {
     value: 'kgi_lk_<payload>.<signature>',
+  },
+  KINDGI_ACCOUNT_KEY: {
+    value: '<the account key Kindgi issued for this runtime>',
   },
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY: {
     value: '<base64 of an Ed25519 private key in PKCS#8 PEM>',

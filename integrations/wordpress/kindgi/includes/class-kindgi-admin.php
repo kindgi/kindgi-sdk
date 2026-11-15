@@ -22,8 +22,8 @@ final class Kindgi_Admin {
 	const ASK_PAGE      = 'kindgi-ask';
 	const SETTINGS_PAGE = 'kindgi-settings';
 
-	/** Where the privacy guide's text links Kindgi Cloud's privacy policy, until that page is published. */
-	const PRIVACY_URL = '<privacy URL>';
+	/** Where the privacy guide's text links Kindgi Cloud's privacy policy: the address of its latest version. */
+	const PRIVACY_URL = 'https://www.kindgi.com/privacy';
 
 	/** The connect form's action and nonce. */
 	const CONNECT = 'kindgi_connect';

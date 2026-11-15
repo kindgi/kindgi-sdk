@@ -63,7 +63,9 @@ interface WireAuthzDecision {
 
 /**
  * The sign-in kinds `/v1/audit/sign-ins` lists: who signed in and out, how,
- * from where, and what was refused (a deployment writes each kind it has).
+ * from where, and what was refused; and the chat apps a person connected,
+ * whose renewal was refused, or that they disconnected (a deployment writes
+ * each kind it has).
  */
 export const SIGN_IN_EVENT_KINDS = [
   'signed-in',
@@ -76,6 +78,9 @@ export const SIGN_IN_EVENT_KINDS = [
   'second-factor-set-up',
   'second-factor-removed',
   'recovery-codes-replaced',
+  'chat-app-connected',
+  'chat-app-refresh-refused',
+  'chat-app-disconnected',
 ] as const;
 type SignInEventKind = (typeof SIGN_IN_EVENT_KINDS)[number];
 
@@ -90,11 +95,13 @@ interface WireSignInEvent {
   /** How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace provider's id. */
   readonly method?: string;
   readonly clientAddress?: string;
-  /** Why a sign-in was refused, or which limit held. */
+  /** Why a sign-in or a chat app's renewal was refused, or which limit held. */
   readonly reason?: string;
   readonly sessionId?: string;
   /** Who acted, when it isn't `userId`: the admin who ended this person's sessions. */
   readonly byUserId?: string;
+  /** The chat app, on a `chat-app-*` kind: its client id. */
+  readonly clientId?: string;
 }
 
 export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer): Hono<AppEnv> {
@@ -335,6 +342,7 @@ function signInToWire(event: AuditEvent): WireSignInEvent {
   const clientAddress = str(doc.clientAddress);
   const reason = str(doc.reason) ?? str(doc.limit);
   const sessionId = str(doc.sessionId);
+  const clientId = event.kind.startsWith('chat-app-') ? str(doc.clientId) : undefined;
   return {
     id: event.id,
     timestamp: event.timestamp as unknown as string,
@@ -346,6 +354,7 @@ function signInToWire(event: AuditEvent): WireSignInEvent {
     ...(reason !== undefined && { reason }),
     ...(sessionId !== undefined && { sessionId }),
     ...(byUserId !== undefined && { byUserId }),
+    ...(clientId !== undefined && { clientId }),
   };
 }
 

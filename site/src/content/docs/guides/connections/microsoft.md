@@ -27,7 +27,7 @@ directory, which you register with Kindgi once.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)).
-  Kindgi 0.6's CLI runs from any folder as `npx --yes @kindgi/cli@0.6`
+  Kindgi 0.7's CLI runs from any folder as `npx --yes @kindgi/cli@0.7`
   ([Install](../../../start/install/)).
 
 ## 1. Choose who can connect
@@ -78,7 +78,11 @@ In the [Microsoft Entra admin center](https://entra.microsoft.com):
    and both to reply. For the [calendar tools](../calendar/), add
    `Calendars.ReadBasic` to list events and calendars and for free/busy,
    `Calendars.Read.Shared` to list events on calendars others share, and
-   `Calendars.ReadWrite` to add and change them. Then choose **Add
+   `Calendars.ReadWrite` to add and change them. For the
+   [file tools](../files/), add `Files.Read` to list the person's own
+   OneDrive, `Files.ReadWrite` to add files to it, `Files.Read.All` to list
+   the files others share and a SharePoint library's, and `Sites.Read.All`
+   to find SharePoint sites and their libraries. Then choose **Add
    permissions**. Kindgi asks for
    `offline_access` to keep access between sign-ins, and for `User.Read` to
    learn whose account it is.
@@ -102,19 +106,35 @@ Cloud Application Administrator or Application Administrator role:
 **Security → Permissions → Grant admin consent**
 ([Microsoft: Grant tenant-wide admin consent](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/grant-admin-consent)).
 
+A new directory starts on Microsoft's own setting. It lets people allow a
+permission themselves, except those on Microsoft's list, which include
+reading mail, calendars, the files others share, and SharePoint:
+`Mail.Read`, the `Calendars` permissions, `Files.Read.All` and
+`Sites.Read.All` need an admin's consent once there. `Files.Read` and
+`Files.ReadWrite` don't
+([Microsoft: Manage app consent policies](https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-app-consent-policies)).
+
 ## 3. Store the client secret
 
 The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.7 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_MICROSOFT_CONNECT_SECRET` is the secret's name. The registration
   keeps only this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
+
+If this app registration also signs your people in to Kindgi, the connection
+needs a client secret of its own: a registration that names sign-in's is
+refused with `identity-provider-key-refused`. Add a second client secret to
+the app and store it under its own name.
 
 The command asks for the value twice, and doesn't show what you type.
 
@@ -125,7 +145,7 @@ In the console, open your workspace's **App registrations** page, choose
 
 - **Client id:** the Application (client) ID.
 - **Client secret: its name in Kindgi's secrets:** the environment and name
-  you stored it under, `production/ACME_MICROSOFT_CONNECT_SECRET`.
+  you stored it under, `prod/ACME_MICROSOFT_CONNECT_SECRET`.
 - **Directory:** the one from step 1: the Directory (tenant) ID or the
   domain, or `organizations`, `common` or `consumers`.
 - **Which projects' runs may use it:** leave it empty for all of them.
@@ -136,7 +156,7 @@ step 2.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=production/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
+npx --yes @kindgi/cli@0.7 connection-apps add microsoft --client-id=<client-id> --client-secret-ref=prod/ACME_MICROSOFT_CONNECT_SECRET --tenant=<directory>
 ```
 
 `<directory>` is the directory from step 1. The command prints the
@@ -222,7 +242,7 @@ Before yours expires:
 2. **Store it as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.6 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.7 secrets set ACME_MICROSOFT_CONNECT_SECRET --env=prod --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next
@@ -239,13 +259,18 @@ mailbox:
 - **10,000 calls in 10 minutes,** Microsoft Graph's limit for one app and
   one mailbox
   ([Microsoft: Throttling limits](https://learn.microsoft.com/en-us/graph/throttling-limits)).
+- **3,000 calls in 5 minutes** for OneDrive and SharePoint, SharePoint
+  Online's default for one person
+  ([Microsoft: Avoid getting throttled or blocked in SharePoint Online](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online)),
+  kept for a personal OneDrive too.
 
 The ready-made tools that read mail or a calendar count only against
 the second. A calendar create or update counts against both, as it can
-send meeting requests. A call whose `toolId` the entry doesn't list takes
-1 unit of each, so your own
-tool's calls to Graph through
-[`appFetch`](../use-a-connection/#read-the-token) count as sends too.
+send meeting requests. The [file tools](../files/) count only against
+the third. A call whose `toolId` the entry doesn't list takes 1 unit of
+each, so your own tool's calls to Graph through
+[`appFetch`](../use-a-connection/#read-the-token) count as sends and as
+file calls too.
 
 Microsoft enforces its other limits itself, such as 4 calls at once to a
 mailbox: a call over one is refused with a time to wait, and `appFetch`

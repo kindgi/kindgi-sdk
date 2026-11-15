@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
+/** `kindgi doctor`: each check, from fakes of the tools, Docker, the runtime and the client. */
 
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -627,6 +627,36 @@ describe('a TypeScript project', () => {
       'azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)',
     );
   });
+
+  test("a key limited to a project (403): not checked, the key's limit named, no restart", async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const limited = Object.assign(
+      new Error('Permission denied: the API key is limited to project prj_acme'),
+      { code: 'auth', reason: 'forbidden' },
+    );
+    const { out, check } = await doctor({ fetchImpl: healthy, providers: limited });
+    expect(check('provider')).toMatchObject({
+      status: 'skip',
+      message:
+        "Not checked: the key in .kindgirc.json can't list the providers (Permission denied: the API key is limited to project prj_acme).",
+      fix: "Check them with a key that reads the workspace's settings: a key limited to a project, say, doesn't.",
+    });
+    expect(out.exitCode).toBe(0);
+  });
+
+  test('any other failure to list them: a failure, and the restart advice', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor({
+      fetchImpl: healthy,
+      providers: new Error('socket hang up'),
+    });
+    expect(check('provider')).toMatchObject({
+      status: 'fail',
+      message: "Couldn't list the providers: socket hang up",
+      fix: 'Run doctor again once kindgi dev has finished starting; if it persists, restart kindgi dev.',
+    });
+    expect(out.exitCode).toBe(1);
+  });
 });
 
 describe("a registration the runtime can't build: its problems, from GET /v1/providers/{id}/check", () => {
@@ -1224,7 +1254,7 @@ describe('a Scala project (kindgi.config.json, "language": "scala")', () => {
   });
 });
 
-describe('under kindgi-cli, the PyPI build (T127)', () => {
+describe('under kindgi-cli, the PyPI build', () => {
   const PYPI = { KINDGI_CLI_INSTALL: 'pypi' };
 
   test("Node is the wheel's and npm isn't needed: neither fails, with no node or npm on PATH", async () => {
@@ -1324,7 +1354,7 @@ describe('the API key: a stored key goes only to the address stored with it', ()
       id: 'api-key',
       status: 'fail',
       message: `Every command that needs the API key refuses: it would send the API key stored in ${join(home, '.kindgi', 'config.json')}, which is for ${SIGNED_IN}, to ${OTHER}, which KINDGI_API_URL names.`,
-      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --url ${OTHER} --token <its key>\`, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
     });
     expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')?.message).toContain(
@@ -1342,6 +1372,51 @@ describe('the API key: a stored key goes only to the address stored with it', ()
     expect(sent.filter((a) => a !== null)).toEqual([]);
     expect(out.stdout).not.toContain(KEY);
     expect(out.stderr).not.toContain(KEY);
+  });
+
+  describe('login profiles', () => {
+    const PROD_KEY = 'kgi_tk_prod_never_printed';
+    const homeFile = () => join(home, '.kindgi', 'config.json');
+    const UNUSABLE_FIX =
+      'Save it again with `kindgi auth login --profile <name> --url <url> --token-stdin --force`, or remove it with `kindgi auth logout --profile <name>`.';
+    const signedInWithProfiles = async (profiles: Record<string, unknown>) => {
+      await mkdir(join(home, '.kindgi'), { recursive: true });
+      await writeFile(homeFile(), JSON.stringify({ apiUrl: SIGNED_IN, token: KEY, profiles }));
+    };
+
+    test("on a profile: pass, naming the profile's key", async () => {
+      await signedInWithProfiles({ prod: { apiUrl: OTHER, token: PROD_KEY } });
+      const { out, check } = await doctor({
+        args: ['--profile', 'prod'],
+        fetchImpl: recording([]),
+      });
+      expect(check('api-key')).toMatchObject({
+        status: 'pass',
+        message: `The profile prod's key in ${homeFile()} is for ${OTHER}, the address commands go to.`,
+      });
+      expect(out.stdout).not.toContain(PROD_KEY);
+      expect(out.stderr).not.toContain(PROD_KEY);
+    });
+
+    test("a profile that can't be used: a warning on the API key check, with the fix", async () => {
+      await signedInWithProfiles({ broken: { apiUrl: OTHER } });
+      const { check } = await doctor({ fetchImpl: recording([]) });
+      expect(check('api-key')).toMatchObject({
+        status: 'warn',
+        message: `The API key stored in ${homeFile()} is for ${SIGNED_IN}, the address commands go to. The profile broken in ${homeFile()} can't be used: it has no token.`,
+        fix: UNUSABLE_FIX,
+      });
+    });
+
+    test("the API key check failing: the profile that can't be used is said too, the failure and its fix kept", async () => {
+      await signedInWithProfiles({ broken: { apiUrl: OTHER } });
+      const { check } = await doctor({ env: { KINDGI_API_URL: OTHER }, fetchImpl: recording([]) });
+      expect(check('api-key')).toMatchObject({
+        status: 'fail',
+        message: `Every command that needs the API key refuses: it would send the API key stored in ${homeFile()}, which is for ${SIGNED_IN}, to ${OTHER}, which KINDGI_API_URL names. The profile broken in ${homeFile()} can't be used: it has no token.`,
+        fix: `The key goes only to its own address: point KINDGI_API_URL at ${SIGNED_IN}, sign in to ${OTHER} with \`kindgi auth login --profile <name> --url ${OTHER} --token-stdin\`, its key on stdin, or give that server's key with --token or KINDGI_API_TOKEN.`,
+      });
+    });
   });
 });
 
@@ -1592,6 +1667,13 @@ describe('the license key', () => {
       fix: 'Update the Kindgi CLI, then run kindgi doctor again.',
     });
     expect(await licenseOf({ KINDGI_LICENSE_KEY: 'not-a-key' })).toMatchObject({ status: 'fail' });
+  });
+
+  test("a key's own warning window (`warn`): it warns from that many days, not 30", async () => {
+    const at = (daysLeft: number) =>
+      licenseOf({ KINDGI_LICENSE_KEY: key({ warn: 7, exp: NOW / 1000 + daysLeft * DAY }) });
+    expect((await at(12))?.status).toBe('pass');
+    expect((await at(7))?.status).toBe('warn');
   });
 });
 

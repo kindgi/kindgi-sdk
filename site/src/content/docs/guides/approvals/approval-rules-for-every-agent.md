@@ -15,12 +15,12 @@ stricter, never looser.
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.6's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.7's CLI.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell. Policies
   are published through the HTTP API. With `kindgi dev`, they're `apiUrl`
   and `token` in the pack's `.kindgirc.json`.
 - **An agent that calls the tool you gate.** This guide uses
-  `acme-ops.status-agent`, which calls `acme-ops.post-update`.
+  `acme-ops.status-reporter`, which calls `acme-ops.post-update`.
 
 ## Publish a policy
 
@@ -60,7 +60,7 @@ An agent that calls `acme-ops.post-update` and has no approval settings now
 waits. `--agent` is the agent, and `--input` its input:
 
 ```sh
-pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 ```json

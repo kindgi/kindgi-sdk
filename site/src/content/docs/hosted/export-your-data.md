@@ -15,8 +15,8 @@ names and versions are.
 
 ## Before you start
 
-- **Kindgi 0.6's CLI,** which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../start/install/)).
+- **Kindgi 0.7's CLI,** which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../start/install/)).
 - **A tenant admin's API key.** Some kinds only a tenant admin reads, such as
   the workspace's people, its API keys, its environments and its sign-ins. In
   the console, open **API keys** and **Create a key**, and under **How far it
@@ -29,7 +29,7 @@ names and versions are.
   account is open:
 
   ```sh
-  npx --yes @kindgi/cli@0.6 reviewers register --spec='{"role":"admin"}'
+  npx --yes @kindgi/cli@0.7 reviewers register --spec='{"role":"admin"}'
   ```
 
 - **The address and the key:**
@@ -47,7 +47,7 @@ names and versions are.
 Name a new or empty folder:
 
 ```sh
-npx --yes @kindgi/cli@0.6 exports create --out ./acme-export
+npx --yes @kindgi/cli@0.7 exports create --out ./acme-export
 ```
 
 It prints a line for each kind as it's written, and ends by saying how many
@@ -61,7 +61,7 @@ it again with `--resume`. It keeps the kinds already written and reads the
 others again, skipped ones included:
 
 ```sh
-npx --yes @kindgi/cli@0.6 exports create --out ./acme-export --resume
+npx --yes @kindgi/cli@0.7 exports create --out ./acme-export --resume
 ```
 
 `--resume` reads the folder's `manifest.json`, and refuses a folder that
@@ -123,7 +123,9 @@ same way:
 - **An agent's retired test set cases:** `?include=retired`.
 - **Removed versions** of agents, flows, tools, blocks, policies and test
   sets: `?includeTombstoned=true`.
-- **Removed sites, people and service accounts:** `?includeUnregistered=true`.
+- **Removed sites, people, service accounts, schedules, webhook triggers,
+  mail triggers and text triggers:** `?includeUnregistered=true`, on a
+  removed trigger's versions and fires too.
 - **Removed connection apps, connections and connection choices:**
   `?includeRemoved=true`.
 - **Revoked signing keys and secrets:** `?includeRevoked=true`.
@@ -158,9 +160,10 @@ A list that pages answers a page at a time: `?limit=` (at most 100), and
 | Environments, their order, and env values | `environments.jsonl`, `environment-orders.jsonl`, `env.jsonl` | `GET /v1/environments`, `/v1/environment-orders`, `/v1/env` |
 | Secrets: names and versions, never values | `secrets.jsonl`, `secret-versions.jsonl` | `GET /v1/secrets`, `…/{name}/versions` |
 | Workspace settings and sign-in settings | `tenant-config.jsonl`, `sign-in-settings.jsonl` | `GET /v1/tenant/config`, `/v1/auth/settings` |
-| Schedules: every version, and when they fired | `schedules.jsonl`, `schedule-versions.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
-| Webhook triggers: every version, and when they fired | `webhooks.jsonl`, `webhook-versions.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
-| Mail triggers: every version, and when they fired | `mail-triggers.jsonl`, `mail-trigger-versions.jsonl`, `mail-trigger-fires.jsonl` | `GET /v1/mail-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Schedules, removed ones too: every version, and when they fired | `schedules.jsonl`, `schedule-versions.jsonl`, `schedule-fires.jsonl` | `GET /v1/schedules`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Webhook triggers, removed ones too: every version, and when they fired | `webhooks.jsonl`, `webhook-versions.jsonl`, `webhook-fires.jsonl` | `GET /v1/webhooks`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Mail triggers, removed ones too: every version, and when they fired | `mail-triggers.jsonl`, `mail-trigger-versions.jsonl`, `mail-trigger-fires.jsonl` | `GET /v1/mail-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
+| Text triggers, removed ones too: every version, and when they fired | `text-triggers.jsonl`, `text-trigger-versions.jsonl`, `text-trigger-fires.jsonl` | `GET /v1/text-triggers`, `…/{triggerId}/versions`, `…/{triggerId}/fires` |
 | Webhook endpoints, and their deliveries | `webhook-endpoints.jsonl`, `webhook-deliveries.jsonl` | `GET /v1/webhook-endpoints`, `…/{endpointId}/deliveries` |
 | MCP endpoints | `mcp-endpoints.jsonl` | `GET /v1/mcp/endpoints` |
 | Capabilities | `capabilities.jsonl` | `GET /v1/capabilities` |

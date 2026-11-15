@@ -63,34 +63,80 @@ final class Kindgi_Activity {
 			'output'         => self::output( $output ),
 			'failureMessage' => null === $private && is_string( $run['failureMessage'] ?? null ) ? $run['failureMessage'] : null,
 			'private'        => $private,
-			// The approvals it waits for: Kindgi's runs don't list them, its approvals name their run (`with_waits`).
-			'waiting'        => array(),
+			// The approvals it waits for, as its run names them (`waits`); `with_waits` heads them as the Inbox does.
+			'waiting'        => self::waits( $run ),
 		);
 	}
 
 	/**
-	 * Rows with what each waiting run waits for: the approvals that wait
-	 * and name it as the run that asked, each by its id and heading, as
-	 * the Inbox has them. Kindgi's list of runs doesn't say what a run
-	 * waits for; an approval names its run (`provenanceRef.runId`).
+	 * The approvals a run waits for, as its run names them (`waitingFor`,
+	 * which the list gives with `include=waitingFor`): each by its id, and
+	 * headed as a reader of the run may see it, by its title or its tool's
+	 * name in words. None for a run that doesn't wait, or waits for
+	 * something else (a child run). Null for a waiting run whose
+	 * `waitingFor` Kindgi didn't send (a Kindgi from before the list's, or
+	 * one that couldn't read it): `with_waits` then finds its approvals by
+	 * the run they name.
+	 *
+	 * @return array<int, array{id: string, heading: string}>|null
+	 */
+	public static function waits( array $run ): ?array {
+		if ( 'suspended' !== ( $run['status'] ?? '' ) ) {
+			return array();
+		}
+		$for = $run['waitingFor'] ?? null;
+		if ( ! is_array( $for ) ) {
+			return null;
+		}
+		$waits = array();
+		foreach ( is_array( $for['approvals'] ?? null ) ? $for['approvals'] : array() as $a ) {
+			if ( ! is_array( $a ) || ! is_string( $a['approvalId'] ?? null ) ) {
+				continue;
+			}
+			$tool    = is_string( $a['tool']['id'] ?? null ) ? $a['tool']['id'] : null;
+			$waits[] = array(
+				'id'      => $a['approvalId'],
+				'heading' => Kindgi_Inbox::heading( $a, $tool ),
+			);
+		}
+		return $waits;
+	}
+
+	/**
+	 * Rows with what each waiting run waits for, each approval by its id and
+	 * its heading as the Inbox has it (`Kindgi_Inbox::heading_of`), from the
+	 * project's approvals that wait. A run that named its approvals (`waits`)
+	 * keeps them: a reader of the run sees its own words only where the
+	 * approvals reach them, so one they don't reach keeps the heading its run
+	 * gave. A waiting run that didn't name them (null) gets the approvals
+	 * that name it as the run that asked (`provenanceRef.runId`).
 	 *
 	 * @param array<int, array> $rows    Runs' rows (`row`).
 	 * @param array<int, array> $waiting Kindgi's approvals that wait.
 	 */
 	public static function with_waits( array $rows, array $waiting ): array {
-		$waits = array();
+		$by_run     = array();
+		$heading_of = array();
 		foreach ( $waiting as $a ) {
-			$run = $a['provenanceRef']['runId'] ?? null;
+			$id                = (string) ( $a['id'] ?? '' );
+			$heading_of[ $id ] = Kindgi_Inbox::heading_of( $a );
+			$run               = $a['provenanceRef']['runId'] ?? null;
 			if ( is_string( $run ) ) {
-				$waits[ $run ][] = array(
-					'id'      => (string) ( $a['id'] ?? '' ),
-					'heading' => Kindgi_Inbox::heading_of( $a ),
+				$by_run[ $run ][] = array(
+					'id'      => $id,
+					'heading' => $heading_of[ $id ],
 				);
 			}
 		}
 		foreach ( $rows as $i => $row ) {
-			// Only a run that still waits: an approval left open on an ended run waits for nothing.
-			$rows[ $i ]['waiting'] = 'suspended' === $row['status'] ? ( $waits[ $row['id'] ] ?? array() ) : array();
+			// Null only for a run that still waits (`waits`): an approval left open on an ended run waits for nothing.
+			if ( null === $row['waiting'] ) {
+				$rows[ $i ]['waiting'] = $by_run[ $row['id'] ] ?? array();
+				continue;
+			}
+			foreach ( $row['waiting'] as $j => $wait ) {
+				$rows[ $i ]['waiting'][ $j ]['heading'] = $heading_of[ $wait['id'] ] ?? $wait['heading'];
+			}
 		}
 		return $rows;
 	}

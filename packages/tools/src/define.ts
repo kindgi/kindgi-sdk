@@ -18,7 +18,7 @@ import type {
   ZodConverter,
   ZodLikeSchema,
 } from '@kindgi/schema';
-import type { Result, ToolId } from '@kindgi/types';
+import { BUILT_IN_TOOL_PREFIX, type Result, type ToolId } from '@kindgi/types';
 
 import type {
   InvalidSchemaError,
@@ -41,13 +41,14 @@ import {
 const TOOL_SCHEMA_URI = 'https://kindgi.com/schemas/v1/tool.schema.json';
 
 /**
- * Exact semver regex — accepts `MAJOR.MINOR.PATCH[-PRERELEASE]`. Tool
- * VERSIONS are always exact (a tool row ships a specific semver);
- * agent bindings reference tools via `{ id, version: <range> }`
- * where the range grammar is npm-style (parsed by `semver` at
- * dispatch time).
+ * A tool's version: `MAJOR.MINOR.PATCH`, the pattern `tool.schema.json`
+ * holds a manifest to, so this check says in plain words what that one
+ * refuses. Tool VERSIONS are always exact (a tool row ships a specific
+ * version); agent bindings reference tools via `{ id, version: <range> }`
+ * where the range grammar is npm-style (parsed by `semver` at dispatch
+ * time).
  */
-const SEMVER_EXACT_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+const TOOL_VERSION_RE = /^\d+\.\d+\.\d+$/;
 
 let cachedRegistry: SpecRegistry | undefined;
 function registry(): SpecRegistry {
@@ -120,7 +121,10 @@ function resolveWireSchema(
   InvalidSchemaError
 > {
   if (!isZodSchema(schema)) {
-    return { kind: 'ok', value: { wire: schema } };
+    // A JSON Schema object comes back as is; a zod 3 schema is refused by name.
+    const wire = toJSONSchemaSync(schema, undefined, where);
+    if (wire.kind === 'err') return { kind: 'err', error: toSchemaError(wire.error, where) };
+    return { kind: 'ok', value: { wire: wire.value } };
   }
   // The input side for `input` (a `.default()` field is optional to the
   // caller), the output side for `output` (the field is always there).
@@ -362,24 +366,23 @@ function finalizeDefinition<
   converter: ZodConverter | undefined,
   options: DefineToolOptions,
 ): Result<DefinedTool<TInSchema, TOutSchema, THandlerIn, THandlerOut>, ToolError> {
-  // `version` is required on every tool manifest.
-  // Deep semver grammar checked here via a lightweight regex; range
-  // parsing (for agent-side `tools[].version` refs) happens elsewhere
-  // via the `semver` library at dispatch time. This regex accepts
-  // exact semvers only — tool VERSIONS are exact (a tool ships a
-  // specific `1.2.3`); ranges live on the agent binding.
+  // `version` is required on every tool manifest: MAJOR.MINOR.PATCH, the
+  // schema's own pattern (checked again below), said here in plain
+  // words. Range parsing (for agent-side `tools[].version` refs) happens
+  // elsewhere via the `semver` library at dispatch time; ranges live on
+  // the agent binding.
   const specVersion = (spec as { readonly version?: unknown }).version;
-  if (typeof specVersion !== 'string' || !SEMVER_EXACT_RE.test(specVersion)) {
+  if (typeof specVersion !== 'string' || !TOOL_VERSION_RE.test(specVersion)) {
     return {
       kind: 'err',
       error: {
         code: 'invalid-tool-definition',
         message:
-          '`version` is required on every tool manifest and must be an exact semver (e.g., `1.2.3`, `1.2.3-beta.1`). Agent bindings then reference tools via `{ id, version: <range> }`.',
+          '`version` is required on every tool manifest and must be MAJOR.MINOR.PATCH (e.g., `1.2.3`). Agent bindings then reference tools via `{ id, version: <range> }`.',
         issues: [
           {
             path: '/version',
-            message: 'version must be a non-empty exact semver string',
+            message: 'version must be MAJOR.MINOR.PATCH',
           },
         ],
       },
@@ -482,10 +485,10 @@ function finalizeDefinition<
 }
 
 /**
- * Why a tool can't declare `pauses: true`, `storesFiles: true` or
- * `readsFiles: true`, if it can't. Only a handler can answer with a pause,
- * store a file or read one: the runtime runs a declarative spec itself, and
- * an MCP server can't do any of them.
+ * Why a tool can't declare `pauses: true`, `storesFiles: true`,
+ * `readsFiles: true` or `updatesFiles: true`, if it can't. Only a handler
+ * can answer with a pause, or store, read or update a file: the runtime
+ * runs a declarative spec itself, and an MCP server can't do any of them.
  */
 function handlerOnlyRefusal(
   spec: object,
@@ -495,10 +498,13 @@ function handlerOnlyRefusal(
     readonly pauses?: unknown;
     readonly storesFiles?: unknown;
     readonly readsFiles?: unknown;
+    readonly updatesFiles?: unknown;
     readonly transport?: unknown;
   };
   if (declarativeSpec === undefined && declared.transport !== 'mcp') return undefined;
-  const flag = (['pauses', 'storesFiles', 'readsFiles'] as const).find((f) => declared[f] === true);
+  const flag = (['pauses', 'storesFiles', 'readsFiles', 'updatesFiles'] as const).find(
+    (f) => declared[f] === true,
+  );
   if (flag === undefined) return undefined;
   return {
     code: 'invalid-tool-definition',
@@ -519,6 +525,8 @@ const HANDLER_ONLY = {
     "`storesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't store files.",
   readsFiles:
     "`readsFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't read files.",
+  updatesFiles:
+    "`updatesFiles: true` needs a handler: a tool with a declarative `spec` or an MCP transport can't update files.",
 } as const;
 
 function stripHandler<TInput, TOutput>(spec: Tool<TInput, TOutput>): ToolManifest {
@@ -543,12 +551,18 @@ function toDefinitionError(err: {
 }
 
 /**
+ * The apps only tools built into Kindgi use: `texts`, whose account key
+ * sends from the business number. A pack tool that declares a connection
+ * of one is refused, by `defineTool` and by the runtime's indexer.
+ */
+export const BUILT_IN_ONLY_APPS = ['texts'] as const;
+
+/**
  * Each schema in `needsSpec.secrets` and `needsSpec.env` compiles as the runtime compiles it when
  * it loads the tool (`compileInlineSchema`), and an env value's `default` is a string. A runtime
  * that couldn't compile one would leave the whole tool out, so it's refused here, where the
  * tool is defined, registered (`POST /v1/tools`) or deployed, naming the tool, the slot and the
- * name. An HTTP spec's `connection` authorization names a connection `needsSpec.connections`
- * declares.
+ * name. Its connections pass `connectionsProblem`.
  */
 function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
   const tool = manifest.id as unknown as string;
@@ -574,6 +588,29 @@ function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | 
           ],
         };
       }
+    }
+  }
+  return connectionsProblem(manifest);
+}
+
+/**
+ * No connection in `needsSpec.connections` is of an app only tools built into Kindgi use
+ * (`BUILT_IN_ONLY_APPS`), and an HTTP spec's `connection` authorization names one it declares.
+ */
+function connectionsProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
+  const tool = manifest.id as unknown as string;
+  for (const [name, need] of Object.entries(manifest.needsSpec?.connections ?? {})) {
+    if ((BUILT_IN_ONLY_APPS as readonly string[]).includes(need.app)) {
+      return {
+        code: 'invalid-tool-definition',
+        message: `Tool "${tool}": needsSpec.connections.${name} is of the ${need.app} app, which is used only by tools built into Kindgi (kindgi_reply_to_text, kindgi_hand_to_person): a pack tool can't hold the number's account key.`,
+        issues: [
+          {
+            path: `/needsSpec/connections/${name}/app`,
+            message: 'must not be an app only tools built into Kindgi use',
+          },
+        ],
+      };
     }
   }
   const auth = manifest.spec?.authorization;
@@ -620,13 +657,6 @@ function checkEffectKinds(manifest: ToolManifest): UnknownEffectError | undefine
  * The returned value has the manifest fields only; there is no
  * `handler` (metadata-only shape).
  */
-/**
- * The prefix of tools built into Kindgi (e.g. `kindgi_remember`): their
- * ids are what the model calls, verbatim, so they have no dots. A
- * published tool can't use it; pack tools are `<pack>.<tool>`.
- */
-export const BUILT_IN_TOOL_PREFIX = 'kindgi_';
-
 export function validateToolManifest(
   manifest: unknown,
 ): Result<ToolManifest, InvalidToolDefinitionError | InvalidSchemaError | UnknownEffectError> {

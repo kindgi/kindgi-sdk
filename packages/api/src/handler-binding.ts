@@ -4,7 +4,13 @@
 import type { AgentId } from '@kindgi/agents';
 import type { Principal } from '@kindgi/authz';
 import type { FlowVersionOverrides } from '@kindgi/flow';
-import type { RunIdempotencyKey, RunMailbox, RunStartedBy, RunTriggerRef } from '@kindgi/runtime';
+import type {
+  RunIdempotencyKey,
+  RunMailbox,
+  RunStartedBy,
+  RunTextThread,
+  RunTriggerRef,
+} from '@kindgi/runtime';
 import type { FlowId, ProjectId, RunId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 /**
@@ -142,6 +148,12 @@ export interface InvokeAgentBindingInput {
    */
   readonly mailbox?: RunMailbox;
   /**
+   * The thread the run's text came from (`RunFlowInput.textThread`): set
+   * by a text trigger's fire, never by a route from a body. The run
+   * records it.
+   */
+  readonly textThread?: RunTextThread;
+  /**
    * Who started the run (the authenticated caller), when known: whom the
    * turn acts for, e.g. whose own memory its retrievals may read. Set by
    * the route, never from the body. On its own it enforces nothing.
@@ -181,6 +193,8 @@ export interface InvokeFlowBindingInput {
   readonly toolsAllowedUnattended?: readonly string[];
   /** The mailbox a mail trigger's run came from, as for `InvokeAgentBindingInput.mailbox`. */
   readonly mailbox?: RunMailbox;
+  /** The thread a text trigger's run came from, as for `InvokeAgentBindingInput.textThread`. */
+  readonly textThread?: RunTextThread;
   /** Agents and tools to run at other exact versions than the flow version's pins (`RunFlowInput.versions`). */
   readonly versions?: FlowVersionOverrides;
   /** Who started the run, as for `InvokeAgentBindingInput.principal`: its agent steps act for them. */

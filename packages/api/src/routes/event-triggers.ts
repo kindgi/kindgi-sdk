@@ -8,7 +8,7 @@ import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { ItemRights } from '../item-rights.js';
+import type { HeldProjects, ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type {
   EventTriggerRecord,
@@ -29,7 +29,7 @@ import { versionFields, versionOne, versionsPage } from './trigger-versions.js';
  * Nine routes, mirroring the schedules surface. This surface registers
  * triggers; it does not publish events.
  *
- * With an authorizer (T243 A), the trigger's flow decides who may see or
+ * With an authorizer, the trigger's flow decides who may see or
  * change it, and for a flow more than one project serves, the project its
  * runs are filed in (`trigger-access.ts`).
  */
@@ -38,9 +38,11 @@ export function eventTriggersRouter(
   authorizer?: Authorizer,
   /** Rights on a flow more than one project serves (`trigger-access.ts`). */
   itemRights?: ItemRights,
+  /** Without a store: where a flow's projects are read, so a limited caller is held (`trigger-access.ts`). */
+  flows?: HeldProjects,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const access = triggerAccess(binding, 'event', authorizer, itemRights);
+  const access = triggerAccess(binding, 'event', authorizer, itemRights, flows);
 
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {
@@ -142,14 +144,14 @@ export function eventTriggersRouter(
   r.get('/:triggerId/versions', async (c) => {
     const found = await readable(c);
     if (found instanceof Response) return found;
-    return versionsPage(c, binding, found, 'event', versionsJson);
+    return versionsPage(c, binding, { triggerId: found }, 'event', versionsJson);
   });
 
   // ---------- GET /:triggerId/versions/:version ----------
   r.get('/:triggerId/versions/:version', async (c) => {
     const found = await readable(c);
     if (found instanceof Response) return found;
-    return versionOne(c, binding, found, 'event', versionsJson);
+    return versionOne(c, binding, { triggerId: found }, 'event', versionsJson);
   });
 
   // ---------- PATCH /:triggerId (update) ----------

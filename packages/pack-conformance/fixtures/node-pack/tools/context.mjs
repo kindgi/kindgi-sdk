@@ -13,6 +13,7 @@ export default {
     runId: ctx.runId,
     ...(ctx.requestId !== undefined && { requestId: ctx.requestId }),
     ...(ctx.idempotencyKey !== undefined && { idempotencyKey: ctx.idempotencyKey }),
+    ...(ctx.timeZone !== undefined && { timeZone: ctx.timeZone }),
     ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
     ...(ctx.orgId !== undefined && { orgId: ctx.orgId }),
     env: ctx.env ?? {},
@@ -21,7 +22,8 @@ export default {
     ...(ctx.settings !== undefined && { settings: ctx.settings }),
     ...(ctx.connections !== undefined &&
       Object.keys(ctx.connections).length > 0 && { connections: ctx.connections }),
-    // A tool that declares neither `storesFiles` nor `readsFiles` never gets its files.
+    // A tool that declares none of `storesFiles`, `readsFiles` and `updatesFiles` never gets
+    // its files.
     ...(ctx.files !== undefined && { files: true }),
   }),
 };

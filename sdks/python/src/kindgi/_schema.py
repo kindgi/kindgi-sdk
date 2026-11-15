@@ -468,7 +468,10 @@ def strict_schema_problem(schema: Mapping[str, Any]) -> str | None:
       `patternProperties` pattern with the `u` flag, the latter also without it first when the
       schema has `properties`;
     - a `$dynamicRef` or `$recursiveRef` that isn't `#`-something, and a value of the wrong type
-      for a keyword Draft 2020-12 doesn't define (`nullable`, a format bound, `$recursiveAnchor`).
+      for a keyword Draft 2020-12 doesn't define (`nullable`, a format bound, `$recursiveAnchor`);
+    - a `properties`, `patternProperties`, `dependentSchemas` or `dependencies` name holding a
+      lone surrogate, where the runtime compiles the subschema under it (one that not all data
+      passes): it writes the name into that subschema's path, URI encoded, which it can't be.
 
     A `$ref` that is empty, `#`, a `#/...` pointer, or a plain anchor (`#name`) one schema's
     `$anchor` names is followed, unless a subschema names a base of its own (`$id`): what it
@@ -682,8 +685,8 @@ def _strict_problems(schema: Mapping[str, Any]) -> Iterator[str]:
         )
         for name, dependency in _entries(here.get("dependencies")):
             if name != "__proto__" and not isinstance(dependency, list):
-                yield from problems(
-                    dependency, f"{path}/dependencies/{_segment(name)}", types, defined, compiling
+                yield from named(
+                    dependency, f"{path}/dependencies", name, types, defined, compiling
                 )
         properties = [(n, s) for n, s in _entries(props) if n != "__proto__"]
         defined.update(name for name, _ in properties)
@@ -693,9 +696,7 @@ def _strict_problems(schema: Mapping[str, Any]) -> Iterator[str]:
         for name, sub in properties:
             if not _passes_anything(sub):
                 defined = set()
-                yield from problems(
-                    sub, f"{path}/properties/{_segment(name)}", [], defined, compiling
-                )
+                yield from named(sub, f"{path}/properties", name, [], defined, compiling)
                 defined.add(name)
         patterns = [(p, s) for p, s in _entries(here.get("patternProperties")) if p != "__proto__"]
         for _, sub in patterns:
@@ -718,13 +719,9 @@ def _strict_problems(schema: Mapping[str, Any]) -> Iterator[str]:
             yield from _regexp_syntax(pattern, unicode=True)
             if not _passes_anything(sub):
                 defined = set()
-            yield from problems(
-                sub, f"{path}/patternProperties/{_segment(pattern)}", [], defined, compiling
-            )
+            yield from named(sub, f"{path}/patternProperties", pattern, [], defined, compiling)
         for name, dependent in _entries(here.get("dependentSchemas")):
-            yield from problems(
-                dependent, f"{path}/dependentSchemas/{_segment(name)}", types, defined, compiling
-            )
+            yield from named(dependent, f"{path}/dependentSchemas", name, types, defined, compiling)
         if "unevaluatedProperties" in here and not evaluated(
             here, "unevaluatedProperties", compiling
         ):
@@ -737,6 +734,26 @@ def _strict_problems(schema: Mapping[str, Any]) -> Iterator[str]:
                 defined,
                 compiling,
             )
+
+    def named(
+        node: Any,
+        path: str,
+        name: str,
+        types: list[str],
+        defined: set[str],
+        compiling: tuple[int, ...],
+    ) -> Iterator[str]:
+        # `problems` of the subschema a name holds, under its keyword's `path`. The runtime writes
+        # the name into the subschema's path, URI encoded, when it compiles the subschema, so a
+        # name it can't encode (`_segment`) is refused there, after the subschema's keywords are
+        # looked at.
+        segment = _segment(name)
+        if segment is not None:
+            yield from problems(node, f"{path}/{segment}", types, defined, compiling)
+            return
+        yield from _unknown_keywords(node)
+        if not _passes_anything(node):
+            yield _URI_MALFORMED
 
     def reach(ref: Any, compiling: tuple[int, ...]) -> Iterator[str]:
         if not isinstance(ref, str):
@@ -837,10 +854,21 @@ def _subschemas(node: Mapping[str, Any]) -> list[Any]:
     return inside
 
 
-def _segment(name: str) -> str:
+# What JavaScript's `encodeURIComponent` throws on a lone surrogate, which the runtime's compile
+# gives as its refusal.
+_URI_MALFORMED = "URI malformed"
+
+
+def _segment(name: str) -> str | None:
     """`name` as a path segment, written as the runtime writes it: JSON Pointer escaped, then
-    URI encoded."""
-    return quote(name.replace("~", "~0").replace("/", "~1"), safe="!*'()")
+    URI encoded. A pair of surrogates is one character, as JavaScript reads it from the pack's
+    JSON. `None` for a name holding a lone surrogate, which URI encoding can't write
+    (`_URI_MALFORMED`)."""
+    name = name.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+    try:
+        return quote(name.replace("~", "~0").replace("/", "~1"), safe="!*'()")
+    except UnicodeEncodeError:
+        return None
 
 
 def _local_ref(root: Mapping[str, Any], ref: str) -> Any:

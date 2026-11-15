@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `POST /v1/conversations/{id}/unregister` (T273 M-4): a tombstone, by the
+ * `POST /v1/conversations/{id}/unregister`: a tombstone, by the
  * binding; it answers the conversation with `unregisteredAt`. The route
  * loads the conversation first (unknown or unregistered already: 404, before
  * any check; authorization is in route-authz-conversations.test.ts). A

@@ -15,6 +15,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # Pinned, never "latest": every secret stored in Postgres is bound to it.
 secrets_aad_key_version = "1"
 
+# The version of the page-cursor key the server reads: the first one added (README step 3).
+# Pinned, never "latest", so every instance and revision seals cursors with the same key.
+pagination_key_version = "1"
+
 # Set after the first apply, once the orchestrator's key is minted and added
 # (README, "5. The pack orchestrator"). Pinned, never "latest".
 # orchestrator_key_version = "1"
@@ -42,3 +46,9 @@ server_env = {
 
 pack_cloud_sql_instances = ["acme-kindgi-dev:northamerica-northeast2:acme-app"]
 pack_bucket_readers      = ["acme-app-corpus"]
+
+# Renew the license key on a schedule (README, "8. Renew the license key").
+# Unset: by hand only, and nothing calls Kindgi. With the usage key's secret
+# too, renewing carries counts and hands a renewed key to the server.
+# license_renewal_schedule = "17 6 * * *"
+# license_usage_key_secret = "kindgi-license-usage-key"

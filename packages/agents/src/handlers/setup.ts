@@ -22,7 +22,8 @@ import {
   resolveTurnEnvironment,
   resolveTurnHitlPolicy,
 } from './turn-environment.js';
-import { decisionOf } from './turn-provenance.js';
+import { agentActor, decisionOf } from './turn-provenance.js';
+import { resolveTurnTimeZone } from './turn-time-zone.js';
 
 /**
  * Deterministic waitpoint token — must produce the same value on every
@@ -198,7 +199,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
           id: waitNodeId,
           kind: 'wait',
           timestamp: new Date().toISOString() as never,
-          actor: `agent:${ctx.input.agent.id as unknown as string}`,
+          actor: agentActor(ctx.input.agent),
           attributes: {
             gate: 'session-hitl',
             turnCount: gate.turnCount,
@@ -222,8 +223,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
             id: resumeNodeId,
             kind: 'resume',
             timestamp: new Date().toISOString() as never,
-            // Whoever decided; a decision recorded before it named them, the agent.
-            actor: decision.decidedBy ?? `agent:${ctx.input.agent.id as unknown as string}`,
+            // Whoever decided; a decision recorded before it named them, no one.
+            ...(decision.decidedBy !== undefined && { actor: decision.decidedBy }),
             attributes: {
               gate: 'session-hitl',
               decision: decisionOf(decision),
@@ -259,7 +260,7 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               id: resumeNodeId,
               kind: 'resume',
               timestamp: new Date().toISOString() as never,
-              actor: `agent:${ctx.input.agent.id as unknown as string}`,
+              // No one decided: the wait was cancelled.
               attributes: {
                 gate: 'session-hitl',
                 decision: 'cancelled',
@@ -290,6 +291,8 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
     const environment = await resolveTurnEnvironment(ctx);
     // The sets the turn's calls may name a connection from.
     await offerAccounts(ctx, kctx.runId as unknown as string);
+    // The workspace's zone, once for the turn, for its tools' calls.
+    const zone = await resolveTurnTimeZone(ctx);
 
     // Provenance builder was created earlier (before the session-HITL
     // gate) so wait/resume nodes could bracket the park boundary. Kept
@@ -319,6 +322,9 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       // And the guardrails, each one's declaration: a resumed turn runs
       // these, whatever the registry holds by then.
       guardrails: environment.guardrails,
+      // And the zone its tools' calls get, with why it fell back to UTC.
+      ...(zone !== undefined && { timeZone: zone.timeZone }),
+      ...(zone?.problem !== undefined && { timeZoneProblem: zone.problem }),
     };
   };
 }

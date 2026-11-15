@@ -106,6 +106,24 @@ ERR
       exit 1
     fi
     : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
+  "run services list"*)
+    # STUB_SERVICES: one "<name> <account> <kindgi-move label, or ->" per line.
+    # Answers only the two filters upgrade.sh sends: the services that run as
+    # an account, and those whose move isn't done. As value() prints them: the
+    # name, a tab, the labels as key=value;... STUB_LIST_RC refuses the call.
+    if [[ -n ${STUB_LIST_RC:-} ]]; then echo "ERROR: (gcloud.run.services.list) stub refused" >&2; exit "$STUB_LIST_RC"; fi
+    filter=""
+    for a in "$@"; do case "$a" in --filter=*) filter="${a#--filter=}" ;; esac; done
+    while read -r name account move; do
+      [[ -n $name ]] || continue
+      case "$filter" in
+        "spec.template.spec.serviceAccountName="*) [[ $account == "${filter#*=}" ]] || continue ;;
+        "metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done") [[ $move != - && $move != done ]] || continue ;;
+        *) echo "ERROR: (gcloud.run.services.list) the stub doesn't know the filter $filter" >&2; exit 2 ;;
+      esac
+      if [[ $move == - ]]; then printf '%s\t\n' "$name"; else printf '%s\tkindgi-move=%s\n' "$name" "$move"; fi
+    done <<<"${STUB_SERVICES:-}"
+    exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
@@ -178,7 +196,8 @@ case "${1:-}" in
     # later file over an earlier one and -var over both, as terraform reads
     # them; STUB_PLAN_CHANGES adds resource changes; STUB_SERVER_ENV
     # ({before, after, after_unknown}) adds env entries to the server's own
-    # change; STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
+    # change, and STUB_SERVER_PROBE ({before, after}) its startup probe;
+    # STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
     out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
@@ -202,17 +221,19 @@ case "${1:-}" in
     if [[ -n $out ]]; then
       jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
         --arg pold "${STUB_PACK_BEFORE:-}" --arg pnew "${pack:-${STUB_PACK_BEFORE:-}}" \
-        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" '
-        def svc($n; $addr; $b; $a; $env):
+        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" \
+        --argjson sprobe "${STUB_SERVER_PROBE:-null}" '
+        def probe($p): if $p == null then {} else {startup_probe: [$p]} end;
+        def svc($n; $addr; $b; $a; $env; $probe):
           {name: "KINDGI_ENV", value: "dev", value_source: []} as $base
           | {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
-           change: {actions: (if $b == $a and $env == null then ["no-op"] else ["update"] end),
-             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))}]}]},
-             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))}]}]},
+           change: {actions: (if $b == $a and $env == null and $probe == null then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))} + probe($probe.before)]}]},
+             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))} + probe($probe.after)]}]},
              after_unknown: {template: [{containers: [{env: ([{}] + ($env.after_unknown // []))}]}]}}};
         {format_version: "1.2",
-         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv)]
-           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null)] end)
+         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv; $sprobe)]
+           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null; null)] end)
            + $extra)}' >"$out"
     fi
     exit "${STUB_PLAN_RC:-0}" ;;
@@ -264,7 +285,9 @@ mkvars() {
     --arg prefix "${V_PREFIX:-kindgi}" --argjson dbi "${V_DBI:-null}" \
     --arg connector "${V_CONNECTOR:-}" --arg private "${V_DB_PRIVATE:-}" \
     --arg secrets "${V_SECRETS:-postgres}" --arg okv "${V_OKV:-}" --arg hosts "${V_HOSTS:-}" \
-    --argjson senv "${V_SENV:-[]}" --argjson ssenv "${V_SSENV:-[]}" '{
+    --argjson senv "${V_SENV:-[]}" --argjson ssenv "${V_SSENV:-[]}" \
+    --arg pacc "${V_PACK_ACCOUNTS:-shared}" --argjson ptenants "${V_PACK_TENANTS:-[]}" \
+    --argjson pshared "${V_PACK_SHARED:-true}" '{
     project_id:"demo-proj", region:"northamerica-northeast2", name_prefix:$prefix,
     network_mode:$net, vpc_connector:$connector, database_private_network:$private,
     database_host_instance:(if $host == "" then null else $host end),
@@ -273,7 +296,8 @@ mkvars() {
     tenancy:$tenancy, seed_tenant_id:(if $tenancy == "single" then $seed else null end),
     server_image:$img, database_instance:$dbi,
     orchestrator_key_version:(if $okv == "" then null else $okv end),
-    server_env_names:$senv, server_secret_env_names:$ssenv, pack_endpoint_hosts:$hosts}' --arg seed "$SEED_TENANT"
+    server_env_names:$senv, server_secret_env_names:$ssenv, pack_endpoint_hosts:$hosts,
+    pack_accounts:$pacc, pack_tenants:$ptenants, pack_shared_account:$pshared}' --arg seed "$SEED_TENANT"
 }
 
 SERVICE_READY='{"status":{"conditions":[{"type":"Ready","status":"True"}],"latestReadyRevisionName":"kindgi-server-00002","latestCreatedRevisionName":"kindgi-server-00002"}}'
@@ -291,9 +315,10 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_EXPORT_403 STUB_EXPORT_403_OTHER STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
-        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
-        STUB_REMOVED_RC \
-        V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV
+        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_SERVER_PROBE STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
+        STUB_REMOVED_RC STUB_SERVICES STUB_LIST_RC \
+        V_NET V_HOST V_TENANCY V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE V_SECRETS V_OKV V_HOSTS V_SENV V_SSENV \
+        V_PACK_ACCOUNTS V_PACK_TENANTS V_PACK_SHARED
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
   VAR_FILE="$CASE_DIR/dev.tfvars"
@@ -357,7 +382,7 @@ assert_docker_config_unchanged() {
 # terraform console takes the state lock briefly; the stub doesn't model it.)
 assert_reads_only() {
   local other
-  other="$(grep -vE '^(gcloud (run services describe|artifacts docker images list|sql instances describe|sql ssl server-ca-certs list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform -chdir=[^ ]+ console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
+  other="$(grep -vE '^(gcloud (run services describe|run services list|artifacts docker images list|sql instances describe|sql ssl server-ca-certs list) |docker buildx imagetools inspect |terraform output -json$|terraform console( -var-file=[^ ]+)+$|terraform -chdir=[^ ]+ console( -var-file=[^ ]+)+$|terraform plan( -var-file=[^ ]+)+ -var server_image=[^ ]+ -lock=false -out=[^ ]+$|terraform show -json [^ ]+$)' "$STUB_CALLS_LOG")"
   if [[ -z $other ]]; then pass; else fail "made a call that isn't a read: $other"; fi
 }
 
@@ -427,8 +452,8 @@ if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a plan
 # 6. Apply fails: the go-back is printed, the var-file keeps the new image.
 # From 0.4.0 to a server fix of it: the module stays the release's, so the
 # go-back plans with it. (A run from before 0.4.0 has a go-back of its own.)
-# The module here is 0.6.0's, whose plan changes nothing by itself: the note
-# that it goes ahead is the one line that names an SDK tag.
+# The module here is 0.7.0's: the note that it goes ahead is the one line
+# that names an SDK tag.
 case_start "apply fails"
 reset_env; export STUB_TAGS="0.4.0" STUB_APPLY_RC=1
 run "yes" --to 0.4.0.1
@@ -437,7 +462,7 @@ assert_out "To go back"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.4 memory erasures export --out=erasures-" "the export runs 0.4.0's CLI line"
 assert_out "import sql"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.4 memory erasures replay erasures-" "the replay runs 0.4.0's CLI line"
-assert_out "the module here is this copy's, as of 0.6.0"
+assert_out "the module here is this copy's, as of 0.7.0"
 if grep -v -F "the module here is this copy's" "$OUT" | grep -q -e "@kindgi/sdk@" -e "pack-service-token"; then fail "a go-back with no switch names an older module or the pack token"; else pass; fi
 if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
@@ -506,6 +531,21 @@ assert_rc 0 "rc -> final runs"
 assert_out "From a 0.4.0 pre-release, the module has 0.4.0's packs already"
 assert_out "plan check: it changes the image(s)"
 if grep -q -e "Steps that finish the switch" -e "pack-route-missing" -e "pack_service_token" "$OUT"; then fail "a run from 0.4.0's rc made the switch"; else pass; fi
+assert_out "0.4.0-rc.0 -> 0.4.0 applied"
+
+# 9a. With license_renewal_schedule, the license renewal's Job runs the
+# server's image too, and takes the new image beside it.
+RENEWAL_JOB_IMAGE="$(jq -cn --arg old "$RUNNING_IMAGE" --arg new "$NEW_IMAGE" '[{address: "google_cloud_run_v2_job.license_renewal[0]", mode: "managed",
+  type: "google_cloud_run_v2_job", name: "license_renewal", index: 0,
+  change: {actions: ["update"],
+    before: {name: "kindgi-license-renewal", template: [{template: [{containers: [{image: $old}]}]}]},
+    after: {name: "kindgi-license-renewal", template: [{template: [{containers: [{image: $new}]}]}]},
+    after_unknown: {}}}]')"
+case_start "the license renewal job takes the new image"
+reset_env; export STUB_TAGS="0.4.0-rc.0" STUB_PLAN_CHANGES="$RENEWAL_JOB_IMAGE"; V_OKV="1"
+run "yes"
+assert_rc 0 "the renewal job's new image is allowed"
+assert_out "plan check: it changes the image(s)"
 assert_out "0.4.0-rc.0 -> 0.4.0 applied"
 
 # 10. To an rc: its release's steps are included.
@@ -680,13 +720,13 @@ assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
 # 24. Past the newest release this script knows: refused before anything is
-# read, mirrored or backed up, though 0.1.9 to 0.6.0 lie on the way.
+# read, mirrored or backed up, though 0.1.9 to 0.7.0 lie on the way.
 case_start "target past the newest known release"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.7.0
+run "yes" --to 0.8.0
 assert_rc 1 "a later target refused"
-assert_out "knows the steps up to 0.6.0"
-assert_out "as of the @kindgi/sdk@0.7.0 tag"
+assert_out "knows the steps up to 0.7.0"
+assert_out "as of the @kindgi/sdk@0.8.0 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
@@ -695,10 +735,10 @@ assert_varfile_unchanged
 # 25. An rc of a later release counts as that release.
 case_start "rc of a later release"
 reset_env; export STUB_TAGS="0.1.9"
-run "yes" --to 0.7.0-rc.1
+run "yes" --to 0.8.0-rc.1
 assert_rc 1 "a later rc refused"
-assert_out "knows the steps up to 0.6.0"
-assert_out "as of the @kindgi/sdk@0.7.0 tag or, before that release is out, its newest @kindgi/sdk@0.7.0-rc.N tag."
+assert_out "knows the steps up to 0.7.0"
+assert_out "as of the @kindgi/sdk@0.8.0 tag or, before that release is out, its newest @kindgi/sdk@0.8.0-rc.N tag."
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
 # 26. 0.1.10 -> 0.4.0: crosses 0.2.0 and on, copies 0.4.0 from
@@ -799,6 +839,8 @@ assert_file_has "$OUT" "   (both platforms, through this machine; on a slow upli
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ss  (check secret-scopes)" "the secret-scopes job"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-mhc  (check mcp-header-credentials)" "the mcp-header-credentials job"
+assert_file_has "$OUT" "2. create, run and then delete 3 Cloud Run jobs with the new image, one per check:" "the jobs' count"
+assert_file_has "$OUT" "     check identity-provider-keys isn't run: the 0.4.0 runtime doesn't have it (0.7.0 and later do)" "the check 0.4.0 lacks"
 assert_file_has "$OUT" "grant serviceAccount:p-sql@demo-proj.iam.gserviceaccount.com roles/storage.objectAdmin on gs://backups " "the grant"
 assert_file_has "$OUT" "export the \"kindgi\" database to gs://backups/dev/kindgi-kindgi-0.1.10-<YYYYMMDDTHHMMSSZ>.sql.gz" "the export"
 assert_file_has "$OUT" "4. nothing to build: the apply deletes the one pack service, and the pack orchestrator makes each deployment's own" "the pack service's step"
@@ -941,10 +983,10 @@ assert_varfile_unchanged
 # names its release's SDK tag, since a server-only release has none.
 case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.4.0"
-run "yes" --to 0.7.0.1
+run "yes" --to 0.8.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.6.0. 0.7.0.1 is a server fix for 0.7.0, which comes out after its final: use this script as of the @kindgi/sdk@0.7.0 tag."
-if grep -q "@kindgi/sdk@0.7.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_out "knows the steps up to 0.7.0. 0.8.0.1 is a server fix for 0.8.0, which comes out after its final: use this script as of the @kindgi/sdk@0.8.0 tag."
+if grep -q "@kindgi/sdk@0.8.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
@@ -1125,8 +1167,8 @@ assert_file_has "$OUT" "      kindgi deploy --env <env> --endpoint $SERVER_URL -
 if grep -q -e "shop.acme.example" -e "acme-north-7" "$OUT"; then fail "a pack env value was printed"; else pass; fi
 if grep -q "tenancy = \"multi\"" "$OUT"; then fail "a single-tenant run printed the multi steps"; else pass; fi
 
-# 48. With no --to, the target is the newest release the script knows, 0.6.0.
-# From 0.2.0 it crosses the five releases 0.3.0 to 0.6.0: their steps print,
+# 48. With no --to, the target is the newest release the script knows, 0.7.0.
+# From 0.2.0 it crosses the six releases 0.3.0 to 0.7.0: their steps print,
 # 0.5.0's marker among them, and the plan may turn on the instance's deletion
 # protection, in place, as 0.3.0's say. With no pack service, the steps after
 # the apply have no pack env to set.
@@ -1136,12 +1178,12 @@ INSTANCE_PROTECTED="$(jq -cn '[{address: "google_sql_database_instance.kindgi[0]
     before: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: false}]},
     after: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: true}]},
     after_unknown: {}}}]')"
-case_start "the default target, 0.6.0"
+case_start "the default target, 0.7.0"
 reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
 ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
 run "yes"
-assert_rc 0 "0.2.0 -> 0.6.0 runs"
-assert_out "crossing: 0.3.0 0.3.1 0.4.0 0.5.0 0.6.0$"
+assert_rc 0 "0.2.0 -> 0.7.0 runs"
+assert_out "crossing: 0.3.0 0.3.1 0.4.0 0.5.0 0.6.0 0.7.0$"
 assert_out "turns on Google's deletion protection (deletion_protection_enabled)"
 assert_out "If a plan says the instance must be replaced, answer no: a"
 assert_out "First start runs six additive migrations"
@@ -1152,7 +1194,7 @@ assert_out "upgrade at a quiet time"
 assert_out "gcloud storage rm --recursive --all-versions"
 assert_out "With openfga_api_url set, once the new runtime serves all the traffic,"
 assert_out "run this once, with the new runtime's kindgi-runtime:"
-if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.6.0 named 0.3.0's runtime"; else pass; fi
+if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.7.0 named 0.3.0's runtime"; else pass; fi
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
@@ -1185,18 +1227,25 @@ assert_out "If a migration stops because another database session holds a lock"
 assert_out "The authorization model gains the runner role and everyone-can-run."
 assert_out "A remote MCP endpoint that redirects to another origin no longer"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
+assert_out "The first start runs this release's migrations: they add tables and"
+assert_out "A server serving many tenants no longer brings every tenant's"
+assert_out "If this server served many tenants on 0.6.x, run this once after the"
+assert_out "Within about a minute of the first start, the runtime ends each"
+assert_out "The runtime reports its usage to Kindgi at most once a day, with its"
+assert_out "With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release warned of a module past it"; else pass; fi
-assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.6.0 " "0.6.0's tag is read"
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.7.0 " "0.7.0's tag is read"
 assert_out "nothing to build: the pack orchestrator makes each deployment's pack service, from the image its deploy names"
 assert_out "plan check: it changes the image(s)"
-assert_out "0.2.0 -> 0.6.0 applied"
+assert_out "0.2.0 -> 0.7.0 applied"
 assert_file_has "$OUT" " 3. Deploy each pack again" "the deploy, third"
 if grep -q -e "Set the pack's env in Kindgi" -e "pack_secret_readers = " -e "pack_min_instances was" "$OUT"; then fail "steps for a pack env that isn't there"; else pass; fi
 
 # 48b. 0.3.1 -> 0.4.0's candidate: it crosses 0.4.0 alone, an rc counting as
-# its release, and makes the switch. 0.5.0 and 0.6.0 are past it: the run
-# says the module goes ahead, and lists their module changes (none by
-# themselves), not their steps.
+# its release, and makes the switch. 0.5.0, 0.6.0 and 0.7.0 are past it: the
+# run says the module goes ahead, and lists their module changes, not their
+# steps.
 case_start "0.3.1 to 0.4.0-rc.0"
 reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0-rc.0
@@ -1210,7 +1259,10 @@ assert_out "0.6.0 (this module's changes only; the runtime goes to 0.4.0-rc.0):"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
 if grep -q "Two new migrations: three new tables" "$OUT"; then fail "0.5.0's steps printed for a run to 0.4.0's rc"; else pass; fi
 if grep -q "Three new migrations: a table of renamed projects' old slugs" "$OUT"; then fail "0.6.0's steps printed for a run to 0.4.0's rc"; else pass; fi
-assert_out "the module here is this copy's, as of 0.6.0: the plan also makes its changes for the releases after 0.4.0"
+assert_out "0.7.0 (this module's changes only; the runtime goes to 0.4.0-rc.0):"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "Within about a minute of the first start, the runtime ends each" "$OUT"; then fail "0.7.0's steps printed for a run to 0.4.0's rc"; else pass; fi
+assert_out "the module here is this copy's, as of 0.7.0: the plan also makes its changes for the releases after 0.4.0"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.4.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.3.1 -> 0.4.0-rc.0 applied"
@@ -1218,8 +1270,8 @@ assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
 
 # 48c. 0.4.0 -> 0.5.0's candidate: it crosses 0.5.0 alone, whose steps print
 # and whose module changes nothing, so the plan changes only the image, and
-# there's no switch to make. 0.6.0 is past it: the run says the module goes
-# ahead, and lists 0.6.0's module changes (none by themselves), not its steps.
+# there's no switch to make. 0.6.0 and 0.7.0 are past it: the run says the
+# module goes ahead, and lists their module changes, not their steps.
 case_start "0.4.0 to 0.5.0-rc.0"
 reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
 run "yes" --to 0.5.0-rc.0
@@ -1237,7 +1289,10 @@ if grep -q -e "Eighteen new migrations" -e "Steps that finish the switch" "$OUT"
 assert_out "0.6.0 (this module's changes only; the runtime goes to 0.5.0-rc.0):"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
 if grep -q "Three new migrations: a table of renamed projects' old slugs" "$OUT"; then fail "0.6.0's steps printed for a run to 0.5.0's rc"; else pass; fi
-assert_out "the module here is this copy's, as of 0.6.0: the plan also makes its changes for the releases after 0.5.0"
+assert_out "0.7.0 (this module's changes only; the runtime goes to 0.5.0-rc.0):"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "Within about a minute of the first start, the runtime ends each" "$OUT"; then fail "0.7.0's steps printed for a run to 0.5.0's rc"; else pass; fi
+assert_out "the module here is this copy's, as of 0.7.0: the plan also makes its changes for the releases after 0.5.0"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.5.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.4.0 -> 0.5.0-rc.0 applied"
@@ -1283,6 +1338,8 @@ done
 # 48f. 0.5.0 -> 0.6.0's candidate: it crosses 0.6.0 alone, whose steps print
 # and whose module changes nothing by itself, so the plan changes only the
 # image, and there's no switch to make.
+# 0.7.0 is past it: the run says the module goes ahead, and lists 0.7.0's
+# module changes, not its steps.
 case_start "0.5.0 to 0.6.0-rc.0"
 reset_env; export STUB_TAGS="0.5.0"; V_OKV="1"
 run "yes" --to 0.6.0-rc.0
@@ -1298,10 +1355,64 @@ assert_out "Give runner roles after it has run"
 assert_out "0.6.0's plan changes nothing in the module by itself: its one new"
 if grep -q "STEPS-PENDING" "$OUT"; then fail "0.6.0's steps carry the marker"; else pass; fi
 if grep -q -e "Two new migrations: three new tables" -e "Steps that finish the switch" "$OUT"; then fail "0.5.0's or 0.4.0's steps shown for a run from 0.5.0"; else pass; fi
-if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi
+assert_out "0.7.0 (this module's changes only; the runtime goes to 0.6.0-rc.0):"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "Within about a minute of the first start, the runtime ends each" "$OUT"; then fail "0.7.0's steps printed for a run to 0.6.0's rc"; else pass; fi
+assert_out "the module here is this copy's, as of 0.7.0: the plan also makes its changes for the releases after 0.6.0"
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.6.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.5.0 -> 0.6.0-rc.0 applied"
+
+# 48g. 0.6.0 -> 0.7.0's candidate: it crosses 0.7.0 alone, whose steps print.
+# Its plan makes the renewer key's secret, empty, and gives the server the
+# two env vars that name the key and the renewer key, as 0.7.0's module
+# changes say: those pass the check, beside the new image.
+RENEWER_SECRET="$(jq -cn '[{address: "google_secret_manager_secret.license_renewer", mode: "managed",
+  type: "google_secret_manager_secret", name: "license_renewer",
+  change: {actions: ["create"], before: null, after: {secret_id: "kindgi-license-renewer"}, after_unknown: {id: true}}}]')"
+LICENSE_REFS="$(jq -cn '{before: [],
+  after: [{name: "KINDGI_LICENSE_KEY_REF", value: "gcp:projects/demo-proj/secrets/kindgi-license-key", value_source: []},
+    {name: "KINDGI_LICENSE_RENEWER_REF", value: "gcp:projects/demo-proj/secrets/kindgi-license-renewer", value_source: []}],
+  after_unknown: [{}, {}]}')"
+case_start "0.6.0 to 0.7.0-rc.0"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$RENEWER_SECRET" STUB_SERVER_ENV="$LICENSE_REFS"; V_OKV="1"
+run "yes" --to 0.7.0-rc.0
+assert_rc 0 "0.6.0 -> 0.7.0-rc.0 runs"
+assert_out "crossing: 0.7.0$"
+assert_out "The first start runs this release's migrations: they add tables and"
+assert_out "A server serving many tenants no longer brings every tenant's"
+assert_out "If this server served many tenants on 0.6.x, run this once after the"
+assert_out "Within about a minute of the first start, the runtime ends each"
+assert_out "The runtime reports its usage to Kindgi at most once a day, with its"
+assert_out "With KINDGI_SECRETS_BACKEND=secret-manager, kindgi-runtime tenants"
+assert_out "The plan makes one Secret Manager secret, empty: the renewer key's,"
+if grep -q "STEPS-PENDING" "$OUT"; then fail "0.7.0's steps carry the marker"; else pass; fi
+if grep -q "Three new migrations: a table of renamed projects' old slugs" "$OUT"; then fail "0.6.0's steps printed for a run from 0.6.0"; else pass; fi
+if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi
+if grep -q "PLAN CHECK" "$OUT"; then fail "0.7.0's own changes stopped the check"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.7.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "0.6.0 -> 0.7.0-rc.0 applied"
+
+# 48h. The same plan with another secret made and another env var on the
+# server, which 0.7.0 doesn't make: the check names them and stops, and
+# names none of the changes 0.7.0 makes.
+EXTRA_SECRET="$(jq -cn --argjson r "$RENEWER_SECRET" '$r + [{address: "google_secret_manager_secret.extra", mode: "managed",
+  type: "google_secret_manager_secret", name: "extra",
+  change: {actions: ["create"], before: null, after: {secret_id: "kindgi-extra"}, after_unknown: {id: true}}}]')"
+LICENSE_REFS_AND_EXTRA="$(jq -cn --argjson e "$LICENSE_REFS" '$e | .after += [{name: "KINDGI_EXTRA", value: "1", value_source: []}]
+  | .after_unknown += [{}]')"
+case_start "0.6.0 to 0.7.0-rc.0, with more than 0.7.0 makes"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$EXTRA_SECRET" STUB_SERVER_ENV="$LICENSE_REFS_AND_EXTRA"; V_OKV="1"
+run "yes" --to 0.7.0-rc.0
+assert_rc 1 "more than 0.7.0 makes stops it"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    google_secret_manager_secret.extra: created" "the other secret, by what it does"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_EXTRA" "the other env var, by its name"
+if grep -qF -e "license_renewer: created" -e "env.KINDGI_LICENSE_KEY_REF" -e "env.KINDGI_LICENSE_RENEWER_REF" "$OUT"; then fail "the check named a change 0.7.0 makes"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
 
 # 49. The module here is 0.4.0's, whose plan needs the 0.4.0 runtime: a --to
 # below 0.4.0, a release or a server fix, is refused before anything is
@@ -2091,6 +2202,380 @@ run "yes" --var-file "$PACK_ENV_FILE"
 assert_rc 0 "it runs"
 assert_out "Steps that finish the switch to 0.4.0's packs, by hand"
 if grep -q "pack_min_instances was" "$OUT"; then fail "a pack service at 0 got the scale-to-zero note"; else pass; fi
+
+# 84. A target before identity-provider-keys' release (0.7.0): the run makes
+# no job for that check, and says so before the jobs it makes.
+case_start "a target before identity-provider-keys"
+reset_env; export STUB_TAGS="0.1.10"
+run "yes"
+assert_rc 0 "0.1.10 -> 0.4.0 runs"
+assert_file_has "$OUT" "  check identity-provider-keys isn't run: the 0.4.0 runtime doesn't have it (0.7.0 and later do)" "the check it leaves out, said"
+if [[ $(grep -c -- "--args=check," "$STUB_JOBS_LOG") -eq 3 ]]; then pass; else fail "the run didn't make exactly 3 check jobs"; fi
+if grep -q -e "-ipk " -e "--args=check,identity-provider-keys" "$STUB_JOBS_LOG"; then fail "a job for identity-provider-keys was made"; else pass; fi
+
+# 85. The script from a copy whose releases end at 0.7.0, as this one's do
+# now, so the row holds when a later release is added: a target of 0.7.0 or
+# its rc makes the identity-provider-keys job too, and its dry run lists 4
+# jobs and leaves nothing out.
+IPK_SCRIPT="$TMP/upgrade-ipk.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")/' "$SCRIPT" >"$IPK_SCRIPT"
+chmod +x "$IPK_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0")' "$IPK_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$IPK_SCRIPT"
+
+case_start "0.4.0 to 0.7.0-rc.0: the identity-provider-keys job too"
+reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
+run "yes" --to 0.7.0-rc.0
+assert_rc 0 "0.4.0 -> 0.7.0-rc.0 runs"
+assert_file_has "$STUB_JOBS_LOG" "--args=check,identity-provider-keys" "the identity-provider-keys job"
+if [[ $(grep -c -- "--args=check," "$STUB_JOBS_LOG") -eq 4 ]]; then pass; else fail "the run didn't make exactly 4 check jobs"; fi
+if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 run"; else pass; fi
+
+case_start "a dry run to 0.7.0 lists the identity-provider-keys job"
+reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"
+run "yes" --to 0.7.0 --dry-run
+assert_rc 0 "a dry run to 0.7.0 exits 0"
+assert_file_has "$OUT" "2. create, run and then delete 4 Cloud Run jobs with the new image, one per check:" "the jobs' count"
+assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-ipk  (check identity-provider-keys)" "the identity-provider-keys job"
+if grep -q "isn't run" "$OUT"; then fail "a check was left out of a 0.7.0 dry run"; else pass; fi
+assert_absent "$STUB_JOBS_LOG" "a check job"
+SCRIPT="$REAL_SCRIPT"
+
+# --- a pack account per tenant (pack_accounts) -------------------------------
+
+# Two tenants and their accounts as the module names them under the
+# name_prefix kindgi; a third, added later. The pack services' names are the
+# orchestrator's (kp-...).
+T_A="8d3e5f1a-2b4c-4d6e-8f01-23456789abcd"
+T_B="1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+T_C="3c9a7e21-4b6d-4f80-9a1c-5e7f9b2d4c6a"
+SA_A="kp-t034d09f98934346b@demo-proj.iam.gserviceaccount.com"
+SA_B="kp-t67b72b07fe9e5e22@demo-proj.iam.gserviceaccount.com"
+PACK_SA="kindgi-pack@demo-proj.iam.gserviceaccount.com"
+# The Job's map of them, as jsonencode() writes it: keys sorted.
+PT_AB="$(jq -cnS --arg a "$T_A" --arg sa "$SA_A" --arg b "$T_B" --arg sb "$SA_B" '{($a): $sa, ($b): $sb}')"
+PT_A="$(jq -cn --arg a "$T_A" --arg sa "$SA_A" '{($a): $sa}')"
+
+# The deployment's outputs from 0.4.0 on: the pack account, and each
+# tenant's ($1, id => account; {} for none).
+pt_outputs() {
+  export STUB_TF_OUTPUTS
+  STUB_TF_OUTPUTS="$(jq -c --arg pack "$PACK_SA" --argjson t "$1" \
+    '.service_accounts.value.pack = $pack | .service_accounts.value.tenants = $t' <<<"$TF_OUTPUTS")"
+}
+
+# A plan's changes past the server's: the orchestrator's Job at the new
+# image, its tenant map $1 before and $2 after ("" for none); then, for each
+# "create <tenant>" or "delete <tenant>", that tenant's account and two
+# grants, and for "pack-gone" the pack account, its grant and the act-as.
+pt_plan() {
+  local before="$1" after="$2"; shift 2
+  jq -cn --arg old "$RUNNING_IMAGE" --arg new "$NEW_IMAGE" --arg b "$before" --arg a "$after" --arg pack "$PACK_SA" --args '
+    def rc($type; $name; $i; $act):
+      {address: ($type + "." + $name + "[\($i | tojson)]"), mode: "managed", type: $type, name: $name, index: $i,
+       change: {actions: [$act], before: (if $act == "create" then null else {} end),
+                after: (if $act == "delete" then null else {} end), after_unknown: {}}};
+    def env($v): [{name: "KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT", value: $pack, value_source: []}]
+      + (if $v == "" then [] else [{name: "KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS", value: $v, value_source: []}] end);
+    def job($img; $v): {name: "kindgi-pack-orchestrator", template: [{template: [{containers: [{image: $img, env: env($v)}]}]}]};
+    [{address: "google_cloud_run_v2_job.orchestrator[0]", mode: "managed", type: "google_cloud_run_v2_job", name: "orchestrator", index: 0,
+      change: {actions: ["update"], before: job($old; $b), after: job($new; $a), after_unknown: {}}}]
+    + [$ARGS.positional[] | split(" ") as [$act, $t]
+       | if $act == "pack-gone" then
+           rc("google_service_account"; "pack"; 0; "delete"),
+           rc("google_service_account_iam_member"; "orchestrator_acts_as_pack"; 0; "delete"),
+           rc("google_project_iam_member"; "pack_reads_pack_secrets"; 0; "delete")
+         else
+           rc("google_service_account"; "tenant"; $t; $act),
+           rc("google_project_iam_member"; "tenant_reads_own_secrets"; $t; $act),
+           rc("google_service_account_iam_member"; "orchestrator_acts_as_tenant"; $t; $act)
+         end]' "$@"
+}
+PT_ON="$(pt_plan "" "$PT_AB" "create $T_A" "create $T_B")"
+PT_B_OUT="$(pt_plan "$PT_AB" "$PT_A" "delete $T_B")"
+PT_PACK_GONE="$(pt_plan "$PT_AB" "$PT_AB" "pack-gone")"
+PT_IMAGE_ONLY="$(pt_plan "" "")"
+
+# The two lines README "A pack account per tenant" gives, as the gcloud stub
+# logs them.
+LIST_AS_PACK="gcloud run services list --project=demo-proj --region=northamerica-northeast2 --filter=spec.template.spec.serviceAccountName=$PACK_SA --format=value(metadata.name,metadata.labels)"
+LIST_MOVES="gcloud run services list --project=demo-proj --region=northamerica-northeast2 --filter=metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done --format=value(metadata.name,metadata.labels)"
+
+# 86. A pack account per tenant needs runtime 0.7.0: with a target before it,
+# the orchestrator would go on placing every pack service as the pack
+# account. Refused before anything is mirrored, backed up or changed.
+case_start "per-tenant with a target before 0.7.0 is refused"
+reset_env; export STUB_TAGS="0.4.0"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs '{}'
+run "yes" --to 0.5.0
+assert_rc 1 "a per-tenant run to 0.5.0 refused"
+assert_file_has "$OUT" "pack_accounts = \"per-tenant\" needs runtime 0.7.0 or later, and this run's target is 0.5.0" "the release named"
+assert_out "a precondition failed"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 87. The same script with 0.6.0, 0.7.0 and 0.8.0, which it doesn't list yet,
+# for the runs that cross 0.7.0 or start past it.
+PT_SCRIPT="$TMP/upgrade-pt.sh"
+sed 's/^readonly KNOWN_RELEASES=.*/readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0" "0.8.0")/' "$SCRIPT" >"$PT_SCRIPT"
+chmod +x "$PT_SCRIPT"
+if grep -qx 'readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0" "0.5.0" "0.6.0" "0.7.0" "0.8.0")' "$PT_SCRIPT"; then pass; else fail "the copy's KNOWN_RELEASES wasn't set"; fi
+REAL_SCRIPT="$SCRIPT"; SCRIPT="$PT_SCRIPT"
+
+# 88. One tenant, the pack account as before: 0.6.0 -> 0.7.0 changes nothing
+# about the pack accounts, prints none of their steps and lists no service.
+case_start "0.6.0 -> 0.7.0 with one tenant: no pack account steps"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 0 "it runs"
+assert_out "0.6.0 -> 0.7.0 applied"
+if grep -qi -e "pack account per tenant" -e "one-way" "$OUT"; then fail "a run with one tenant printed the pack account steps"; else pass; fi
+if grep -q "^gcloud run services list" "$STUB_CALLS_LOG"; then fail "a run with no pack account change listed services"; else pass; fi
+
+# 89. With tenancy = "multi", a run that crosses 0.7.0 offers the move, every
+# step: the one-way line first, the version, the tenants' list with a system
+# key, the two counts, then pack_shared_account = false. It changes nothing
+# itself and lists no service.
+case_start "multi crossing 0.7.0: the per-tenant steps are offered"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 0 "it runs"
+assert_out "A pack account per tenant, if you want one, by hand"
+assert_file_has "$OUT" " 0. It needs runtime 0.7.0 or later. This deployment now runs 0.7.0." "the version step"
+assert_file_has "$OUT" "curl -fsS -H \"Authorization: Bearer <system key>\" \"$SERVER_URL/v1/system/tenants?limit=100\" | jq -r '.data[].id'" "the tenants' list"
+assert_file_has "$OUT" "--filter='spec.template.spec.serviceAccountName=$PACK_SA'" "the shared account's count"
+assert_file_has "$OUT" "--filter='metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done'" "the moves' count"
+assert_file_has "$OUT" " 3. Set pack_shared_account = false in the var files" "step 3"
+o="$(grep -n "Turning it on is one-way: going back to shared isn't supported." "$OUT" | head -1 | cut -d: -f1)"
+l="$(grep -n " 1. List the tenants" "$OUT" | head -1 | cut -d: -f1)"
+if [[ -n $o && -n $l && $o -lt $l ]]; then pass; else fail "the one-way line isn't before the tenants' list (at ${o:-none}, list at ${l:-none})"; fi
+if grep -q "^gcloud run services list" "$STUB_CALLS_LOG"; then fail "the offer listed services"; else pass; fi
+
+# 90. Past 0.7.0 the offer isn't made again.
+case_start "multi from 0.7.0: no offer"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_IMAGE_ONLY"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+if grep -qi "pack account per tenant" "$OUT"; then fail "a run from 0.7.0 offered the move again"; else pass; fi
+
+# 91. Turned on with the upgrade: the one-way line comes before the plan, the
+# plan's check takes the tenants' accounts, grants and the Job's map, and the
+# steps that finish the move follow the apply.
+case_start "per-tenant turned on with 0.6.0 -> 0.7.0"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_ON"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 0 "it runs"
+o="$(grep -n "Turning it on is one-way: going back to shared isn't supported." "$OUT" | head -1 | cut -d: -f1)"
+p="$(grep -n "^== 5. Terraform plan ==" "$OUT" | head -1 | cut -d: -f1)"
+if [[ -n $o && -n $p && $o -lt $p ]]; then pass; else fail "the one-way line isn't before the plan (at ${o:-none}, plan at ${p:-none})"; fi
+assert_out "gives each of the 2 tenants in pack_tenants a pack account of its own"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+assert_out "Steps that finish the move to a pack account per tenant, by hand"
+if grep -q "if you want one" "$OUT"; then fail "a run that turned it on offered it"; else pass; fi
+d="$(grep -n "^== Done ==" "$OUT" | head -1 | cut -d: -f1)"
+s="$(grep -n "Steps that finish the move to a pack account per tenant" "$OUT" | head -1 | cut -d: -f1)"
+if [[ -n $d && -n $s && $d -lt $s ]]; then pass; else fail "the finishing steps aren't after the apply (at ${s:-none}, Done at ${d:-none})"; fi
+
+# 92. The same plan without pack_accounts = "per-tenant": the check refuses
+# the tenants' accounts and the Job's map.
+case_start "the tenants' changes without per-tenant are refused"
+reset_env; export STUB_TAGS="0.6.0" STUB_PLAN_CHANGES="$PT_ON"; V_OKV="1"; V_TENANCY="multi"; pt_outputs '{}'
+run "yes" --to 0.7.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "google_service_account.tenant[\"$T_A\"]: created" "the account named"
+assert_file_has "$OUT" "google_cloud_run_v2_job.orchestrator[0]: changes template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS" "the Job's map named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 93. Going back to shared would delete each tenant's account: refused.
+case_start "going back to shared is refused"
+reset_env; export STUB_TAGS="0.7.0"; V_OKV="1"; V_TENANCY="multi"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "back to shared refused"
+assert_out "going back to shared isn't supported"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_absent "$STUB_MARKER_EXPORT" "backup"
+assert_varfile_unchanged
+
+# 94. A tenant taken out of pack_tenants loses its account: stopped while a
+# pack service runs as it, by name.
+case_start "a tenant's removal is stopped while its account runs a service"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_B_OUT"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\"]"; pt_outputs "$PT_AB"
+export STUB_SERVICES="kp-shop-4a1c $SA_A done
+kp-mail-9e2b $SA_B done"
+run "yes" --to 0.8.0
+assert_rc 1 "the removal stopped"
+assert_file_has "$OUT" "tenant $T_B is out of pack_tenants, but 1 pack service(s) still run as its account $SA_B: kp-mail-9e2b. Retire its deployments first, then run this again." "the service named"
+assert_file_has "$STUB_CALLS_LOG" "--filter=spec.template.spec.serviceAccountName=$SA_B " "the list by the tenant's account"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+assert_varfile_unchanged
+
+# 95. And let through when its account runs none: the plan's check takes its
+# account's delete and the Job's smaller map.
+case_start "a tenant's removal with no service on its account"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_B_OUT"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\"]"; pt_outputs "$PT_AB"
+export STUB_SERVICES="kp-shop-4a1c $SA_A done"
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+assert_file_has "$OUT" "tenant $T_B leaves pack_tenants: no pack service runs as $SA_B (ok)" "the empty list said"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+if grep -qi "pack account per tenant" "$OUT"; then fail "a tenant's removal printed the move's steps"; else pass; fi
+
+# 96. Before pack_shared_account = false deletes the pack account, both lines
+# must list nothing: a service still on it, one whose move is at a step
+# (kindgi-move <n>) or rolled back, and one refused (back on it), each stop
+# the run with both counts and the services' labels.
+for svc in "kp-shop-4a1c $PACK_SA -" "kp-shop-4a1c $SA_A 2" "kp-shop-4a1c $SA_A rollback" "kp-shop-4a1c $PACK_SA refused"; do
+  read -r _ account move <<<"$svc"
+  case_start "pack_shared_account = false stopped by a service on $account, move $move"
+  reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_SERVICES="$svc"; V_OKV="1"; V_TENANCY="multi"
+  V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
+  run "yes" --to 0.8.0
+  assert_rc 1 "stopped"
+  if [[ $account == "$PACK_SA" ]]; then left=1; else left=0; fi
+  if [[ $move == - ]]; then moving=0; labels=""; else moving=1; labels="kindgi-move=$move"; fi
+  assert_file_has "$OUT" "pack services left on the shared account: $left" "the first count"
+  assert_file_has "$OUT" "pack services with a move not finished: $moving" "the second count"
+  assert_file_has "$OUT" "    kp-shop-4a1c"$'\t'"$labels" "the service and its labels"
+  assert_file_has "$OUT" "pack_shared_account = false deletes $PACK_SA, and the services above haven't moved off it yet." "the reason"
+  assert_absent "$STUB_MARKER_MIRROR" "mirror"
+  assert_varfile_unchanged
+done
+
+# 97. With every move done, the pack account goes: the plan's check takes its
+# deletes, and the two lines were the README's.
+case_start "pack_shared_account = false with every move done"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_SERVICES="kp-shop-4a1c $SA_A done
+kp-mail-9e2b $SA_B done"
+V_OKV="1"; V_TENANCY="multi"; V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+assert_out "pack services left on the shared account: 0"
+assert_out "pack services with a move not finished: 0"
+assert_file_has "$STUB_CALLS_LOG" "$LIST_AS_PACK" "the shared account's line"
+assert_file_has "$STUB_CALLS_LOG" "$LIST_MOVES" "the moves' line"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 98. The pack account's deletes without pack_shared_account = false are
+# refused by the plan's check.
+case_start "the pack account's deletes with pack_shared_account true are refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "google_service_account.pack[0]: deleted" "the delete named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 99. A list gcloud refuses stops the run, its error said.
+case_start "a services list that fails stops the run"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$PT_PACK_GONE" STUB_LIST_RC=1; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; V_PACK_SHARED="false"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "stopped"
+assert_file_has "$OUT" "couldn't list the pack services that run as $PACK_SA. ERROR: (gcloud.run.services.list) stub refused" "the error said"
+assert_absent "$STUB_MARKER_MIRROR" "mirror"
+
+# 100. A dry run says each pack account change with the rest, and only reads:
+# a tenant added, one taken out (its account listed, empty).
+case_start "dry run: a tenant added and one taken out"
+reset_env; export STUB_TAGS="0.7.0" STUB_SERVICES="kp-shop-4a1c $SA_A done"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_C\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0 --dry-run
+assert_rc 0 "a dry run exits 0"
+assert_out "with it, the pack accounts' changes in the var files:"
+assert_file_has "$OUT" "make tenant ${T_C}'s account and its grants" "the added tenant"
+assert_file_has "$OUT" "delete tenant ${T_B}'s account $SA_B and its grants" "the removed tenant"
+assert_reads_only
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# The plan $1 with tenant $2's grant on the secret s ($3 create or delete):
+# tenant_reads_cloud_secrets, keyed "<secret>|<tenant>".
+pt_with_secret() {
+  jq -c --arg i "projects/demo-proj/secrets/s|$2" --arg act "$3" '. + [{
+    address: ("google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets[" + ($i | tojson) + "]"),
+    mode: "managed", type: "google_secret_manager_secret_iam_member", name: "tenant_reads_cloud_secrets", index: $i,
+    change: {actions: [$act], before: (if $act == "create" then null else {} end),
+             after: (if $act == "delete" then null else {} end), after_unknown: {}}}]' <<<"$1"
+}
+SA_C="kp-t41dd5d3856716de0@demo-proj.iam.gserviceaccount.com"
+PT_ABC="$(jq -cnS --arg a "$T_A" --arg sa "$SA_A" --arg b "$T_B" --arg sb "$SA_B" --arg c "$T_C" --arg sc "$SA_C" '{($a): $sa, ($b): $sb, ($c): $sc}')"
+SECRET_A="google_secret_manager_secret_iam_member.tenant_reads_cloud_secrets[\"projects/demo-proj/secrets/s|$T_A\"]"
+
+# 101. Per-tenant already, the plan's check takes no grant for a tenant that
+# stays: one more secret for tenant A is refused, as the same edit is with
+# the pack account.
+case_start "per-tenant: a grant for a tenant that stays is refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_AB")" "$T_A" create)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "$SECRET_A: created" "the grant named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 102. A tenant added doesn't let another tenant's grant through: C's account
+# and grants and the Job's map are taken, A's new secret isn't.
+case_start "a tenant added: another tenant's grant is still refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_ABC" "create $T_C")" "$T_A" create)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\",\"$T_C\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "$SECRET_A: created" "A's grant named"
+if grep -q -e "\[\"$T_C\"\]: created" -e ": changes template.template.containers.env.KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS" "$OUT"; then fail "the added tenant's changes were refused too"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 103. The added tenant's own grants are taken, keyed "<secret>|<tenant>" too.
+case_start "a tenant added with a secret of its own"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$(pt_plan "$PT_AB" "$PT_ABC" "create $T_C")" "$T_C" create)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\",\"$T_B\",\"$T_C\"]"; pt_outputs "$PT_AB"
+run "yes" --to 0.8.0
+assert_rc 0 "it runs"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 104. A tenant taken out doesn't let a grant of a tenant that stays go with
+# it: B's account goes, A's secret stays.
+case_start "a tenant taken out: another tenant's grant deleted is refused"
+reset_env; export STUB_TAGS="0.7.0" STUB_PLAN_CHANGES="$(pt_with_secret "$PT_B_OUT" "$T_A" delete)"; V_OKV="1"; V_TENANCY="multi"
+V_PACK_ACCOUNTS="per-tenant"; V_PACK_TENANTS="[\"$T_A\"]"; pt_outputs "$PT_AB"
+export STUB_SERVICES="kp-shop-4a1c $SA_A done"
+run "yes" --to 0.8.0
+assert_rc 1 "the plan check refuses"
+assert_file_has "$OUT" "$SECRET_A: deleted" "A's grant named"
+if grep -q "\[\"$T_B\"\]: deleted" "$OUT"; then fail "the removed tenant's deletes were refused too"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+SCRIPT="$REAL_SCRIPT"
+
+# --- the server's startup probe ---------------------------------------------
+
+# 105. The server's startup probe at 10 minutes, 120 tries 5 s apart (from
+# 24), passes the check on a run from before 0.7.0, the release that ships
+# it, since the module makes 0.7.0's changes on any such run. It stops a
+# server fix of 0.7.0, which crosses no release.
+SERVER_PROBE='{"before":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":24},"after":{"http_get":[{"path":"/health","port":4000}],"period_seconds":5,"timeout_seconds":3,"failure_threshold":120}}'
+case_start "the server's 10-minute startup probe, on a server fix of 0.7.0"
+reset_env; export STUB_TAGS="0.7.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.7.0.1
+assert_rc 1 "the probe change stops a server fix"
+assert_out "PLAN CHECK: the plan changes more than this upgrade does"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.startup_probe.failure_threshold" "the threshold named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+case_start "the server's 10-minute startup probe, crossing its release"
+reset_env; export STUB_TAGS="0.6.0" STUB_SERVER_PROBE="$SERVER_PROBE"; V_OKV="1"
+run "yes" --to 0.7.0
+assert_rc 0 "the probe change passes"
+assert_out "crossing: 0.7.0$"
+assert_out "its startup probe allows"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

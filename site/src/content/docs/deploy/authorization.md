@@ -33,7 +33,8 @@ different access:
   keys either way, and service accounts act for pipelines and apps
   ([People, API keys and service accounts](../people-and-keys/)). With
   authorization, a tenant admin gives each a role, and can make others
-  tenant admins. The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
+  tenant admins ([Someone who signs in](../people-and-keys/#someone-who-signs-in)).
+  The runtime's seed user (`KINDGI_SEED_USER_ID`) is the
   first.
 - **Every request is checked** against what its caller may do: tenant admin,
   tenant member, a role on a project, or a reviewer role. Lists hold only
@@ -188,12 +189,43 @@ token and no `KINDGI_SEED_USER_ID` says so when it starts:
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
-**When OpenFGA is unreachable,** requests that need a check answer `500
-internal-server-error` with `Unhandled server error` and the request id
-(runtime 0.1.9 or later; earlier ones answer with the cause itself). The
-runtime's `unhandled error` log line for that request id has the cause,
-`FGA Error: connect ECONNREFUSED …` ([Logs](../self-hosted/logs/)). They work again
-once it's back.
+**When OpenFGA can't be reached,** a request that needs a check answers
+`503 authz-backend-unavailable` with `Retry-After: 5` (runtime 0.7.0 or
+later; earlier ones answer `500 internal-server-error`): the request wasn't
+run, so sending it again after that wait is safe. OpenFGA can't be reached
+when it gives no answer, or answers `429` or a `5xx` other than `501`, after
+the runtime's one retry. With `KINDGI_OPENFGA_AUTH=google-id-token`, it also
+can't be reached when the runtime gets no ID token to call it with
+([OpenFGA behind Cloud Run IAM](../self-hosted/cloud-run/#openfga-behind-cloud-run-iam)).
+Any other failure of a check answers `500 internal-server-error`, as any
+error does. `GET /v1/identity/me/permissions`, which the console reads for
+what the signed-in person may do, answers its own `503
+authz-backend-unavailable` for any failure to read their access, with the
+same `Retry-After` (runtime 0.7.0 or later), and logs it at `warn` as
+`me/permissions: the authorization store couldn't be read: …`.
+
+- **A check before the request's work** answers the `503` on any method.
+- **A check a `GET` or `HEAD` makes as it reads** answers the `503` too.
+- **A check a write makes as it works** answers `500
+  internal-server-error` instead: the write may have done part of its work
+  before that check, and sending it again could do that part twice.
+
+Every operation that needs a signed-in caller can answer the `503`. The API
+reference names it in each one's `503`
+([`authz-backend-unavailable`](../../reference/errors/#authz-backend-unavailable)).
+The TypeScript client's server error carries `serverCode`
+`authz-backend-unavailable` and `retryAfterSeconds` from the `Retry-After`;
+it doesn't retry on its own. The Python client sends a `GET`, or a call with
+an `Idempotency-Key`, again after the wait, as it does any `503`, up to
+`max_retries` times (2 by default). A call it doesn't send again, or whose
+retries run out, raises a `ServerError` whose `server_code` is
+`authz-backend-unavailable`.
+
+The answer never carries OpenFGA's error. The runtime logs it at `error`, as
+`authorization store unreachable` for that request id, with OpenFGA's error
+as its cause, such as `FGA Error: connect ECONNREFUSED …`
+([Logs](../self-hosted/logs/)). A write's `500` logs it as `unhandled error`.
+Requests work again once OpenFGA is back.
 
 **When the database fails one tenant's permission changes:** the runtime
 sends permission changes to OpenFGA from a queue in Postgres, about twice a
@@ -322,6 +354,12 @@ checks every call.
 - **A project admin** may also "pin versions, register agents and tools,
   rescore test runs, set corrector groups, remove others' corrections", and
   changes who works in the project ([Members](#in-the-console-members)).
+- **Where the console opens:** on the workspace's default project, or the
+  first project you can see. An editor or an admin starts on its
+  **Dashboard**. A viewer, or someone who runs it only because
+  [everyone can run it](#everyone-can-run-a-project), starts on its
+  **Results**, what each run gave back
+  ([Results](../../guides/runs/list-runs/#results)).
 - **The workspace's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
     the like, to tenant admins;
@@ -374,7 +412,10 @@ the workspace's people, whatever its case
 `DELETE …/memberships/<user-id>` removes the member. In the clients, the
 calls are `projects.memberships.add`, `updateRole` and `remove`, with
 `update_role` in Python. Changing members takes `admin` on the project: a
-tenant admin, or the project's own admins.
+tenant admin, or the project's own admins. Giving `owner`, or changing or
+removing a member who holds it, also takes `delete` on the project, which
+an owner of the project, an admin of its org or a tenant admin holds.
+Anyone else gets `403 permission-denied`, and nothing changes.
 
 A project's admins also decide which of its triggers run as the project:
 `--run-as=project` on a schedule, webhook trigger or mail trigger runs it
@@ -585,14 +626,20 @@ show to the project's admins.
 A project admin changes who works there:
 
 - **Add someone** by their email in the workspace, with one of the four roles.
-  An email that isn't one of the workspace's people isn't added: "No one with
+  `owner` is offered only to someone who holds `delete` on the project. An
+  email that isn't one of the workspace's people isn't added: "No one with
   that email in this workspace: a tenant admin adds them on People first."
 - **Change** a person's role of their own. When another way in gives them
   more, it says so under it, such as "editor through another way in". A
   role through a team, an org or tenant admin is changed where it comes
-  from, and a service account's on its own page.
-- **Take away** a person's role of their own. It asks first, and says what
-  stays:
+  from, and a service account's on its own page. To a project admin without
+  `delete` on the project, an owner's role can't be changed, and reads "Only
+  an owner, an admin of the project's org, or a tenant admin changes an
+  owner."
+- **Take away** a person's role of their own. To a project admin without
+  `delete` on the project, an owner's role has no Take away, and reads "Only
+  an owner, an admin of the project's org, or a tenant admin changes an
+  owner." Taking a role away asks first, and says what stays:
 
 ![The Take away step: "Take Ada Lovelace off Support? From their next request on, they can't work in Support through this role. Ada Lovelace keeps editor access through Team Support crew. What was done here stays.", with Cancel and Take it away.](../../../assets/access/members-take-away.png)
 
@@ -632,7 +679,7 @@ refused:
 
 - what the caller's API key rules out: a `member` key asking for a tenant
   admin's action, a key limited to a project acting on another project's
-  resource, a key without the capability a write needs (`env:write`,
+  resource or reading the whole workspace's, a key without the capability a write needs (`env:write`,
   `secrets:write`, …);
 - a request that names a project other than its key's, and a key limited to
   a project minting one that isn't (`key-project-mismatch`);

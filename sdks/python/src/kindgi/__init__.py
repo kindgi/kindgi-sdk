@@ -7,7 +7,8 @@ Write a pack's tools and guardrail checks in Python:
 
     from kindgi import ToolContext, tool
 
-A tool that is one HTTP request needs no code: `http_tool(...)`.
+A tool that is one HTTP request needs no code: `http_tool(...)`. Nor does a
+guardrail whose check is a built-in: `built_in_guardrail(...)`.
 
 Agents and flows are data (`Agent`, `Flow`). `python -m kindgi.pack index`
 writes the pack's index; `python -m kindgi.pack serve` runs its code for a
@@ -26,6 +27,7 @@ from .pack.context import (
     PauseNotAvailable,
     ToolConnection,
     ToolContext,
+    ToolFailure,
     WaitToken,
 )
 from .pack.define import (
@@ -34,6 +36,7 @@ from .pack.define import (
     Flow,
     Guardrail,
     Tool,
+    built_in_guardrail,
     guardrail,
     http_tool,
     tool,
@@ -45,6 +48,7 @@ from .pack.files import (
     FileStore,
     FileStoreAnswer,
     FileStoreError,
+    FileUpdateAnswer,
 )
 from .pack.trace import CheckResult, ModelCallRecord, RunTrace, ToolCallRecord, ToolResultRecord
 
@@ -62,6 +66,7 @@ __all__ = [
     "FileStore",
     "FileStoreAnswer",
     "FileStoreError",
+    "FileUpdateAnswer",
     "Flow",
     "Guardrail",
     "ModelCallRecord",
@@ -72,9 +77,11 @@ __all__ = [
     "ToolCallRecord",
     "ToolConnection",
     "ToolContext",
+    "ToolFailure",
     "ToolResultRecord",
     "WaitToken",
     "__version__",
+    "built_in_guardrail",
     "guardrail",
     "http_tool",
     "tool",

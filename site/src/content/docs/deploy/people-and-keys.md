@@ -15,8 +15,11 @@ has **service accounts**, which act for a pipeline or an app. A **tenant
 admin** adds them. With authorization on, what each may do is kept in
 OpenFGA, and the first tenant admin is the runtime's seed user:
 `KINDGI_SEED_USER_ID`, or the API token's user. The runtime makes the seed
-user a tenant admin at every start. Without authorization, roles aren't
-checked ([Without authorization](#without-authorization)).
+user a tenant admin at every start. On a runtime that serves one workspace,
+`KINDGI_ADMIN_EMAILS` names more, who are tenant admins from their first
+sign-in ([Tenant admins by email](#tenant-admins-by-email)). Without
+authorization, roles aren't checked
+([Without authorization](#without-authorization)).
 
 :::note[On Kindgi Cloud]
 Whoever signs up is the workspace's first tenant admin. Authorization is
@@ -33,8 +36,8 @@ as `KINDGI_SEED_USER_ID`, are Kindgi's.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`. The
   `curl` examples read the same two variables.
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../start/install/)). Inside a pack
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Who can do what
@@ -62,8 +65,9 @@ With authorization on:
   workspace's config entries (`secrets:write`, `env:write` and the like). A
   workspace's first admin, the person it was created with on a runtime
   serving many tenants, holds every one but `secrets:reveal`, and no other
-  person holds any. A key carries those it was made with
-  ([API keys](#api-keys)).
+  person holds any unless the runtime's operator gives them the same
+  ([What only the runtime's token does](#what-only-the-runtimes-token-does)).
+  A key carries those it was made with ([API keys](#api-keys)).
 
 Lists hold only what the caller may read.
 
@@ -97,6 +101,12 @@ with `KINDGI_TENANCY=multi`, the runtime doesn't start without a store.
 - **Roles aren't checked.** A project role you record, and a service
   account's grants, give nothing more here. Making a person a tenant admin
   answers `501 person-grants-unsupported`.
+- **Neither tenant admins by email nor domain join works here.** The
+  runtime refuses `KINDGI_ADMIN_EMAILS` at start without a store, since a
+  person who signs in can't be a tenant admin. Setting an identity
+  provider's `join: domain` answers `409 domain-join-needs-authorization`,
+  since a joiner would work in every project. Add people one by one, or
+  run with authorization for either.
 - **Schedules and webhook triggers keep to their owners** (runtime 0.2.0 or
   later). Only a tenant admin changes, pauses, fires or unregisters someone
   else's personal one, changes what a shared one runs, sets one's tools
@@ -112,7 +122,7 @@ Adding a person gives them a place in the workspace, so they can sign in and
 get keys:
 
 ```sh
-npx --yes @kindgi/cli@0.6 people add --name="Sam Rivera" --email=sam@acme.example
+npx --yes @kindgi/cli@0.7 people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
 - `--name` is their name, as people see it.
@@ -133,8 +143,11 @@ With sign-in off, nobody is [invited](#their-invitation):
 Added to the workspace: they can read its settings. With authorization on, give them a project role to work on its agents and runs; without it, they can work in every project already. Then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
 ```
 
-An email another person already has is refused with
-`409 identity-user-email-taken`.
+An email another of the workspace's people already has is refused with
+`409 identity-user-email-taken`. Other workspaces' people don't count: one
+email can be a person in several workspaces, added to each by one of its
+admins. At sign-in, they
+[choose a workspace](../../guides/sso/sign-in/#your-email-first).
 
 With authorization on, give them a role on a project next. A tenant admin,
 or an admin of that project, adds them by email or by id:
@@ -249,7 +262,7 @@ with their email, or send it again. To send it again, open for 7 days from
 then:
 
 ```sh
-npx --yes @kindgi/cli@0.6 people invite <user-id>
+npx --yes @kindgi/cli@0.7 people invite <user-id>
 ```
 
 Someone who has joined, or was never invited, is refused with
@@ -268,7 +281,7 @@ The people invited who haven't signed in yet, with a STATE of `pending` or
 `expired`:
 
 ```sh
-npx --yes @kindgi/cli@0.6 people list --pending --table
+npx --yes @kindgi/cli@0.7 people list --pending --table
 ```
 
 Here Lee Park's invitation expired before they signed in:
@@ -290,22 +303,90 @@ added; its `inviteEmail` says whether the invitation was emailed, and is
 absent on a runtime that doesn't invite. `users.resendInvite(userId)`
 sends it again, and `users.list({ pending: true })` lists the invited.
 
+### Let people at your domain join
+
+Rather than add each person, a tenant admin can let everyone at the
+company's email domain join the workspace (runtime 0.8.0 or later, with an
+authorization store). Someone who signs in with a mailbox at an allowed
+domain, by a way that proves it, and whom the workspace doesn't have yet,
+is offered the workspace and joins with a press:
+
+- **The ways that prove a mailbox** are a Google Workspace account at that
+  domain, a Microsoft work account, and the emailed link. GitHub never
+  counts. A sign-in through the workspace's own identity provider follows
+  that provider's own `join` setting instead
+  ([Or let your colleagues join](../../guides/sso/#or-let-your-colleagues-join)).
+- **A joiner gets the domain's role:** `viewer` (the default) or `runner`
+  (who also runs its agents and flows) on the default project, or `none`, a
+  member only. Never tenant admin. Their `createdBy` is
+  `email_domain:<domain>`.
+- **Someone removed stays out.** Stopping allowing a domain stops new
+  joins; the people who joined stay.
+- **Never a public mailbox domain,** such as gmail.com or outlook.com
+  (`400 join-domain-public`), and never a domain the operator verified for
+  another workspace (`409 join-domain-verified-elsewhere`).
+
+The domain's own mailbox is the proof. So allowing a domain, or giving its
+joiners more, takes a tenant admin whose sign-in proved an email at
+exactly that domain (no subdomain, no parent), by one of those ways. An API
+key or a service account can't. Anyone else is refused with
+`403 join-domain-not-yours`, and the refusal is recorded. Lowering the
+role, or stopping allowing the domain, takes any tenant admin, a key too.
+The deployment's operator can always do both.
+
+| Route | What it does |
+|---|---|
+| `GET /v1/auth/join-domains` | The allowed domains, the first allowed first. Anyone in the workspace may read them |
+| `POST /v1/auth/join-domains` | Allows one: `{"domain": "acme.com", "role": "viewer"}`. `409 join-domain-exists` if it is already |
+| `PATCH /v1/auth/join-domains/{domain}` | Changes what joiners get: `{"role": "runner"}`. The same role writes nothing |
+| `POST /v1/auth/join-domains/{domain}/unregister` | Stops allowing it |
+
+A domain is stored lower case, as its A-label: `bücher.de` is
+`xn--bcher-kva.de`. In the TypeScript client, it's `auth.joinDomains`:
+`list()`, `allow({ domain, role })`, `update(domain, { role })` and
+`unregister(domain)`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi sign-in join-domains list --table
+pnpm exec kindgi sign-in join-domains allow acme.com --role=runner
+pnpm exec kindgi sign-in join-domains remove acme.com
+```
+
+The CLI signs in with an API key, which proves no email, so `allow` takes
+the operator's key. On a runtime serving one tenant, make one with the
+deployment's own token,
+`kindgi tokens create --role=admin --capability=kindgi:system`, and sign in
+with it (`kindgi auth login --token`). A tenant admin allows their own
+domain from the console's **Sign-in** page instead. Anyone's key in the
+workspace can `list`, and any tenant admin's can `remove`.
+
+Where the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`),
+allowing a domain or giving joiners more takes the operator's credential,
+and a tenant admin's is refused with `403 join-domains-operator-managed`.
+On a runtime serving many tenants, the operator manages each tenant's
+domains on `/v1/system/tenants/{tenantId}/join-domains`, with a system key
+holding `system:join-domains`
+([The operator's keys](../self-hosted/serve-many-tenants/#the-operators-keys)).
+
 ## Make someone a tenant admin
 
 A tenant admin can do everything in the workspace. `grant` makes someone one,
 and `ungrant` takes it away:
 
 ```sh
-npx --yes @kindgi/cli@0.6 people grant <user-id> --tenant-admin
-npx --yes @kindgi/cli@0.6 people ungrant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.7 people grant <user-id> --tenant-admin
+npx --yes @kindgi/cli@0.7 people ungrant <user-id> --tenant-admin
 ```
 
 `<user-id>` is the person's id, as `kindgi people add` printed it. The grant
 holds from their next request.
 
 `kindgi people grants <user-id> --table` lists what someone holds, as
-granted directly: tenant admin, tenant member, project and team roles, and a
-reviewer role. What a team or an org gives isn't expanded. Sam, newly added,
+granted directly: tenant admin, tenant member, project and team roles, a
+reviewer role, and the capabilities they hold. What a team or an org gives
+isn't expanded. Sam, newly added,
 holds only the tenant membership:
 
 ```text
@@ -320,13 +401,17 @@ In TypeScript, that's `users.list({ includeGrants: true })`, and in Python
 the same shape as their own grants read. A runtime without an authorization
 store lists the people without them.
 
-Taking tenant admin away is refused in two cases:
+Taking tenant admin away is refused in three cases:
 
 - `409 last-tenant-admin`: they're the only one. Make someone else a tenant
   admin first.
 - `409 seed-user-admin`: they're the seed user, whom the runtime makes a
   tenant admin again at every start. Unset `KINDGI_SEED_USER_ID` and restart
   the runtime first.
+- `409 listed-admin`: the server's `KINDGI_ADMIN_EMAILS` names them, and
+  every start makes them a tenant admin again. Take their address off the
+  list and restart the runtime first
+  ([Tenant admins by email](#tenant-admins-by-email)).
 
 If the first admin stops being a tenant admin, the capabilities they held
 are revoked, and the audit entry lists them. A key acts as the person or
@@ -337,14 +422,17 @@ where they aren't an admin. A key they made for another tenant admin, or
 for a service account that's one, keeps working.
 
 Making the first admin a tenant admin again doesn't give their own
-capabilities back, so the console offers them none. A key that carries
-capabilities makes new keys with them
+capabilities back. Another tenant admin who holds them can give them back
+([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)).
+A key that carries capabilities also makes new keys with them
 (`kindgi tokens create --capability=<cap>`, in [API keys](#api-keys)):
 their own keys, once they're an admin again, or one made for another
 tenant admin or a service account that's one. Before you revoke the last
 key that carries a capability, or let it expire, make its replacement with
-it. If the first admin doesn't hold a capability and no key in the workspace
-carries it, contact support.
+it. If no tenant admin holds a capability and no key in the workspace
+carries it, contact support. On a runtime you run yourself,
+[`kindgi-runtime tenants give-capabilities`](#what-only-the-runtimes-token-does)
+gives a tenant admin the first admin's capabilities again.
 
 Make the key that carries these capabilities for a service account that's
 a tenant admin, not for the first admin. It keeps working if the first
@@ -352,8 +440,8 @@ admin stops being a tenant admin or is removed, and as a tenant admin,
 whoever holds it can make new keys with its capabilities:
 
 ```sh
-npx --yes @kindgi/cli@0.6 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
-npx --yes @kindgi/cli@0.6 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
+npx --yes @kindgi/cli@0.7 service-accounts create acme-admin --description="Trusts signing keys and sets secrets" --tenant-admin
+npx --yes @kindgi/cli@0.7 tokens create --for=sa:<service-account-id> --role=admin --capability=signing-keys:write --capability=secrets:write --label=admin --expires=90d
 ```
 
 It can trust signing keys, so keep it out of CI: trusting CI's signing key
@@ -363,6 +451,235 @@ CI's deploy key is a tenant admin's key too, with no capability. It can
 still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
+
+### Someone who signs in
+
+To make someone who signs in to the console a tenant admin, through your
+workspace's identity provider, Google, Microsoft, GitHub or an emailed
+link:
+
+1. **Run with an authorization store** ([Run with authorization](../authorization/)),
+   with `KINDGI_OPENFGA_API_URL` set. Without one, nobody who signs in is a
+   tenant admin: see below.
+2. **Add them, with the email they sign in with:**
+
+   ```sh
+   npx --yes @kindgi/cli@0.7 people add --name="Sam Rivera" --email=sam@acme.example
+   ```
+
+   Signing in never adds anyone. Someone who hasn't been added is refused
+   with `not-invited` ([Who gets in](../self-hosted/sign-in/#who-gets-in)).
+   Where the runtime invites, they sign in within 7 days
+   ([Their invitation](#their-invitation)).
+3. **Make them a tenant admin,** as the seed user, with the runtime's API
+   token, or as any tenant admin. `<user-id>` is the id `people add` printed:
+
+   ```sh
+   npx --yes @kindgi/cli@0.7 people grant <user-id> --tenant-admin
+   ```
+
+   In the console, that's **Tenant admin: they administer the whole
+   workspace** in **Add a person**, or **Make tenant admin** under **Tenant
+   admin** on their page.
+4. **They sign in.** From their next request on, they administer the
+   workspace: every project, its people, keys and service accounts, and its
+   settings.
+
+They hold no capability yet, so they can't trust signing keys, write
+secrets or change environment variables. To give them those, see
+[Give a tenant admin capabilities](#give-a-tenant-admin-capabilities) and
+[What only the runtime's token does](#what-only-the-runtimes-token-does).
+
+**Without an authorization store, it can't be done.** `people grant`
+answers `501 person-grants-unsupported`, and their page in the console says
+"This runtime runs without an authorization store, so it doesn't read
+anyone's roles: every caller with the runtime's token is an admin."
+[Without authorization](#without-authorization) says who the tenant admin is then.
+
+**Don't set `KINDGI_SEED_USER_ID` to their id.** Without a store, it gives
+their own sign-in nothing. With one, it makes them a tenant admin, but:
+- the runtime's token then acts as them, so the access audit records
+  everything done with the token as theirs;
+- whatever the earlier seed user was given, such as project roles and keys,
+  stays with that user;
+- taking tenant admin from them is refused with `409 seed-user-admin` for
+  as long as the setting names them.
+
+Use `people grant` instead.
+
+**On a runtime serving many tenants,** the runtime's token acts in no
+workspace, so it's no workspace's admin. A workspace's first admin is the
+`firstAdmin` it was created with, or one that `kindgi-runtime tenants
+make-admin` makes ([Create a tenant](../self-hosted/serve-many-tenants/#create-a-tenant)).
+They make the others, as above. Those others hold no capability:
+`kindgi-runtime tenants give-capabilities`, run with the workspace's id,
+gives one what a workspace's first admin holds
+([What only the runtime's token does](#what-only-the-runtimes-token-does)),
+and a tenant admin who holds a capability can give it
+([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)).
+
+### What only the runtime's token does
+
+On a runtime serving one tenant, the runtime's API token acts as the seed
+user. It's a tenant admin, and it holds more than any person you make one:
+
+- **Every capability,** `secrets:reveal` among them. A person you make a
+  tenant admin holds none until one is given them. So their sign-in can't
+  trust signing keys, store, rotate or revoke secrets, or change environment
+  variables, and the keys they make carry none either. Such a request is
+  refused with `403`, naming the capability: "Bearer token is missing the
+  `secrets:write` capability required for this route."
+- **Reading secret values** (`secrets:reveal`). No person is ever given it,
+  so only a key that carries it does that.
+- **The system keys,** `/v1/system/keys`, such as the license renewal's
+  ([A key for the counts](../self-hosted/renew-the-license-key/#a-key-for-the-counts)). Every other key and
+  sign-in is refused there with `403 system-principal-required`.
+- **The whole license, with its renewal,** for the token, or a key made
+  with `kindgi:system`. A tenant admin reads only its countdown, and only
+  while the deployment serves just this tenant
+  ([What you may do](#what-you-may-do), `licenseOperatorOnly`).
+- **Identity providers, when you manage sign-in yourself**
+  (`KINDGI_AUTH_TENANT_PROVIDERS=off`). Only the token, or a key made
+  with `kindgi:system`, adds, changes or removes them
+  ([Who manages a workspace's identity providers](../self-hosted/sign-in/#who-manages-a-workspaces-identity-providers)).
+
+To give the capabilities to a person who's a tenant admin, choose one of
+three ways:
+
+- **A tenant admin who holds them gives them,** with the API
+  ([Give a tenant admin capabilities](#give-a-tenant-admin-capabilities)):
+  any their own person holds, but `secrets:reveal`.
+- **`kindgi-runtime tenants give-capabilities`** (runtime 0.1.8 or later)
+  gives them what a workspace's first admin holds: every capability but
+  `secrets:reveal`. Their sign-in then carries those capabilities, and the
+  console offers them on the keys they make. It runs against the runtime's
+  database and authorization store, with your `kindgi.env`. The tenant id is
+  in the runtime's startup output, on its `Tenant:` line. Run it with
+  `--dry-run` first, which lists each capability they don't hold yet and
+  changes nothing:
+
+  ```sh
+  docker run --rm --network kindgi --env-file kindgi.env \
+    registry.kindgi.com/kindgi/runtime:<version> \
+    tenants give-capabilities <tenant id> --person <user-id> \
+    --reason "Sam deploys and sets secrets" --dry-run
+  ```
+
+  `<version>` is the version your runtime runs. Another version refuses
+  when the database's migrations aren't its own, and changes nothing. For
+  someone who holds none yet, the dry run prints:
+
+  ```text
+  tenants give-capabilities --dry-run: tenant <tenant id>, person <user-id>, a tenant admin. Nothing was changed.
+    would give: env:write
+    would give: secrets:revoke
+    would give: secrets:revoke:hard
+    would give: secrets:rotate
+    would give: secrets:write
+    would give: signing-keys:write
+  ```
+
+  - **Someone who isn't a tenant admin is refused,** and nothing changes.
+    So make them a tenant admin first.
+  - **What it gives is in the workspace's audit log,** as
+    `person-capabilities-granted` by `system`, with your `--reason`.
+  - **If they stop being a tenant admin,** what they hold is taken away,
+    as for the first admin (above).
+- **A key from the token.** `kindgi tokens create --for=user:<user-id>
+  --role=admin --capability=<cap>`, made with the runtime's token, carries
+  whichever of its capabilities you name, `secrets:reveal` too
+  ([API keys](#api-keys)). It's for the API, the CLI and the SDKs. Their
+  sign-in still carries none. Don't name `kindgi:system`. A key with it
+  reads the whole license and manages the identity providers as the token
+  does. On a runtime serving many tenants, every key loses it.
+
+### Give a tenant admin capabilities
+
+A tenant admin gives another tenant admin capabilities their own person
+holds now, such as `env:write` or `signing-keys:write`. What their key was
+made with never counts, so a service account or a system key gives none.
+Make the person a tenant admin first.
+
+In TypeScript, that's `users.giveCapabilities(userId, ['env:write'])` and
+`users.takeBackCapability(userId, 'env:write')`, and in Python
+`identity.users.give_capabilities` and
+`identity.users.take_back_capability`. Over HTTP, it's
+`POST /v1/identity/users/{userId}/capabilities` with
+`{"capabilities": [...]}`, 1 to 32 of them, and
+`DELETE /v1/identity/users/{userId}/capabilities/{capability}`. Each answers
+with the person's grants after, `capabilities` included.
+
+A sign-in session holds what its person holds, read on each request, so a
+change reaches it at once. An API key keeps the capabilities it was made
+with: to take one away from a person's keys too, revoke those keys.
+
+A tenant admin takes back only what their own person holds. A person may
+drop their own capability with a full API key or session, but not with a
+`member` one, nor with one limited to a project. The last holder's may go
+too, so before you take back the last one, give it to someone else first.
+One the person doesn't hold is left as it is.
+
+Giving or taking back is refused in these cases, and nothing changes:
+
+- `403 permission-denied`: you aren't a tenant admin. Taking back your own
+  needs no admin, but it does need a full API key or session: a `member`
+  one, or one limited to a project, is refused, and the message names which.
+- `403 capability-not-held`: your own person doesn't hold one of them now.
+  The message names the ones you lack. Taking back one you don't hold is
+  refused the same way, unless it's your own.
+- `403 capability-not-givable`: `secrets:reveal` or a system capability
+  (`kindgi:system`, `system:*`). No person gives these.
+- `403 caller-not-a-person`: a service account's key or a system key asked.
+- `409 receiver-not-tenant-admin`: the person isn't a tenant admin. Make
+  them one first.
+- `501 person-capabilities-unsupported`: the runtime doesn't give or take
+  back capabilities.
+
+### Tenant admins by email
+
+On a runtime that serves one workspace and has an authorization store,
+name its tenant admins by email. They're tenant admins from their first
+sign-in, with no step that needs the API token:
+
+```sh
+KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com
+```
+
+- **At every start,** each listed address that isn't a tenant admin yet is
+  made one. If no one in the workspace has that email, the runtime adds
+  them first, with no invitation. They sign in by that address, through the
+  workspace's identity provider or the deployment's own ways in. They get
+  what a first admin holds, as `kindgi-runtime tenants make-admin` gives it,
+  and each change is audited.
+- **While an address is listed, the list holds.** Taking tenant admin from
+  that person answers `409 listed-admin`. Removing them answers
+  `409 identity-user-unregister-refused`, with `reason` `listed-admin`,
+  since the next start would add them back as someone new. Their grants
+  read `tenantAdminFromSetting: true`. In the console, People's Access
+  column says "tenant admin, from the server's setting", and on their page
+  both actions are off, with the way to change it under each.
+- **Take an address off the list and restart:** someone the list made a
+  tenant admin stops being one at that start. They lose what a first admin
+  holds, as when tenant admin is taken from them, and stay a member.
+- **Unset or empty is an empty list.** A start without
+  `KINDGI_ADMIN_EMAILS`, or with it empty, takes every address off: everyone
+  the list made a tenant admin stops being one, and the start log says the
+  list is unset or empty. A redeploy that drops the variable does the same,
+  so keep the line in the runtime's environment for as long as they should
+  be admins. Where the list made no one a tenant admin, unset changes
+  nothing.
+- **Tenant admins made any other way aren't touched.** That's `people
+  grant`, the console or `tenants make-admin`. Listing them, or taking them
+  off the list, changes nothing for them.
+- **The start log** names whom it made a tenant admin, and who stopped
+  being one. When no one who signs in would be left a tenant admin, it
+  still follows the list and says so. The seed user is still one, so the
+  way back is the API token, or `tenants make-admin`.
+- **It's refused at start** when the runtime serves several workspaces,
+  where each one's first admin comes with it (`firstAdmin` on
+  `POST /v1/system/tenants`), and without an authorization store
+  ([Without authorization](#without-authorization)). A malformed address
+  stops the runtime at start too.
 
 ## What you may do
 
@@ -377,13 +694,17 @@ a role.
     `assignedTo`, and which is absent without a roster row;
   - the approvals' roles you may decide: your rank and those under it;
   - whether you can decide at all.
-- **`key`:** when you call with an API key, its role and the project it's
-  limited to.
+- **`key`:** when you call with an API key, its role, the project it's
+  limited to, and `readOnly`: whether it only reads
+  ([A key that only reads](#a-key-that-only-reads)).
 - **`tokenCapabilities`:** what your token itself carries for secret, env,
   config-entry and signing-key writes. A sign-in session carries the ones you
   hold as a person.
   A workspace's first admin, the person it was created with, holds every one but
-  `secrets:reveal`; no one else holds any. An API key carries those it was
+  `secrets:reveal`; no one else holds any unless the runtime's operator
+  gives them the same
+  ([What only the runtime's token does](#what-only-the-runtimes-token-does)).
+  An API key carries those it was
   minted with, none by default, and only ones its minter holds.
 - **`projects`:** each project you may read, with your highest role in it and
   every way you hold one (`via`):
@@ -421,9 +742,11 @@ a role.
   most 280 characters. Setting it takes `env:write`, as every config entry
   does ([Who can do what](#who-can-do-what)).
 
-A key limited to a project sees that project alone. A `member` key is never
-a tenant admin. You see only what you may read: no project you can't read,
-and no one else's role.
+A key limited to a project sees that project alone (in memory, it also reads
+its person's own facts that name no other project:
+[Who sees what](../../guides/agents/memory-reference/#who-sees-what)). A
+`member` key is never a tenant admin. You see only what you may read: no
+project you can't read, and no one else's role.
 
 The console hides actions by it
 ([The console, by role](../authorization/#the-console-by-role)). The server
@@ -438,7 +761,7 @@ On a runtime without an authorization store, it answers
 Everyone can make their own keys, for the API, the CLI and the SDKs:
 
 ```sh
-npx --yes @kindgi/cli@0.6 tokens create --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.7 tokens create --label=laptop --expires=30d
 ```
 
 - `--label` is a name for the key, to tell your keys apart.
@@ -448,18 +771,26 @@ npx --yes @kindgi/cli@0.6 tokens create --label=laptop --expires=30d
 The secret is printed once, there. Store it, because nothing shows it
 again.
 
-A key can't outlive the key that makes it. Made with a key that expires,
-the new key's `--expires` must be no later than that key's. A later one, or
-none, is refused with `403 token-expiry-exceeds-minter`, naming the latest
-date allowed. The same holds in a console signed in with a key. These
-aren't limited this way:
+A key can't outlive the key that makes it. Made with a key, it stops when
+that key is revoked, and so does every key made with it in turn, whoever
+they act for. A runtime that records which key made a key shows it as the
+key's `mintedWith`. An older runtime records none, so a key it made stands
+alone: revoking the key that made it, or removing its maker, leaves it
+working, and `kindgi tokens revoke` names no keys with it. Made with a key
+that expires, the new key's `--expires` must be no later than that key's. A
+later one, or none, is refused with `403 token-expiry-exceeds-minter`,
+naming the latest date allowed. The same holds in a console signed in with a
+key. These aren't limited by an expiry:
 
 - the deployment's token;
-- a key without an expiry;
+- a key without an expiry, though a key it makes still stops when it's
+  revoked;
 - a console signed in through SSO, a social sign-in or an emailed link.
 
 Make longer-lived keys with one of those, such as the 90-day key in
-[Service accounts](#service-accounts).
+[Service accounts](#service-accounts). A key that stands alone, which no
+other key's revoke stops, is made with the deployment's token or from a
+console signed in through SSO, a social sign-in or an emailed link.
 
 - **For someone else,** as a tenant admin only: `--for=user:<user-id>` or
   `--for=sa:<service-account-id>`.
@@ -469,7 +800,9 @@ Make longer-lived keys with one of those, such as the 90-day key in
   only for a tenant admin. For anyone else, it's refused with
   `403 role-exceeds-principal`.
 - **`--project=<project-id>`** limits the key to one project. A request that
-  names another project is refused with `403 key-project-mismatch`. A
+  names another project is refused with `403 key-project-mismatch`. The key
+  reads the default project (`GET /v1/projects/default`) only when it's that
+  project; otherwise it's refused the same way, naming `default`. A
   promotion reads one project and writes another, so a key limited to a
   project is refused the same way on every promotion
   ([A promote key for each later environment](../ship-from-ci/#a-promote-key-for-each-later-environment)).
@@ -486,6 +819,17 @@ Make longer-lived keys with one of those, such as the 90-day key in
   with `permission-denied`, as before. Without a store, a write to an
   existing item by its id is judged as before, except a memory fact's,
   which goes by the fact's scope, as writing one does.
+  A key limited to a project can't carry `kindgi:system`: that mint is
+  refused, `403 capability-not-mintable`.
+
+  Such a key reads its project's work and what that work needs: the
+  workspace's release gates and the org its project is in, but no team.
+  The workspace's settings answer it `403`: providers, policies, adapters,
+  capabilities, signing keys and sign-in providers. A row with no project,
+  such as an approval or a cost record with none, is the whole workspace's:
+  a list leaves it out, and asked for alone it answers as another project's
+  row does. A cost total it asks for counts only its project's records, and
+  one for another org's scope answers `403`.
 - **`--capability=<cap>`,** repeatable, puts a capability on the key, such as
   `signing-keys:write` or `secrets:write`
   ([Who can do what](#who-can-do-what)). You can give only those you hold,
@@ -510,7 +854,7 @@ that project, even for their own person:
 A tenant admin made Sam's first key:
 
 ```sh
-npx --yes @kindgi/cli@0.6 tokens create --for=user:<user-id> --label=laptop --expires=30d
+npx --yes @kindgi/cli@0.7 tokens create --for=user:<user-id> --label=laptop --expires=30d
 ```
 
 ```text
@@ -534,7 +878,7 @@ npx --yes @kindgi/cli@0.6 tokens create --for=user:<user-id> --label=laptop --ex
 ```
 
 ```sh
-npx --yes @kindgi/cli@0.6 tokens list --table
+npx --yes @kindgi/cli@0.7 tokens list --table
 ```
 
 ```text
@@ -546,7 +890,25 @@ ID                                    FOR                                       
 `kindgi tokens list` lists your keys, and `--table` prints them as a table.
 A tenant admin sees everyone's, and `--for=user:<id>` narrows it to one
 person's. Someone else's key reads as `404`. `kindgi tokens revoke
-<token-id>` refuses the key from its next request on, with `401`.
+<token-id>` refuses the key from its next request on, with `401`, and every
+key made with it, and with those in turn, whoever they act for. Their
+sessions end too. It says how many went:
+
+```text
+{
+  "tokenId": "16979e65-a65d-46aa-a348-1b64d1c7d41f",
+  "revoked": true,
+  "alsoRevoked": [
+    "5b0f4b8e-7d0a-4c43-9d1e-2f6a8c3e1b77",
+    "c3a1e9d2-4b6f-4e8a-a0d7-9f2b5c8e4a61"
+  ]
+}
+Also revoked 2 keys minted with it.
+```
+
+`GET /v1/tokens?mintedWith=<token-id>` lists the keys made with it, to any
+depth, revoked ones too, among those you see: revoking it takes the live ones
+among them. The console's Revoke says how many before you press it.
 
 A key or session with limits, one limited to a project or with the
 `member` role, lists, reads and revokes only those of your keys within its
@@ -557,6 +919,30 @@ of your keys beyond its limits answers `403`, naming its own limit
 (`key-project-mismatch`, or `permission-denied` for an `admin` key), and
 says nothing about that key. A key or session without limits sees what it
 did before: a tenant admin's, every key; anyone else's, all of their own.
+
+### A key that only reads
+
+A key minted with `readOnly: true` reads and changes nothing: for a tool
+that should look at a workspace and never act in it. The CLI's
+`tokens create` has no flag for it. Mint it with `POST /v1/tokens` and
+`{"readOnly": true}`, or with the TypeScript client's
+`tokens.create({ readOnly: true })`. Its other limits apply as for any key:
+its role, its project and its capabilities.
+
+- Every request it makes but a `GET` or a `HEAD` is refused with
+  `403 read-only-key`, before any route runs. The one exception is an
+  agent's pin check, `POST /v1/agents/{agentId}/pinned/check`, which writes
+  nothing.
+- It mints and revokes no keys, its own included, and it doesn't open a
+  console session: a sign-in with it is refused with `403 read-only-key`,
+  as any other post is.
+- Its record carries `readOnly: true`. Called with it,
+  `GET /v1/identity/whoami` answers `readOnly: true`, and
+  [What you may do](#what-you-may-do) has `key.readOnly` and shows each of
+  its projects' roles as `viewer`, and its org and team `admin` roles as
+  `member`.
+- A server whose key store can't keep the limit makes no such key: the mint
+  answers `501 read-only-unsupported`, with no secret.
 
 ## Service accounts
 
@@ -580,7 +966,7 @@ Make one. A deploy into a project takes `admin` on it, so this one, which
 deploys from CI, is an admin of one project:
 
 ```sh
-npx --yes @kindgi/cli@0.6 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
+npx --yes @kindgi/cli@0.7 service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:admin
 ```
 
 - `acme-ci` is the account's name.
@@ -608,11 +994,14 @@ npx --yes @kindgi/cli@0.6 service-accounts create acme-ci --description="Deploys
 Then make it a key, limited to that same project:
 
 ```sh
-npx --yes @kindgi/cli@0.6 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
+npx --yes @kindgi/cli@0.7 tokens create --for=sa:<service-account-id> --project=<project-id> --label=ci --expires=90d
 ```
 
 `<service-account-id>` is the `serviceAccountId` that `create` printed, and
-`--project=<project-id>` limits the key to that one project.
+`--project=<project-id>` limits the key to that one project. The key is made
+with yours, so it stops when yours is revoked, or when you're removed. If it
+must outlive yours, make it from a console signed in through SSO, a social
+sign-in or an emailed link, or with the deployment's token.
 Its grants are written before `create` answers, so its first key works at
 once. You can grant `--tenant-admin`, `--tenant-member` and
 `--project=<id>:<role>`, now or later with `kindgi service-accounts grant`
@@ -680,7 +1069,8 @@ runtime can't make a project's own account."
 - **A tenant admin may unregister it.** The project's triggers that run as
   it then stop, until a project admin takes each over. A take-over with
   `--run-as=project` makes the project a new account.
-- **Deleting the project unregisters it.**
+- **Deleting the project keeps it.** It reaches nothing while the project
+  is deleted, and a restore brings it back with the project.
 - **Without an authorization store,** running a trigger as the project
   takes a tenant-admin key, and its grant is kept as a record only: each
   fire or delivery checks only that the account is registered.
@@ -703,7 +1093,7 @@ A person's record and sessions are for a tenant admin, or that person.
 Removing a person ends all their access at once:
 
 ```sh
-npx --yes @kindgi/cli@0.6 people remove <user-id>
+npx --yes @kindgi/cli@0.7 people remove <user-id>
 ```
 
 ```text
@@ -723,13 +1113,19 @@ npx --yes @kindgi/cli@0.6 people remove <user-id>
 Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 5 role(s) and membership(s) taken away.
 ```
 
-In one step, before it answers, their API keys are revoked, their sessions
+In one step, before it answers, their API keys are revoked, with every key
+made with one of them and with those in turn, whoever they act for: a pipeline's
+key they made from the command line stops too. The answer counts those
+apart, as `mintedKeysRevoked`, and the CLI says `Also revoked 2 key(s)
+minted with theirs, whoever they act for.` Their sessions
 end, and every grant, membership and capability is taken away, with what
 their creates gave them: `owner` on each agent, flow, tool, guardrail and
 test set they made, and `admin` on an org they made (runtime 0.1.9 or
-later). What they made stays. The workspace's admins still manage all of it,
-and an org's admins what's in their org; no one becomes its owner. The next
-request with Sam's key:
+later). Every connection they own to another app is removed too, with the
+reason `owner-removed`, and withdrawn at the app where the app allows
+(runtime 0.7.0 or later). What else they made stays. The workspace's admins
+still manage all of it, and an org's admins what's in their org; no one
+becomes its owner. The next request with Sam's key:
 
 ```text
 {"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-ea8f3a9a-f1df-4365-9f7c-7bab23beea86"}}
@@ -761,13 +1157,15 @@ check of what they may do.
 
 For a person removed on an earlier runtime, their creates' `owner` and
 `admin` entries stayed, and their schedules and webhook triggers could go on
-running as them. To finish it: take over their schedules and webhook
-triggers, upgrade the runtime, then remove them again.
+running as them. The connections they owned stayed too, unless the removal
+ran on runtime 0.7.0 or later. To finish it: take over their schedules and
+webhook triggers, upgrade the runtime, then remove them again.
 `kindgi people list --include-removed` lists them, and `kindgi people remove`
 on someone already removed takes what's left.
 
-It's refused for yourself and for the seed user, with
-`identity-user-unregister-refused`, and for the only tenant admin, with
+It's refused for yourself, for the seed user, and for someone the server's
+`KINDGI_ADMIN_EMAILS` names, with `identity-user-unregister-refused` (its
+`reason` says which), and for the only tenant admin, with
 `last-tenant-admin`. Removed people are left out of lists.
 `kindgi people list --include-removed` shows them too.
 
@@ -814,7 +1212,7 @@ Someone [invited](#their-invitation) who hasn't signed in yet is marked
 **Add a person** adds someone with their access in one step: "Give them
 their access now, in the same step." It takes a name, an optional email
 ("One person per email in this workspace."), project roles, teams, a reviewer
-tier, and tenant admin.
+tier, and **Tenant admin: they administer the whole workspace**.
 
 ![The Add a person dialog: a name and an email ("One person per email in this workspace."), a viewer role on Billing, the team Support crew as a member, no reviewer role, and the checkbox "Tenant admin: they administer the whole workspace", with an Add button.](../../../assets/people/add-person.png)
 
@@ -846,14 +1244,22 @@ where you may:
   what it gives, such as "Also changes it: registers and runs agents,
   corrects answers, publishes." for an editor.
 - **Reviewer:** their tier, or none; **Take off the roster**.
-- **Tenant admin:** making or unmaking one. "A workspace always keeps one
-  admin: removing the only one is refused."
+- **Tenant admin:** **Make tenant admin**, or **Remove tenant admin** for one
+  who is: "From their next request on, they can administer the workspace:
+  every project, its people, keys and service accounts, and its settings."
+  "A workspace always keeps one admin: removing the only one is refused."
 
 Taking something away asks first: "Take Ada Lovelace off Support? From
 their next request on, they can't work in Support. Their other access, and
 what they did there, stay." The page also lists their keys, with **Make a
 key for** them, where they're signed in, their sign-ins, and **Remove from
 the workspace**.
+
+A removed person's page says what their removal took away, and keeps what
+they had, for the record. When their removal left roles or connections to
+other apps behind, because it stopped part-way or ran on a runtime older
+than 0.7.0, a tenant admin's page shows **Finish removing**: it removes them again,
+which takes what's left and changes nothing else.
 
 Until they first sign in, their page has an **Invitation** section: when
 it's open until and when it was emailed, or when it expired ("they can't
@@ -867,6 +1273,27 @@ Adding their email again invites them anew."
 ![Ann Lee's page before they signed in: no keys; What they may do: "They read the workspace's settings, nothing more"; no second factor; Invitation: "They haven't signed in yet. Their invitation is open until 10 Nov 2026, 12:01 PM EST; emailed 3 Nov 2026, 12:01 PM EST.", with Send it again; then Revoke the invitation, with its button.](../../../assets/people/person-invitation.png)
 
 ![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with a Revoke icon), Sign-ins, and Remove from the workspace.](../../../assets/people/person.png)
+
+With the runtime 0.7.0 or later, a tenant admin also sees a person's
+**Chat apps** on their page, where the runtime lets
+[chat apps sign in](../self-hosted/chat-apps/). It lists the chat apps they
+connected, such as Claude: each by the address it sends people back to, with
+"It calls itself …" when the app gave a name, what it can do, and when it
+was connected. A link to it is their page's address with `#chat-apps`.
+
+- **Disconnect**, then **Disconnect it**, stops one acting for them at once:
+  its next request to Kindgi is refused, and it can't sign in again on its
+  own. It isn't a block: they can connect it again from the chat app.
+- **They're emailed** where the runtime sends mail and they have an
+  address, with the subject "A chat app was disconnected from your access
+  to Default workspace" (the workspace's name): which app, who disconnected
+  it (your email address, or "A workspace admin" without one) and when. The
+  disconnect stands even when the email doesn't go out.
+- **Your own page** lists your own chat apps, as **My access** >
+  **Chat apps** does, and disconnecting one there sends no email.
+
+A removed person's page has no **Chat apps**: their removal already stopped
+every chat app of theirs.
 
 ### What needs you
 
@@ -900,6 +1327,13 @@ Each change is kept as evidence: `person-added`, `person-granted`,
 secret is never in one. A project's own account is made with one
 `service-account-created`, which has its `projectId` and
 `projectAccount: true`, and no separate `service-account-granted`.
+
+Disconnecting a chat app is kept as `chat-app-disconnected`, with its
+`clientId` and how many of its refresh tokens were revoked
+(`revokedCount`). On **My access** > **Chat apps**, the person is its actor
+and it has no `userId`. From a person's page in **People**
+(runtime 0.7.0 or later), the tenant admin is its actor and the person is
+its `userId`, so an admin's own page records their own id as both.
 
 ## Next
 

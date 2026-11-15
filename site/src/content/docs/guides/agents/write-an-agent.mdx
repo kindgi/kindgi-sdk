@@ -460,6 +460,10 @@ uv run python -m kindgi.pack index --pack-dir .
 }
 ```
 
+An agent that can't finish a request can hand it to a person with a tool
+that changes nothing and waits for a person's approval: see
+[When an agent can't finish](../../approvals/ask-before-a-tool-runs/#when-an-agent-cant-finish-hand-off-to-a-person).
+
 ## Guardrails
 
 A guardrail the agent names must be registered: `kindgi dev` registers the
@@ -530,8 +534,8 @@ mcp={"expose": True, "readOnly": True},
 
 In a Python pack, `uv run python -m kindgi.pack index --pack-dir .` reports
 a file that fails to load without the runtime: a bare-string tool (above), or
-a version that isn't an exact semver (`version must be an exact semver, got
-'0.1'`).
+an agent version that isn't an exact semver (`version must be an exact semver
+with no build metadata (e.g. 1.2.3 or 1.2.3-rc.1), got '0.1'`).
 
 In a Java or Scala pack, the compiler finds most mistakes first: `kindgi dev`
 shows its error with the file and line, and keeps the last good code running.

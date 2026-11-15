@@ -20,12 +20,14 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 // ---------- Sub-path: /define ----------
 import {
   ConnectionRejectedError,
+  ToolFailure,
   defineAgent,
   defineCheck,
   defineFlow,
   defineTool,
   defineToolAsync,
   isConnectionRejectedError,
+  isToolFailure,
   isZodSchema,
   toJSONSchema,
 } from '@kindgi/sdk/define';
@@ -51,6 +53,9 @@ import type {
   Tool,
   ToolConnection,
   ToolContext,
+  ToolFailedError,
+  ToolFailureDetails,
+  ToolFailureOptions,
   ToolManifest,
   ZodLikeSchema,
 } from '@kindgi/sdk/define';
@@ -74,13 +79,17 @@ import type {
   ClientOptions,
   KindgiClient,
   KindgiError,
+  PolicyVersionsClient,
   RunProgressEvent,
   RunsClient,
+  SecretVersionsClient,
   SseEvent,
   SubscribeToRunOptions,
+  ToolVersionRow,
   ToolsClient,
   Transport,
   TransportRequest,
+  UnregisterPolicyVersionResult,
 } from '@kindgi/sdk/client';
 
 // ---------- Sub-path: /webhooks (server only) ----------
@@ -146,8 +155,10 @@ import {
 } from '@kindgi/schema';
 import {
   ConnectionRejectedError as ConnectionRejectedErrorFromTools,
+  ToolFailure as ToolFailureFromTools,
   defineTool as defineToolFromTools,
   isConnectionRejectedError as isConnectionRejectedErrorFromTools,
+  isToolFailure as isToolFailureFromTools,
 } from '@kindgi/tools';
 
 describe('@kindgi/sdk/define — pack authoring re-exports', () => {
@@ -168,6 +179,14 @@ describe('@kindgi/sdk/define — pack authoring re-exports', () => {
     expectTypeOf<ToolConnection>().toEqualTypeOf<import('@kindgi/tools').ToolConnection>();
     expectTypeOf<ConnectionNeed>().toEqualTypeOf<import('@kindgi/tools').ConnectionNeed>();
     expectTypeOf<ConnectionAccount>().toEqualTypeOf<import('@kindgi/tools').ConnectionAccount>();
+  });
+
+  it("re-exports a tool's failure on purpose identically (===) from @kindgi/tools", () => {
+    expect(ToolFailure).toBe(ToolFailureFromTools);
+    expect(isToolFailure).toBe(isToolFailureFromTools);
+    expectTypeOf<ToolFailureDetails>().toEqualTypeOf<import('@kindgi/tools').ToolFailureDetails>();
+    expectTypeOf<ToolFailureOptions>().toEqualTypeOf<import('@kindgi/tools').ToolFailureOptions>();
+    expectTypeOf<ToolFailedError>().toEqualTypeOf<import('@kindgi/tools').ToolFailedError>();
   });
 
   it('re-exports defineFlow identically (===) from @kindgi/flow', () => {
@@ -271,6 +290,16 @@ describe('@kindgi/sdk/client — client callsite re-exports', () => {
     expectTypeOf<AgentsClient>().toEqualTypeOf<import('@kindgi/client').AgentsClient>();
     expectTypeOf<RunsClient>().toEqualTypeOf<import('@kindgi/client').RunsClient>();
     expectTypeOf<ToolsClient>().toEqualTypeOf<import('@kindgi/client').ToolsClient>();
+    expectTypeOf<PolicyVersionsClient>().toEqualTypeOf<
+      import('@kindgi/client').PolicyVersionsClient
+    >();
+    expectTypeOf<SecretVersionsClient>().toEqualTypeOf<
+      import('@kindgi/client').SecretVersionsClient
+    >();
+    expectTypeOf<ToolVersionRow>().toEqualTypeOf<import('@kindgi/client').ToolVersionRow>();
+    expectTypeOf<UnregisterPolicyVersionResult>().toEqualTypeOf<
+      import('@kindgi/client').UnregisterPolicyVersionResult
+    >();
     expectTypeOf<ClientOptions>().toEqualTypeOf<import('@kindgi/client').ClientOptions>();
   });
 

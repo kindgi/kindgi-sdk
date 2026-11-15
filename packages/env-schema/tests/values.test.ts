@@ -154,7 +154,7 @@ describe('variable names', () => {
   });
 });
 
-describe('parsePublicUrl (T219)', () => {
+describe('parsePublicUrl', () => {
   test('unset or empty: undefined', () => {
     expect(parsePublicUrl(undefined)).toBeUndefined();
     expect(parsePublicUrl('  ')).toBeUndefined();

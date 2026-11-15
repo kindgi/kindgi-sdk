@@ -34,6 +34,7 @@ Keep an agent a piece of data that can be versioned, stored, and pinned by `{ id
     - It rebuilds the turn input from the run snapshot, and the turn's state from the run's journal and the conversation. That state is the environment `setup` resolved, routed to the same provider and model, plus the messages the turn stored, its retrieved facts and its usage.
     - The turn goes on from the step it parked in. Calls that ran before the park keep their stored results.
     - Provenance recorded before the park isn't rebuilt.
+    - An optional `abortSignal` aborts the resumed turn, as `InvokeAgentInput`'s does a started one; the agent's `maxWallMs` still applies, and whichever comes first ends the turn with `agent-turn-aborted` and gives its reason (`external` or `timeout`).
     - Errors:
       - `run-snapshot-missing` when no snapshot was stored;
       - `run-journal-unavailable` (`RunJournalUnavailableError`) when the journal can't be read; resuming again may work;

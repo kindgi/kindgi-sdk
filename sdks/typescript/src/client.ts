@@ -28,6 +28,7 @@ import {
 } from './resources/corrector-groups.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
+import { type DestinationsClient, makeDestinationsClient } from './resources/destinations.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
 import {
   type EnvironmentOrdersClient,
@@ -39,6 +40,7 @@ import {
   type ExportSigningKeysClient,
   makeExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
+import { type FilesClient, makeFilesClient } from './resources/files.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
@@ -74,12 +76,17 @@ import {
   makeSystemDeploymentsClient,
 } from './resources/system-deployments.js';
 import { type SystemEnvClient, makeSystemEnvClient } from './resources/system-env.js';
+import {
+  type SystemKeptReposClient,
+  makeSystemKeptReposClient,
+} from './resources/system-kept-repos.js';
 import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TestRunsClient, makeTestRunsClient } from './resources/test-runs.js';
 import { type TestSetsClient, makeTestSetsClient } from './resources/test-sets.js';
+import { type TextTriggersClient, makeTextTriggersClient } from './resources/text-triggers.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
 import {
@@ -162,7 +169,11 @@ export interface KindgiClient {
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
   readonly license: LicenseClient;
-  /** Which runtime answers: its version, how many tenants it serves, and whether it runs in development mode. */
+  /**
+   * Which runtime answers: its version, how many tenants it serves, whether
+   * it runs in development mode, and whether it serves connections to other
+   * apps.
+   */
   readonly runtime: RuntimeClient;
   /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
   readonly systemKeys: SystemKeysClient;
@@ -177,6 +188,12 @@ export interface KindgiClient {
    * reads from its cloud. System keys with `system:env-refs` only.
    */
   readonly systemEnv: SystemEnvClient;
+  /**
+   * Kept repos (the repos a store keeps for projects without a GitHub
+   * repo): the store's reconcile, and a repo's erasure. System keys with
+   * `system:kept-repos` or `system:kept-repos:erase` only.
+   */
+  readonly systemKeptRepos: SystemKeptReposClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
   /** Usage across tenants, aggregated. System keys only. */
@@ -187,8 +204,13 @@ export interface KindgiClient {
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
+  /** @deprecated Use `client.files`. A later minor release removes it, announced in advance. */
   readonly artifacts: ArtifactsClient;
+  /** Files the runtime keeps, with every edit as a version. */
+  readonly files: FilesClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  /** Where schedules send their results (`sendResultsTo`). */
+  readonly destinations: DestinationsClient;
   readonly connectionEntries: ConnectionEntriesClient;
   readonly connectionApps: ConnectionAppsClient;
   readonly connections: ConnectionsClient;
@@ -198,6 +220,8 @@ export interface KindgiClient {
   readonly webhooks: WebhooksClient;
   /** Mail triggers: a mailbox's new mail starts runs of an agent or a flow. */
   readonly mailTriggers: MailTriggersClient;
+  /** Text triggers: texts to a business number start runs of an agent or a flow. */
+  readonly textTriggers: TextTriggersClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -266,6 +290,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
     systemEnv: makeSystemEnvClient(transport),
+    systemKeptRepos: makeSystemKeptReposClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
     systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),
@@ -273,13 +298,16 @@ export function createClient(options: ClientOptions): KindgiClient {
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
+    files: makeFilesClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    destinations: makeDestinationsClient(transport),
     connectionEntries: makeConnectionEntriesClient(transport),
     connectionApps: makeConnectionAppsClient(transport),
     connections: makeConnectionsClient(transport),
     connectionChoices: makeConnectionChoicesClient(transport),
     webhooks: makeWebhooksClient(transport),
     mailTriggers: makeMailTriggersClient(transport),
+    textTriggers: makeTextTriggersClient(transport),
     packs: makePacksClient(transport),
   };
 }

@@ -87,6 +87,8 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
   { name: 'tenant', route: '/v1/tenant', paging: 'one' },
   { name: 'orgs', route: '/v1/orgs', paging: cursor, covers: ['/v1/orgs/{orgId}'] },
   { name: 'projects', route: '/v1/projects', paging: cursor, covers: ['/v1/projects/{projectId}'] },
+  // The deleted ones: kept, so a tenant admin can restore them.
+  { name: 'deleted-projects', route: '/v1/projects/deleted', paging: cursor, admin: true },
   { name: 'teams', route: '/v1/teams', paging: cursor, covers: ['/v1/teams/{teamId}'] },
   {
     name: 'team-memberships',
@@ -174,6 +176,7 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/auth/providers/{providerId}'],
   },
   { name: 'sign-in-settings', route: '/v1/auth/settings', paging: 'one', admin: true },
+  { name: 'join-domains', route: '/v1/auth/join-domains', paging: whole },
 
   // Settings.
   { name: 'environments', route: '/v1/environments', paging: cursor, admin: true },
@@ -456,11 +459,19 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     name: 'schedules',
     route: '/v1/schedules',
     paging: cursor,
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/schedules/{triggerId}'],
   },
   {
     name: 'schedule-fires',
     route: '/v1/schedules/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
+  },
+  {
+    name: 'schedule-deliveries',
+    route: '/v1/schedules/{triggerId}/deliveries',
     paging: cursor,
     parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
   },
@@ -469,26 +480,36 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/schedules/{triggerId}/versions',
     paging: cursor,
     parent: { kind: 'schedules', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/schedules/{triggerId}/versions/{version}'],
   },
-  { name: 'webhooks', route: '/v1/webhooks', paging: cursor, covers: ['/v1/webhooks/{triggerId}'] },
+  {
+    name: 'webhooks',
+    route: '/v1/webhooks',
+    paging: cursor,
+    query: { includeUnregistered: 'true' },
+    covers: ['/v1/webhooks/{triggerId}'],
+  },
   {
     name: 'webhook-fires',
     route: '/v1/webhooks/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
   },
   {
     name: 'webhook-versions',
     route: '/v1/webhooks/{triggerId}/versions',
     paging: cursor,
     parent: { kind: 'webhooks', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/webhooks/{triggerId}/versions/{version}'],
   },
   {
     name: 'mail-triggers',
     route: '/v1/mail-triggers',
     paging: cursor,
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/mail-triggers/{triggerId}'],
   },
   {
@@ -496,13 +517,37 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/mail-triggers/{triggerId}/fires',
     paging: cursor,
     parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
   },
   {
     name: 'mail-trigger-versions',
     route: '/v1/mail-triggers/{triggerId}/versions',
     paging: cursor,
     parent: { kind: 'mail-triggers', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
     covers: ['/v1/mail-triggers/{triggerId}/versions/{version}'],
+  },
+  {
+    name: 'text-triggers',
+    route: '/v1/text-triggers',
+    paging: cursor,
+    query: { includeUnregistered: 'true' },
+    covers: ['/v1/text-triggers/{triggerId}'],
+  },
+  {
+    name: 'text-trigger-fires',
+    route: '/v1/text-triggers/{triggerId}/fires',
+    paging: cursor,
+    parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
+  },
+  {
+    name: 'text-trigger-versions',
+    route: '/v1/text-triggers/{triggerId}/versions',
+    paging: cursor,
+    parent: { kind: 'text-triggers', params: { triggerId: 'triggerId' } },
+    query: { includeUnregistered: 'true' },
+    covers: ['/v1/text-triggers/{triggerId}/versions/{version}'],
   },
   {
     name: 'webhook-endpoints',
@@ -516,6 +561,19 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/webhook-endpoints/{endpointId}/deliveries',
     paging: cursor,
     parent: { kind: 'webhook-endpoints', params: { endpointId: 'endpointId' } },
+  },
+  {
+    name: 'destinations',
+    route: '/v1/destinations',
+    paging: cursor,
+    covers: ['/v1/destinations/{destinationId}'],
+    admin: true,
+  },
+  {
+    name: 'destination-deliveries',
+    route: '/v1/destinations/{destinationId}/deliveries',
+    paging: cursor,
+    parent: { kind: 'destinations', params: { destinationId: 'destinationId' } },
   },
 
   // What ran, and what came of it.
@@ -636,6 +694,25 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: cursor,
     bytes: { route: '/v1/artifacts/{blobId}', params: { blobId: 'blobId' }, dir: 'artifacts' },
   },
+  {
+    name: 'files',
+    route: '/v1/files',
+    paging: cursor,
+    covers: ['/v1/files/{fileId}'],
+  },
+  {
+    name: 'file-versions',
+    route: '/v1/files/{fileId}/versions',
+    paging: cursor,
+    parent: { kind: 'files', params: { fileId: 'fileId' } },
+    covers: ['/v1/files/{fileId}/versions/{version}'],
+  },
+  {
+    name: 'file-pin-history',
+    route: '/v1/files/{fileId}/pin-history',
+    paging: cursor,
+    parent: { kind: 'files', params: { fileId: 'fileId' } },
+  },
   { name: 'export-signing-keys', route: '/v1/export-signing-keys', paging: whole },
 ];
 
@@ -657,6 +734,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/tenants/{tenantId}': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/admins': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/limits': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/join-domains': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/env': "the server's operator routes",
   '/v1/env/cloud-secrets':
     "names the server's operator set to its own cloud's secrets: the operator's to set, not the workspace's to move",
@@ -666,6 +744,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/usage': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env':
     "the server's operator routes",
+  '/v1/system/kept-repos/erasures': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/projects/{projectId}/kept-repo': "the server's operator routes",
   // The caller, not the workspace.
   '/v1/identity/whoami': 'the caller, not the workspace',
   '/v1/identity/me/permissions': 'the caller, not the workspace',
@@ -705,6 +785,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/environment-orders/orgs/{orgId}': 'the same records as environment-orders',
   '/v1/tool-files/{artifactId}':
     "the same bytes as artifacts, read by a pack tool's call with the call's own token",
+  '/v1/files/{fileId}/versions/{version}/content':
+    "the same bytes as artifacts, under the version's blobId",
   '/v1/providers/{providerId}/check': "a live check of a provider's settings",
   '/v1/deployments/{deploymentId}/values':
     'computed from deployments, tools, agents, providers, secrets and env values',
@@ -722,4 +804,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/mcp/endpoints/{endpointId}/resources': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/resources/{uri}': "read live from the MCP endpoint's own server",
   '/v1/mcp/endpoints/{endpointId}/prompts': "read live from the MCP endpoint's own server",
+  // Called by another server.
+  '/v1/texts-inbound/{tenantId}/{appId}':
+    "a texting provider's handshake, answered to the provider; a Kindgi client never calls it",
 };

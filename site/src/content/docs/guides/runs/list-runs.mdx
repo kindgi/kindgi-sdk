@@ -12,9 +12,9 @@ inside another run, the runs inside one run, or one agent's turns.
 
 ## Before you start
 
-- **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.6's CLI.
+- **Runs to list,** on a runtime such as `kindgi dev`, with Kindgi 0.7's CLI.
 - **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
-  Java 17 or later, with Kindgi 0.6's client, and `KINDGI_API_URL` and
+  Java 17 or later, with Kindgi 0.7's client, and `KINDGI_API_URL` and
   `KINDGI_API_TOKEN` set.
 
 ## From the CLI
@@ -84,8 +84,8 @@ uv run kindgi runs list --limit=2
 The CLI lists every run, including the agent turns inside flows. Each of
 those is a run of `agent.turn`, with a `parentRunId`. `--agent=<agent-id>`
 lists one agent's turns, as [One agent's turns](#one-agents-turns) shows.
-The clients also filter by status, creation time, flow and version, and
-scope.
+The clients also filter by status, creation or end time, flow and version,
+how a run started, and scope.
 
 ## From your app
 
@@ -248,6 +248,13 @@ may miss the runs of some.
   started it: your app, the CLI, a schedule, a webhook trigger or a mail
   trigger.
 - **`includeOutput: true`** (`include="output"`) adds each run's `output`.
+- **`includeWaitingFor: true`** (`include="waitingFor"`) adds what each
+  suspended run waits for, as `runs.get` answers it
+  ([A run's `waitingFor`](../../approvals/approvals-reference/#a-runs-waitingfor)).
+  With it, a page holds at most 25 runs. TypeScript takes it beside
+  `includeOutput`. In Python, `include` takes a value or a list
+  (`include=["output", "waitingFor"]`), and in Java, the builder's `include`
+  takes one or both (`.include(Include.OUTPUT, Include.WAITING_FOR)`).
 - **`scope`** (`scope_kind` / `scope_id`) lists one project's runs, or the runs
   of every project in an org: `{ kind: 'project', projectId }`
   (`scope_kind="project", scope_id=…`), or `{ kind: 'org', orgId }`.
@@ -265,10 +272,22 @@ may miss the runs of some.
   0.6.0 or later): none if you act for no one. Another value is refused
   with `400 bad-input`. An earlier runtime ignores the filter and lists
   every run you may see.
+- **`startedBy`** (`started_by`) lists the runs started one way, not by
+  one person (runtime 0.7.0 or later): `person`, `key` (a service
+  account's key), `schedule`, `webhook`, `event`, `mail` or `text`. A
+  run inside another has its parent's, so add `topLevel: true` for the
+  runs schedules started. A run from before the runtime recorded it has
+  none, and isn't listed.
+- **`completedAfter`** / **`completedBefore`** (`completed_after` /
+  `completed_before`) list the runs that ended strictly after, or at or
+  before, a time, the earliest end first (runtime 0.7.0 or later). Runs
+  that haven't ended aren't listed. [Runs as they end](#runs-as-they-end)
+  pages them.
 - In Python, `paginate` follows `next_cursor` for you.
 
-A status that doesn't exist, a time that isn't one, an empty value, or a
-version without its id is refused with `400 bad-input`, naming it:
+A status that doesn't exist, a `startedBy` that isn't one of the seven,
+a time that isn't one, an empty value, or a version without its id is
+refused with `400 bad-input`, naming it:
 
 ```json
 { "error": { "code": "bad-input", "message": "`agentVersion` needs `agentId`", … } }
@@ -396,6 +415,28 @@ b0896582-86d7-4e7d-8387-931550da93a3 failed null
 
 </TabItem>
 </Tabs>
+
+### Runs as they end
+
+To pick up each run once it has ended, such as to copy each one to another
+system, page them by when they ended (runtime 0.7.0 or later). Ask your
+coding agent: "I want my app to copy each run that ended to our warehouse,
+once." With `completedAfter` or `completedBefore`, the runs come in the
+order they ended, the earliest first, and a page has no `nextCursor`:
+
+- **For the next page,** set `completedAfter` to the last run's
+  `completedAt`, exactly as the API returned it, with its fraction of a
+  second, and `afterRunId` (`after_run_id`) to its `id`. A run that ended
+  at that same time is listed too, when its id comes after.
+- **Keep the last run you handled,** its `completedAt` and `id`, and the
+  next call starts after it.
+
+`hasMore` says whether another page follows. With no `nextCursor`, Python's
+`paginate` stops after the first page: follow the pair yourself.
+
+These are refused with `400 bad-input`, naming the problem: `cursor` with
+either bound, `afterRunId` without `completedAfter` or that isn't a UUID,
+and `completedAfter` later than `completedBefore`.
 
 ## The runs inside a run
 
@@ -569,7 +610,7 @@ import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-const turns = await kindgi.runs.list({ agentId: 'acme.desk-agent' });
+const turns = await kindgi.runs.list({ agentId: 'acme.support-desk' });
 for (const run of turns.data) {
   console.log(run.id, run.agent?.version, run.agent?.conversationId, run.parentRunId ?? '-');
 }
@@ -590,7 +631,7 @@ from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
 
-turns = kindgi.runs.list(agent_id="acme.desk-agent")
+turns = kindgi.runs.list(agent_id="acme.support-desk")
 for run in turns.data:
     if run.agent is not None:
         print(run.id, run.agent.version, run.agent.conversation_id, run.parent_run_id or "-")
@@ -618,7 +659,7 @@ public final class ListTurns {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    RunCollectionPage turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build());
+    RunCollectionPage turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.support-desk").build());
     for (RunCollectionPage.DataItem run : turns.data()) {
       System.out.println(run.id() + " " + run.agent().version() + " " + run.agent().conversationId() + " "
           + Objects.toString(run.parentRunId(), "-"));
@@ -647,7 +688,7 @@ object ListTurns {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
 
-    val turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.desk-agent").build())
+    val turns = kindgi.runs().list(RunsListParams.builder().agentId("acme.support-desk").build())
     for (run <- turns.data.asScala) {
       println(s"${run.id} ${run.agent.version} ${run.agent.conversationId} ${Option(run.parentRunId).getOrElse("-")}")
     }
@@ -712,6 +753,31 @@ too. The page's address keeps the filters, the sort and the search, so a
 link opens the same list.
 
 ![Refunds' Runs page, reached from Runs → on its 1.1.0 row: the status, start time and Include filters, the chip Flow version: 1.1.0, and its one run of 1.1.0, a completed flow run.](../../../../assets/runs/runs-flow-version.png)
+
+### Results
+
+A project's **Results** page, first under **Run** in its sections, shows
+what each run gave back, newest first. Each agent run or flow run is a card:
+the agent or the flow and the run's status, whom it ran for and when it
+started, and the start of its answer, up to 280 characters. A run without
+an answer says why, such as that it was cancelled before it answered. The
+whole card opens the run. Results and Runs read the same runs: Runs is the
+table for whoever builds the agents, with ids, versions, cost and steps,
+and Results shows what came back.
+
+Results leaves out a flow's agent turns and test run replays, and tags a
+dry run as one. Its filters are the Runs page's status, start time, agent
+and flow, kept in the page's address, without **Version** or **Include**.
+**Show more** adds the next 20 runs. The page refreshes every 5 seconds
+while a run on it is going, otherwise every 30 seconds. With no runs yet,
+it says "No results yet.", and offers **Run an agent →** to someone who
+may start runs.
+
+Someone who runs the project only because
+[everyone can run it](../../../deploy/authorization/#everyone-can-run-a-project)
+sees their own runs here. The console opens on the workspace's default
+project, or the first project you can see: on its **Dashboard** if you may
+change the project, and on its **Results** if you may only view or run it.
 
 ### What failed
 

@@ -47,6 +47,14 @@ export interface MCPEndpointRegistryBinding {
    * `404 mcp-endpoint-not-found` at the route.
    */
   unregister(input: MCPEndpointUnregisterInput): Promise<MCPEndpointUnregisterOutcome>;
+  /**
+   * The endpoint's scope, as it was registered: the tenant's, an org's or
+   * a project's. `null` when unknown. Optional. Without an authorization
+   * store, the routes hold a key or session limited to a project to it:
+   * no change by the endpoint's id beyond that project. Absent, or `null`,
+   * nothing is held there.
+   */
+  scopeOf?(input: MCPEndpointGetInput): Promise<Scope | null>;
 }
 
 /**
@@ -188,6 +196,12 @@ export function mcpAuthSecretRefs(auth: MCPEndpointAuth): readonly MCPEndpointSe
 /** The most variables a stdio endpoint's `secretEnv` gives. */
 export const MCP_SECRET_ENV_MAX = 16;
 
+/** The most tool names an endpoint's `readOnlyTools` lists. */
+export const MCP_READ_ONLY_TOOLS_MAX = 256;
+
+/** The longest tool name `readOnlyTools` takes. */
+export const MCP_READ_ONLY_TOOL_NAME_MAX = 128;
+
 /**
  * The secrets an endpoint names: its bearer `secretRef`, its `auth`'s
  * password, client secret or header secrets, and each of its `secretEnv`.
@@ -297,6 +311,18 @@ export interface MCPEndpoint {
    * `false` sends none. HTTP transports only (`stdio` has no headers).
    */
   readonly sendTraceparent?: boolean;
+  /**
+   * The server's tools that only read, by the names its `tools/list` gives
+   * (`acme-order-lookup`, not the catalog id): each is published with
+   * `mutating: false`, so it runs without a yes where a read-only tool may.
+   * The registrant's claim, as a tool's own `mutating: false` is: list only
+   * tools that never change anything. The server's own `readOnlyHint` isn't
+   * read. A name the server doesn't serve changes nothing. 1 to
+   * `MCP_READ_ONLY_TOOLS_MAX` names, each at most
+   * `MCP_READ_ONLY_TOOL_NAME_MAX` characters, no repeats. Absent: every tool
+   * the server lists counts as one that may change things.
+   */
+  readonly readOnlyTools?: readonly string[];
   /**
    * Where each secret the endpoint names is read, by name: recorded by the
    * server when the endpoint is registered (`secret-scope.ts`), never sent

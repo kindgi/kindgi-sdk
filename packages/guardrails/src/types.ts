@@ -3,6 +3,7 @@
 
 import type {
   Capability,
+  ModelCallWarning,
   ModelProvider,
   ProviderRegistry,
   TenantPolicy,
@@ -292,7 +293,7 @@ export interface Guardrail {
    * When this guardrail applies. `{when: 'always'}` fires everywhere;
    * `{when: 'ci-only'}` blocks CI but not runtime; `{when: 'runtime-only'}`
    * enforces at runtime but not CI. Per-agent / per-flow selectors
-   * narrow further (e.g. `{agents: ['acme.support-agent']}`).
+   * narrow further (e.g. `{agents: ['acme.support-desk']}`).
    */
   readonly scope?: Scope;
   /**
@@ -568,6 +569,13 @@ export interface CheckResult {
   readonly reason?: string;
   /** For llm-judge checks: the raw response text from the judge. */
   readonly judgeResponse?: string;
+  /**
+   * For llm-judge checks: what the judge's model call warned about
+   * (`ModelCallResult.warnings`), such as a temperature the model doesn't
+   * take. Absent when it warned about nothing. An agent turn adds them to
+   * its own `warnings`, once per code.
+   */
+  readonly warnings?: readonly ModelCallWarning[];
   /** Structured attributes attached to the result (evidence + logs). */
   readonly attributes?: Readonly<Record<string, unknown>>;
 }

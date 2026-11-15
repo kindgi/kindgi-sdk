@@ -37,9 +37,10 @@ output "key_id" {
 }
 
 output "secrets_to_fill" {
-  description = "The secrets the operator creates in the vault before the services apply (README, step 3), plus the pack's own."
+  description = "The secrets the operator creates in the vault before the services apply (README, step 3), plus the pack's own. pagination-key is read only once pagination_key_version names its version: add it before you set that."
   value = sort(concat(
     values(local.server_secrets),
+    [local.pagination_key_secret],
     values(local.shared_secrets),
     tolist(local.pack_secret_names),
   ))
@@ -75,6 +76,6 @@ output "license_enroll_command" {
 }
 
 output "license_renew_command" {
-  description = "Renews the license key by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it; with license_usage_key_secret, the renewal carries counts of the deployment's use."
+  description = "Renews the license key by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it; with license_usage_key_secret, the renewal carries counts of the deployment's use and offers a renewed key to the running server."
   value       = "kindgi ${join(" ", local.license_renew_args)}"
 }

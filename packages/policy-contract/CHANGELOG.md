@@ -1,5 +1,39 @@
 # @kindgi/policy-contract
 
+## 0.7.0
+
+### Minor Changes
+
+- 7f9d20f: **A tool can fail a call on purpose, with its own code and words for a person.** `` throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } }) `` (`@kindgi/sdk/define`; `ToolFailure` in Python, `ToolFailureException` in Java and Scala) fails the call with `tool-failed`, a new code beside the crash's.
+  
+  - **The call's error.** `invokeTool` answers `ToolFailedError`: `{ code: 'tool-failed', message, toolId, reason, details? }`. The tool's code is `reason`, its words are the message as written, with no lead-in and no cause, and `details` are its facts. The message and every string in the details are masked as a thrown message is.
+  - **The rules.** The code is kebab case, a letter first, at most 64 characters: a fixed word, since runs are grouped by it. The message isn't empty and is cut at 1,000 characters. The details are a JSON object of at most 4 KiB as JSON. A value the class refuses throws a `TypeError`, so the call is a crash that says why, and so is a `ToolFailure` changed after it was made. `isToolFailure` tells one by its brand, so another copy of the package agrees.
+  - **Pack protocol 2.12.0.** The error answer's codes gain `tool-failed`, with `reason` and `details`; `v` stays 2. The TypeScript, Python and Java pack services answer it, and the conformance suite has a fixture tool for it, `conformance.fails-on-purpose`, in each language.
+  - **In an agent.** `tool-failed` is a `toolErrors` kind of its own, out of the default and not covered by `tool-error`. With it in `retryOn`, the call goes back to the model with the tool's code, words and details, and an instruction to tell the person or try another way. Otherwise, or past the retries, the turn fails with `ToolFailedTurnError`, `tool-failed` at the top: `{ code, message, toolId, reason, details?, toolRetries? }`. The `tool.failed` stream event says `tool-failed` and the tool's code as `reason`, without the details.
+  - **A run's failure.** `Run.failure` for it has the tool's code as `reason`, its details whole in `details`, and the tool as `cause`: `{ toolId }`. The API answers the turn's error with `422`. The OpenAPI document says so, and an agent's `toolErrors.retryOn` takes `tool-failed`, in the agent schema and the clients too.
+  
+  A check that throws a `ToolFailure` fails as any throw does.
+  
+  Release-decision: 0.7.0, the maintainers, 2026-11-06T22:04:22Z
+
+### Patch Changes
+
+- c7b560c: **The docs say what `ask_on_first_use` does: each call to the tool waits for an approval, as with `always_ask`.** They said an approved call ran without asking when it was made again with the same arguments in the conversation, but nothing remembers an approval, and every call has always asked. The mode's doc is now on `ToolHitlMode`, where an editor shows it, and `Tool.mutating`'s description (in the tool schema and the API reference), the approvals guide and the authoring skills say the same. How a call is gated doesn't change.
+- bb5bbf8: **Files with versions.** A runtime that keeps files serves `/v1/files`: a file is a name and its versions 1, 2, 3, each one stored blob, read by its number or by `latest`. The operations are `files.list`, `files.create`, `files.get`, `files.delete`, `files.versions.list`, `files.versions.add`, `files.versions.get`, `files.versions.download` (the bytes, with `X-Kindgi-File-Version`), `files.versions.restore`, `files.versions.delete`, `files.versions.pin`, `files.versions.unpin` and `files.pinHistory`. Adding or restoring a version takes an optional `expectedVersion`: when Latest isn't that version, nothing is written and the answer is `409 file-version-conflict`. Bytes that are Latest's add no version (`200`, `created: false`). A restore is a new version with an earlier version's bytes, type and tags, under Latest's name. A pinned version can't be deleted, nor a file with one (`409 file-version-pinned`), and a file's last live version goes only with the file (`409 file-last-version`). Reads need `read` on the file's project, or, for a person, `run` there for a file of their own; changes need `write`, except that a person with `run` can create a file of their own that names no run, to start a run with. An upload has the artifact upload's cap: over it is `413 file-too-large`.
+  
+  `createApp` takes the store as `fileVersions`, a `FileVersionsBinding` from `@kindgi/blob-binding` (its types are also exported by `@kindgi/api`); without one, `/v1/files` isn't mounted. A file's id is its version 1's `blobId`. `BlobMeta` gains `fileId` and `version`, for a blob that is a file's version, and `/v1/artifacts` answers carry them; deleting an artifact whose bytes a file still needs is `409 artifact-in-file`. `FileValue` in `@kindgi/types` takes `fileId` and `version`, both or neither, and `FileId` is a new id type. The retention domains gain `file_version`, opt-in like `memory` and `conversation`: a deleted version goes after the grace, and so does one that isn't Latest, isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace. The error codes `file-not-found`, `file-version-not-found`, `file-version-conflict`, `file-version-pinned`, `file-last-version`, `file-too-large` and `artifact-in-file` are in the API's status map and the error codes reference, and the TypeScript client reads each as its kind.
+  
+  Deleting a file or a version that's already deleted answers `{ deleted: false }` and changes nothing; an id no file ever had is `404 file-not-found`. The version in a restore, delete, pin or unpin path is a whole number from 1. A `files.list` filter on `ownerRunId` or `projectId` that isn't an id is `400`. A version's `supersededAt` is when a newer version replaced it as Latest, so Latest has none. When two versions share bytes, the blob's `BlobMeta.version` names the lower one. The five `artifacts.*` operations are `deprecated: true` and go in 0.8.0, and every `/v1/artifacts` answer, a refused one too, carries a `Link` with `rel="deprecation"` to the docs' "What 0.8.0 removes", `concepts/files-and-versions/#what-080-removes` on the release's docs line. The TypeScript client's wire types keep a deprecated operation, since it's served until the release that removes it.
+- af5b037: When a turn merges the `tenantPolicy` bound to it with the policy its `policyRegistry` yields, it now keeps the larger `maxTokensPerCall`. That field is the smallest context window a picked model must have, so keeping the smaller value let the weaker policy win. Now a model whose context window is below either policy's isn't picked. The `TenantPolicy` docs now say what both fields check. `maxCostPerCallUsd` is the highest prompt price per 1K tokens a picked model may have, not what a call costs. `maxTokensPerCall` is the smallest context window it must have, not the tokens a call uses. When no model routes, a `capability-unsatisfiable` error's `requirement` names them the same way, for example `tenant.maxCostPerCallUsd: promptUsdPer1kTokens<=0.5` and `tenant.maxTokensPerCall: contextWindow>=100000`. The context window's message now reads "workspace minimum".
+- Updated dependencies [dfaeea7]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [524e626]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

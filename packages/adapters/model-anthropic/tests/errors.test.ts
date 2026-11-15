@@ -4,8 +4,9 @@
 /**
  * A failed call is the shared typed error (`ModelProviderError`): its kind
  * from the status and the vendor's words, its message the SDK's own, byte
- * for byte, and the SDK's error its `cause`. An abort is the SDK's abort,
- * as it was. With the real SDK, against a fetch fixture.
+ * for byte, and the SDK's error its `cause`. When nothing came back, what
+ * that error's causes add follows the SDK's words. An abort is the SDK's
+ * abort, as it was. With the real SDK, against a fetch fixture.
  */
 
 import Anthropic, { APIConnectionError, APIError, APIUserAbortError } from '@anthropic-ai/sdk';
@@ -112,15 +113,36 @@ describe('a response that refuses the call', () => {
 });
 
 describe('a call with no response', () => {
-  test('a failed connection is `network`, in the SDK’s words', async () => {
+  test('a failed connection is `network`, in the SDK’s words and what its cause adds', async () => {
     globalThis.fetch = async () => {
       throw new TypeError('fetch failed');
     };
     const sdk = await thrown(sdkCall());
     const error = await thrown(call());
+    expect(sdk.message).toBe('Connection error.');
     expect(error).toBeInstanceOf(ModelProviderError);
-    expect(error).toMatchObject({ kind: 'network', status: undefined, message: sdk.message });
+    expect(error).toMatchObject({
+      kind: 'network',
+      status: undefined,
+      message: 'Connection error; caused by TypeError: fetch failed',
+    });
     expect(error.cause).toBeInstanceOf(APIConnectionError);
+  });
+
+  test('a refused connection says why, from the failed fetch’s own cause', async () => {
+    const refused = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+      code: 'ECONNREFUSED',
+    });
+    globalThis.fetch = async () => {
+      throw new TypeError('fetch failed', { cause: refused });
+    };
+    const error = await thrown(call());
+    expect(error).toMatchObject({
+      kind: 'network',
+      status: undefined,
+      message:
+        'Connection error; caused by TypeError: fetch failed; caused by Error: connect ECONNREFUSED 127.0.0.1:443',
+    });
   });
 
   test('an abort is the SDK’s own abort, unchanged', async () => {

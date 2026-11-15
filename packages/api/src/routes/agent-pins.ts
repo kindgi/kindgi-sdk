@@ -68,6 +68,7 @@ import {
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
+import { projectGoneError } from './project-deleted.js';
 import { serializeReleaseGate } from './release-gate-wire.js';
 import { parseSegmentsQuery } from './segments.js';
 import { UUID_RE } from './uuid-param.js';
@@ -108,6 +109,11 @@ export interface AgentPinGateDeps {
    * runs says so, not that nothing runs. Absent: no check.
    */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * Whether a project is deleted: a pin in its scope is refused `404
+   * project-not-found`, as for an id with no project. Absent: no check.
+   */
+  readonly projectDeleted?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /**
    * What a pin's test runs need (`pin-test-runs.ts`), with `testRuns` and
    * `projects`: the agent test sets to freeze, the corrections a reused
@@ -415,7 +421,9 @@ export async function seenVersions(
 /**
  * The pins among `pins` whose version the caller can see, in order, by the
  * rule `seenVersions` applies to each pin's agent. One ask finds the agents
- * more than one project serves; only their versions are read further.
+ * more than one project serves; only their versions are read further, all
+ * of those agents' together: one read per agent, so a page of pins, which
+ * its list's limit caps at 100, starts at most 100 reads at once.
  */
 export async function seenPins<P extends Pick<AgentPinnedVersion, 'agentId' | 'version'>>(
   itemRights: ItemRights | undefined,
@@ -429,11 +437,14 @@ export async function seenPins<P extends Pick<AgentPinnedVersion, 'agentId' | 'v
     'agent',
     pins.map((p) => p.agentId),
   );
-  const visible = new Map<string, ReadonlySet<string>>();
-  for (const [agentId, projects] of multi) {
-    const versions = [...new Set(pins.filter((p) => p.agentId === agentId).map(versionOf))];
-    visible.set(agentId, await visibleOf(itemRights, c, agentId, projects, versions));
-  }
+  const visible = new Map(
+    await Promise.all(
+      [...multi].map(async ([agentId, projects]) => {
+        const versions = [...new Set(pins.filter((p) => p.agentId === agentId).map(versionOf))];
+        return [agentId, await visibleOf(itemRights, c, agentId, projects, versions)] as const;
+      }),
+    ),
+  );
   return pins.filter((p) => visible.get(p.agentId)?.has(versionOf(p)) ?? true);
 }
 
@@ -1015,6 +1026,13 @@ async function runGate(
     return err('agent-version-not-found', `${agentId} has no active version ${req.version}`);
   }
   const coordinates = coordinatesOf(req.scope);
+  if (
+    coordinates.projectId !== undefined &&
+    deps.projectDeleted !== undefined &&
+    (await deps.projectDeleted(tenantId, coordinates.projectId))
+  ) {
+    return { kind: 'err', error: projectGoneError(coordinates.projectId) };
+  }
   const runs = await whatRuns(agentPins, { tenantId, agentId, ...coordinates });
   if (runs === null) {
     // Nothing to measure the version against. A suspended project's

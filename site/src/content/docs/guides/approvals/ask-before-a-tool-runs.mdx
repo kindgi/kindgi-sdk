@@ -16,7 +16,7 @@ reviewer. Approve, and the tool runs. Reject, and it doesn't.
 
 ## Before you start
 
-- **A pack** on a runtime such as `kindgi dev`, with Kindgi 0.6's CLI. This
+- **A pack** on a runtime such as `kindgi dev`, with Kindgi 0.7's CLI. This
   guide uses the pack `acme-ops`, with a read-only tool, `acme-ops.greet`.
 - **A model the agent can route to,** with `tool-use`, as
   [Models](../../models/) shows.
@@ -142,14 +142,14 @@ person before every post." For reference, the agent looks like this:
 <TabItem label="TypeScript">
 
 ```ts
-// agents/status-agent/index.ts
+// agents/status-reporter/index.ts
 import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, Semver } from '@kindgi/sdk/types';
 
 const defined = defineAgent({
-  id: 'acme-ops.status-agent' as AgentId,
+  id: 'acme-ops.status-reporter' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Status Agent',
+  name: 'Status reporter',
   description: 'Posts status updates.',
   instructions: 'Post the update the user gives you with acme-ops.post-update.',
   capabilities: [{ needs: [{ feature: 'tool-use' as const }] }],
@@ -184,9 +184,9 @@ from ..tools.greet import greet
 from ..tools.post_update import post_update
 
 status_agent = Agent(
-    id="acme-ops.status-agent",
+    id="acme-ops.status-reporter",
     version="0.1.0",
-    name="Status Agent",
+    name="Status reporter",
     description="Posts status updates.",
     instructions="Post the update the user gives you with acme-ops.post-update.",
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
@@ -215,9 +215,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class StatusAgent {
-  public static final Agent AGENT = Agent.define("acme-ops.status-agent")
+  public static final Agent AGENT = Agent.define("acme-ops.status-reporter")
       .version("0.1.0")
-      .name("Status Agent")
+      .name("Status reporter")
       .description("Posts status updates.")
       .instructions("Post the update the user gives you with acme-ops.post-update.")
       .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
@@ -242,9 +242,9 @@ import acmeops.tools.{Greet, PostUpdate}
 import com.kindgi.pack.scaladsl._
 
 object StatusAgent {
-  val agent: Agent = Agent("acme-ops.status-agent")
+  val agent: Agent = Agent("acme-ops.status-reporter")
     .version("0.1.0")
-    .name("Status Agent")
+    .name("Status reporter")
     .description("Posts status updates.")
     .instructions("Post the update the user gives you with acme-ops.post-update.")
     .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
@@ -300,6 +300,10 @@ Every pack language sets it the same way: Python's `conversation_policy`,
 and the map Java and Scala pass to `set("conversationPolicy", …)`, take the
 same keys, `separateApprover` included.
 
+An agent published over the API takes the same keys: `POST /v1/agents`
+stores its `conversationPolicy.hitl` as it is, and `GET /v1/agents/{agentId}`
+answers it back.
+
 **When four eyes is on:**
 - **The person who asked isn't offered Approve.** That holds on the
   console's approval page, in its inbox's keyboard decisions ("You asked
@@ -323,8 +327,8 @@ same keys, `separateApprover` included.
 - **It compares people.** A turn started with an app's key names the key's
   service account (`service_account:<id>`), so a person holding that key
   can still approve the call as themselves.
-- **With `ask_on_first_use`,** only a tool's first call is asked, and
-  someone other than whoever asked approves that one.
+- **With `ask_on_first_use`,** as with `always_ask`, each call is asked,
+  and someone other than whoever asked approves it.
 - **The template's tools:** the store agent sets `separateApprover` per tool,
   and `defineAgent` refuses an override naming a tool the agent doesn't
   have, so a mistyped id never leaves the real tool without four eyes.
@@ -456,7 +460,7 @@ pnpm exec kindgi schedules update <schedule-id> --allow-unattended=acme-ops.post
   the trigger fires, and the runs that run starts, such as a flow's agent
   steps, take the same list. A run that waits and resumes keeps the list it
   started with, so a change reaches the next fire. Any other run has none:
-  a person's, a key's, an event trigger's. `POST /v1/runs` can't set one.
+  a person's or a key's. `POST /v1/runs` can't set one.
 - **Setting it takes `admin` on the trigger's project,** clearing it too.
   A caller with only `write` is answered `403 permission-denied`.
 - **With the CLI,** it's `--allow-unattended=<tool-id>`, once for each
@@ -542,28 +546,28 @@ its input:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+pnpm exec kindgi runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+uv run kindgi runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+./kindgiw runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw runs start --agent=acme-ops.status-agent --input='{"userMessage":"Checkout is back to normal."}'
+./kindgiw runs start --agent=acme-ops.status-reporter --input='{"userMessage":"Checkout is back to normal."}'
 ```
 
 </TabItem>
@@ -629,7 +633,7 @@ uv run kindgi approvals list --status=pending
       "subjectRef": {
         …
         "toolId": "acme-ops.post-update",
-        "agentId": "acme-ops.status-agent",
+        "agentId": "acme-ops.status-reporter",
         …
         "arguments": {
           "message": "Checkout is back to normal."
@@ -827,14 +831,149 @@ hold the rejection as the tool's result:
         "role": "tool",
         "content": {
           "status": "rejected",
+          "by": "reviewer",
           "rationale": "Not confirmed yet"
         },
         …
 ```
 
-The run completes; it doesn't fail. The turn's
+`by: "reviewer"` tells the model that a person declined the call, so it
+doesn't put the refusal on the tool or the system the tool acts on.
+`rationale` is there only when the reviewer gave one. The run completes; it
+doesn't fail. The turn's
 [provenance](../../observability/trace-an-answer/) keeps the rejected call:
 its `tool-call`, and a `tool-result` that is the rejection the model read.
+
+## When an agent can't finish: hand off to a person
+
+Some turns can't end well: a lookup fails, or what the agent can see
+doesn't answer the request. Instead of guessing, the agent can hand the
+request to a person, through the same gate. Give it a tool that changes
+nothing and only says that a person took it, and gate that tool with its own
+`always_ask` override, since a read-only tool otherwise runs without asking.
+Ask your coding agent: "When my support agent can't answer a mail, I want it
+to hand the mail to a person instead of replying." For reference, the tool
+and its override look like this:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in tools/hand-off/index.ts
+const defined = defineTool({
+  id: 'acme-desk.support-desk.hand-off' as ToolId,
+  description: "Hand the request to a person, with why, when you can't answer it.",
+  version: '0.1.0',
+  input: z.object({ why: z.string().min(1).max(300) }),
+  output: z.object({ taken: z.literal(true) }),
+  effects: [],
+  mutating: false,
+  handler: async () => ({ taken: true as const }),
+});
+
+// in agents/support-desk/index.ts
+  conversationPolicy: {
+    hitl: {
+      tools: {
+        overrides: { 'acme-desk.support-desk.hand-off': 'always_ask' },
+      },
+    },
+  },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in tools/hand_off.py
+class HandOff(BaseModel):
+    why: str = Field(min_length=1, max_length=300)
+
+
+class Taken(BaseModel):
+    taken: Literal[True] = True
+
+
+@tool(id="acme-desk.support-desk.hand-off", mutating=False)
+def hand_off(input: HandOff) -> Taken:
+    """Hand the request to a person, with why, when you can't answer it."""
+    return Taken()
+
+
+# in agents/support_desk.py
+    conversation_policy={
+        "hitl": {
+            "tools": {
+                "overrides": {"acme-desk.support-desk.hand-off": "always_ask"},
+            },
+        },
+    },
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmedesk/tools/HandOff.java
+  public record Input(@Size(min = 1, max = 300) String why) {}
+
+  public record Output(boolean taken) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme-desk.support-desk.hand-off")
+      .description("Hand the request to a person, with why, when you can't answer it.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(true));
+
+// in src/main/java/acmedesk/agents/SupportDesk.java
+      .set("conversationPolicy", Map.of("hitl", Map.of("tools", Map.of(
+          "overrides", Map.of("acme-desk.support-desk.hand-off", "always_ask")))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmedesk/tools/HandOff.scala
+  final case class Input(@Size(min = 1, max = 300) why: String)
+  final case class Output(taken: Boolean)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme-desk.support-desk.hand-off")
+    .description("Hand the request to a person, with why, when you can't answer it.")
+    .version("0.1.0")
+    .readOnly
+    .handler((_, _) => Output(taken = true))
+
+// in src/main/scala/acmedesk/agents/SupportDesk.scala
+    .set("conversationPolicy", Map("hitl" -> Map("tools" -> Map(
+      "overrides" -> Map("acme-desk.support-desk.hand-off" -> "always_ask")))))
+```
+
+</TabItem>
+</Tabs>
+
+Its instructions say when to call it, and what each result means. The model
+never sees the approval: the call comes back with its result once a person
+has decided, as [Reject it](#reject-it) shows. For example:
+
+```text
+When you can't answer the request, because a lookup fails or what you can see doesn't answer it, don't reply: call acme-desk.support-desk.hand-off, with why, in one sentence for staff.
+For acme-desk.support-desk.hand-off, a result {"taken": true} means a person took the request: end the turn saying so. A result {"status": "rejected", "rationale": ...} with a rationale is the person's answer: reply with it. One with no rationale: say that a person will look into it.
+```
+
+- **Approve** means a person takes it: the tool runs, and the turn ends
+  saying so.
+- **Reject with a rationale** gives the agent the answer, and it replies
+  from it. A reply that changes something, such as a mail, waits for its own
+  approval as before.
+- **While the call waits,** its approval is in your reviewers' Inbox, and
+  the run is `suspended`. The run's
+  [`waitingFor`](../approvals-reference/#a-runs-waitingfor) names the
+  approval, and the runs list gives it with `include=waitingFor`
+  ([List runs](../../runs/list-runs/)). The WordPress plugin's Activity shows
+  such a run as **Needs a person**.
 
 ## In a flow
 

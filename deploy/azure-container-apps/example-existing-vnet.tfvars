@@ -16,6 +16,7 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 
 secrets_aad_key_version    = "0123456789abcdef0123456789abcdef"
 erasure_ledger_key_version = "fedcba9876543210fedcba9876543210"
+pagination_key_version     = "00ff11ee22dd33cc44bb55aa66997788"
 
 # Delegated to Microsoft.App/environments, /27 or larger, empty.
 environment_subnet_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-network/providers/Microsoft.Network/virtualNetworks/acme-vnet/subnets/kindgi-aca"

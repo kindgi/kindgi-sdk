@@ -442,8 +442,8 @@ describe('runInitAugment — the sample template', () => {
     expect(result.kind).toBe('ok');
 
     for (const file of [
-      'agents/echo-agent/index.ts',
-      'flows/echo-flow/index.ts',
+      'agents/greeter/index.ts',
+      'flows/greet-person/index.ts',
       'guardrails/response-not-empty/index.ts',
       'tools/echo/index.ts',
       'tools/greet/index.ts',
@@ -454,15 +454,15 @@ describe('runInitAugment — the sample template', () => {
     // The sample's test runs under the vitest config init adds.
     const sampleTest = await fileContents(join(root, 'kindgi', 'tools', 'echo', 'index.test.ts'));
     expect(sampleTest).toContain("describe('my-app.echo'");
-    const agent = await fileContents(join(root, 'kindgi', 'agents', 'echo-agent', 'index.ts'));
-    expect(agent).toContain('my-app.echo-agent');
+    const agent = await fileContents(join(root, 'kindgi', 'agents', 'greeter', 'index.ts'));
+    expect(agent).toContain('my-app.greeter');
     expect(agent).not.toContain('{{PACK_ID}}');
 
     // The sample's schemas are Zod; an app without it gets it.
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
     expect(pkg.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
     if (result.kind === 'ok') {
-      expect(result.rendered.stderr).toContain('--agent=my-app.echo-agent');
+      expect(result.rendered.stderr).toContain('--agent=my-app.greeter');
     }
   });
 
@@ -564,12 +564,15 @@ describe('runInitAugment — Zod', () => {
     expect(summary.warnings).toEqual([]);
   });
 
-  test('an app on zod 3 keeps it, and init says Kindgi needs zod 4', async () => {
+  test('an app on zod 3 keeps it, and init names both ways: zod 4 or JSON Schema objects', async () => {
     const { result, summary, written } = await initWith({ dependencies: { zod: '^3.25.0' } });
     expect(written.dependencies.zod).toBe('^3.25.0');
     expect(summary.warnings).toHaveLength(1);
     expect(summary.warnings[0]).toContain('zod ^3.25.0');
     expect(summary.warnings[0]).toContain('zod 4');
+    expect(summary.warnings[0]).toContain(
+      "as JSON Schema objects, e.g. input: { type: 'object', additionalProperties: false, required: ['orderId']",
+    );
     if (result.kind === 'ok')
       expect(result.rendered.stderr).toContain('  ⚠ zod: the app has zod ^3.25.0');
   });
@@ -856,7 +859,7 @@ describe('runInitAugment — pnpm-workspace.yaml', () => {
   });
 });
 
-describe("runInitAugment — npm's allowScripts (T277)", () => {
+describe("runInitAugment — npm's allowScripts", () => {
   async function init(packageManager: 'npm' | 'pnpm', pkg: Record<string, unknown> = {}) {
     await writePkgJson(root, { name: 'my-app', version: '1.0.0', ...pkg });
     const result = await runInitAugment({

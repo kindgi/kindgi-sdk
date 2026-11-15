@@ -7,15 +7,16 @@ description: >
   edges and their `when` conditions and `policy`, branches that join again,
   inputMapping from runInput / nodeOutputs, typed agent output in a flow,
   the flow's declared output, loops and fanout, and running a flow (runs
-  start --flow, in the background, as a dry run) and reading its journal.
-  Load this whenever you are authoring or editing code in a Java pack's
-  flows packages (a pack whose `kindgi.config.json` says
-  `"language": "java"`), defining a flow, or when the user asks to add,
-  change or debug one. Java tools are covered by
-  kindgi-java-authoring-tools, Java agents by kindgi-java-authoring-agents.
+  start --flow, in the background, as a dry run) and reading its journal,
+  and starting one from a schedule, a new mail or a webhook. Load this
+  whenever you are authoring or editing code in a Java pack's flows packages
+  (a pack whose `kindgi.config.json` says `"language": "java"`), defining a
+  flow, or when the user asks to add, change or debug one. Java tools are
+  covered by kindgi-java-authoring-tools, Java agents by
+  kindgi-java-authoring-agents.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.6"
+version: "0.1.9"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -163,7 +164,7 @@ public final class TriageTicket {
 
   public static final Flow FLOW = Flow.define("acme.triage-ticket")
       .version("0.1.0")
-      .set("name", "Triage a support ticket")
+      .set("name", "Triage a ticket")
       .set("description", "Parses a ticket, classifies it, looks billing up when needed, drafts a reply.")
       .node(Map.of("id", "parse", "kind", "tool", "ref", Tickets.PARSE,
           "inputMapping", Map.of("ticket", Map.of("path", "runInput.ticket"))))
@@ -224,6 +225,25 @@ public final class TriageTicket {
   checked when a run starts (see "Running a flow").
 - `Map.of` takes up to ten pairs. For a bigger map, use `Map.ofEntries` or a
   `LinkedHashMap`.
+
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
 
 ## Nodes
 
@@ -362,6 +382,12 @@ From a Java app, the client starts one the same way:
   `dry-run-effectful-tool`, and everything before it really ran. That's
   useful for checking the wiring without the writes.
 
+A schedule, a new mail or a webhook can start the runs instead, with no
+one typing a command. Before making one for a flow, read
+[start-from-a-trigger.md](start-from-a-trigger.md): what each gives the
+flow as its input, which ones the runtime serves, and the tool steps
+those runs refuse.
+
 ## Iterating on a flow
 
 Save the file, and `kindgi dev` recompiles and re-indexes. The next run uses
@@ -372,7 +398,7 @@ input or the output), not on every save.
 ## Common mistakes
 
 1. **Building a flow without asking what goes in and comes out.** The pack's
-   `EchoFlow` proves the runtime works. It isn't a template for the user's
+   `GreetPerson` proves the runtime works. It isn't a template for the user's
    flow.
 2. **A second comparison for "otherwise".** On a path that may be missing,
    `eq` is false and `ne` is true, and `lt`/`gt` are both false, so a
@@ -398,7 +424,7 @@ input or the output), not on every save.
    real, and an approval gate (when it falls back on `mutating`) won't ask
    before it.
 10. **A read-only tool without `mutating(false)`.** A dry run stops at it,
-    and an approval gate asks before it on first use.
+    and an approval gate asks before each call to it.
 
 ## When the framework itself is the problem
 

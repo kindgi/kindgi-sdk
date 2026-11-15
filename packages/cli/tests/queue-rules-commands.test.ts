@@ -160,7 +160,7 @@ describe('kindgi queue-rules', () => {
         queueRules: {
           list: rec('list', { data: [], hasMore: false }),
           get: rec('get', { ruleId: 'jr-1' }),
-          versions: rec('versions', { data: [], hasMore: false }),
+          versions: { list: rec('versions.list', { data: [], hasMore: false }) },
           results: rec('results', { ruleId: 'jr-1', groups: [] }),
         },
       },
@@ -181,7 +181,7 @@ describe('kindgi queue-rules', () => {
     expect(calls).toEqual([
       ['list', 'p-1', { limit: 5, cursor: 'c1' }],
       ['get', 'p-1', 'jr-1'],
-      ['versions', 'p-1', 'jr-1', { limit: 3 }],
+      ['versions.list', 'p-1', 'jr-1', { limit: 3 }],
       ['results', 'p-1', 'jr-1', '2026-10-01T00:00:00.000Z'],
     ]);
   });

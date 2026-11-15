@@ -1,24 +1,30 @@
 ---
 title: Renew the license key
-description: Keep a deployment's license key current with kindgi license. Enroll the deployment once, then renew its key by hand or on your own schedule.
+description: Keep a deployment's license key current with kindgi license when its runtime is older than 0.7.0 or its key doesn't report. Enroll the deployment once, then renew its key by hand or on your own schedule. A key that reports is renewed by its server's daily report (runtime 0.7.0 or later).
 sidebar:
   order: 3.2
 ---
 
-When you finish this page, your deployment renews its own non-production
-license key, by hand or on your own schedule.
+When you finish this page, a deployment with a runtime older than 0.7.0, or
+a key that doesn't report, renews its own non-production license key, by
+hand or on your own schedule.
 
 A license key runs until its date
 ([When a key expires](../../../concepts/licensing/#when-a-key-expires)). How you
 get the next one depends on where the key came from:
 
 - **A production key** is renewed with your contract: write to
-  contact@kindgi.com.
+  contact@kindgi.com. Once the term is extended, the server's daily report
+  (runtime 0.7.0 or later) brings the next term's key, unless its key is one
+  that doesn't report ([What the runtime sends](../what-the-runtime-sends/)).
 - **A non-production key from [access.kindgi.com](https://access.kindgi.com)**
-  can be renewed by the deployment itself. You enroll the deployment once.
-  Then you run `kindgi license renew` whenever you like, by hand or from your
-  own scheduler. Nothing calls Kindgi unless you run it. You can also sign in
-  at access.kindgi.com for a new key, unless a deployment is renewing it
+  is renewed by the server itself (runtime 0.7.0 or later), in its daily
+  report ([What the runtime sends](../what-the-runtime-sends/)). With a
+  runtime older than 0.7.0, or a key that doesn't report, you enroll the
+  deployment once. Then you run
+  `kindgi license renew` whenever you like, by hand or from your own
+  scheduler. You can also sign in at access.kindgi.com for a new key, unless
+  a deployment is renewing it
   ([Add the renewer](#2-add-the-renewer-at-accesskindgicom)).
 
 :::note
@@ -36,7 +42,7 @@ a new key instead, or write to contact@kindgi.com.
   from your deployment**: your GitHub login, or an `em-…` id.
 - **The `kindgi` CLI, 0.1.7 or later,** on a machine that can read and write
   where your keys are kept. It runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
+  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 - **A place for each key,** from [Where the keys are kept](#where-the-keys-are-kept).
 
@@ -88,7 +94,7 @@ Whatever runs `renew` needs to read these, and to write the license key's.
 access.kindgi.com trusts.
 
 ```sh
-npx --yes @kindgi/cli@0.6 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
+npx --yes @kindgi/cli@0.7 license enroll --for <your GitHub login or em- id> --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
 - `--for` is that account: your GitHub login, or the `em-…` id your key page
@@ -144,7 +150,7 @@ it there. Each person can stop only the deployments they added.
 where the runtime reads the key:
 
 ```sh
-npx --yes @kindgi/cli@0.6 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
+npx --yes @kindgi/cli@0.7 license renew --key gcp:projects/acme-prod/secrets/kindgi-license-key \
   --renewer gcp:projects/acme-prod/secrets/kindgi-license-renewer
 ```
 
@@ -333,7 +339,9 @@ The module's README has the details.
 
 The renewal request: the renewer's id, the time and a one-time value, signed
 with the renewer's private key. No license key, run or data leaves the
-deployment. Nothing is sent between runs of `renew`.
+deployment. `renew` sends nothing between its runs. A server whose key
+reports (runtime 0.7.0 or later) also sends counts, in its own daily report
+([What the runtime sends](../what-the-runtime-sends/)).
 
 With `--runtime`, the request also carries counts of the deployment's use
 since its current key was issued, signed with the rest. `renew` reads them
@@ -381,6 +389,8 @@ A tenant admin sees a line on every console page too.
 
 - [Licensing](../../../concepts/licensing/): which key a deployment needs, and
   what happens when one expires.
+- [Plan limits](../plan-limits/): how the runtime counts the flows and
+  agents in production against the key's plan.
 - [Azure Container Apps](../azure-container-apps/): the module that renews
   on a schedule.
 - [Operate a self-hosted runtime](../operate/): health, backups, upgrades and

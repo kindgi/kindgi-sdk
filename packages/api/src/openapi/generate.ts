@@ -16,11 +16,15 @@ import {
   OPERATIONS,
   type OperationSpec,
   type ParameterSpec,
+  REQUEST_LIMIT_TEXT,
   type ResponseSpec,
+  TENANT_STATE_UNAVAILABLE_TEXT,
   answersAuthzUnavailable,
   answersDatabaseBusy,
-  answersIdempotencyStoreUnavailable,
+  answersRequestLimit,
+  answersTenantStateUnavailable,
   honoToOpenapiPath,
+  takesIdempotencyKey,
 } from './operations.js';
 import { COMPONENT_SCHEMAS, type JsonSchema, ref } from './schemas.js';
 
@@ -64,16 +68,20 @@ const DEFAULT_SERVERS: readonly OpenApiServer[] = [
 const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   system: 'Health + spec discovery.',
   runs: 'Run lifecycle (start, list, get, cancel, resume, journal, stream).',
+  files:
+    'Files the runtime keeps, with every edit kept as a version: create, read, restore, pin and delete them, by a number or Latest. Served on a runtime that keeps files.',
   'export-signing-keys':
     'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
   'system-tenants':
-    "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope.",
+    "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix, the email domains its people may join from), plus the admins' contacts for service notices and, for a sign-up page, the workspaces one verified email may join. System keys only, each route under its own scope.",
   'system-usage':
     "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only.",
   'system-keys':
     "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none.",
+  'system-kept-repos':
+    "The repos a store keeps for the runtime's projects without a GitHub repo, on a runtime serving many tenants: the store's reconcile asks the runtime what to keep and what to purge, and reports each purge done (`system:kept-repos`); the operator requests a repo's erasure and reads its state (`system:kept-repos:erase`). System keys only.",
   'system-deployments':
     "Per-deployment routing, on a runtime serving many tenants: whatever runs each deployment's own pack service (an orchestrator) lists the deployments that need one or should lose theirs, and records where each runs, under `system:deployments`. Support suspends a pack under `system:suspend`. No tenant input ever names a pack's URL.",
   tokens:
@@ -116,7 +124,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   blocks:
     "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`.",
   corrections:
-    "Corrections: whether a finished run's decisions, answer and items were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`.",
+    "Corrections: whether the decisions, answer and items of a run that completed with an output were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`.",
   'expert-queue':
     "A project's queue rules (which runs to queue for a person's correction when they end) and the queue they fill. Rules only list runs; nothing here starts a model.",
   'corrector-groups':
@@ -125,7 +133,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`TestSetKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`.',
   sites:
     "Sites that sign their own people in to one project: a site (a WordPress admin, say) vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. A site holds its own Ed25519 key; Kindgi only ever has the public half.",
-  auth: 'OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
+  auth: 'OIDC and SAML identity providers, the email domains people may join the workspace from, + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
   identity:
     'Workspace-scoped identity directory (list, get, list-active-sessions, revoke-sessions, whoami) — part of the admin control plane. Caller-plugged via `IdentityDirectoryBinding` — deployments plug in their own user store (LDAP, SCIM, or bespoke). Registry-only over HTTP: the framework does NOT own user persistence. The directory is flat; groups, roles, invitations, directory sync and impersonation are not part of this surface. `primaryEmail` may be redacted per workspace policy — the routes treat it as opaque. Provider access-token / refresh-token NEVER cross the wire, even to admins.',
   mcp: "MCP-endpoint catalog (list, get, register, unregister). Workspaces declare the remote MCP servers (`stdio` / `http-sse` / `streamable-http`) they want the runtime to consume. The runtime discovers each endpoint's tools and registers them into `ToolRegistryBinding` under the same workspace — remote MCP tools become native Kindgi tools without a recompile. Secrets never cross the wire: `secretRef` names a secret in the deployment's store, resolved at the endpoint's tenant scope. A deployment refuses `stdio` endpoints unless `KINDGI_TENANT_HOST_ACCESS=local`. Caller-plugged via `MCPEndpointRegistryBinding`.",
@@ -147,10 +155,14 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules.",
   'mail-triggers':
     "Mail triggers: each new mail in a mailbox's folder starts a run of an agent or a flow, as the trigger's owner. A thread's mail runs one at a time, and each run continues the thread's conversation.",
+  'text-triggers':
+    "Text triggers: each text (SMS or WhatsApp) to a business number starts a run of an agent or a flow, as the trigger's owner. The number is a company connection of app `texts`, and one live text trigger answers it.",
   'webhook-endpoints':
     'Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run, not a replay, completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`.',
+  destinations:
+    "Where schedules send their results: an email to workspace members, a Slack, Teams, Google Chat or Discord channel, or a signed webhook. A destination's URL is write-only, kept in the secrets store and never returned; `host` and `urlRef` say where it goes. Each send is a delivery, with its log, redelivery and a test message. A workspace admin's; a member who can run in a project lists the ones its schedules may use (`?projectId=`), without where they send or who they're for: no `people`, `host`, `urlRef`, `secretRef` or `projects`. Caller-plugged via `DestinationBinding`.",
   connections:
-    "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the workspace's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `connection-choices` say which company connection an agent or a flow uses for an app in a project; a project's admins set them. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way. Caller-plugged via `ConnectionBinding`.",
+    "Accounts at other apps (a member's Google account, the company's GitHub App) that tools act with. `connection-entries` lists the apps this server can connect to; `connection-apps` is the workspace's own registration of its client at an app (a tenant admin's, secrets by reference); `connections` are the accounts connected through them, with the connect that makes one (`requests`, `start`, `finish`). A connection is a member's own or the company's, and its token never leaves the server. `connection-choices` say which company connection an agent or a flow uses for an app in a project; a project's admins set them. `POST /v1/connection-notices/{tenantId}/{appId}` is where an app reports a removal, signed its own way, and `/v1/texts-inbound/{tenantId}/{appId}` is where a texting provider delivers texts to a texts registration, signed its own way too. Caller-plugged via `ConnectionBinding`.",
   secrets:
     "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. A hard revoke erases the value, which can't be undone; backups, and a secret manager's own retention, may keep copies for a time. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`).",
 };
@@ -165,6 +177,13 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
   const unservedOnly = schemasOnlyUnserved(OPERATIONS);
   const components = {
     schemas: Object.fromEntries(COMPONENT_SCHEMAS.filter(([name]) => !unservedOnly.has(name))),
+    headers: {
+      RetryAfter: {
+        description:
+          'Whole seconds to wait before sending the request again, at least 1. Sent with the codes the answer names as sending it, so it may be absent.',
+        schema: { type: 'integer', minimum: 1 },
+      },
+    },
     securitySchemes: {
       bearerAuth: {
         type: 'http',
@@ -345,12 +364,14 @@ const DATABASE_BUSY: ResponseSpec = {
   description:
     'The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.',
   schema: ref('WireError'),
+  retryAfter: true,
 };
 
 /** The same on a `HEAD`: the status and `Retry-After`, with no body. */
 const DATABASE_BUSY_HEAD: ResponseSpec = {
   description:
     'The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.',
+  retryAfter: true,
 };
 
 /**
@@ -361,24 +382,27 @@ const DATABASE_BUSY_OR_AUTHZ: ResponseSpec = {
   description:
     "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again.",
   schema: ref('WireError'),
+  retryAfter: true,
 };
 
 /** The same on a `HEAD`: the status and `Retry-After`, with no body. */
 const DATABASE_BUSY_OR_AUTHZ_HEAD: ResponseSpec = {
   description:
     "The database was too busy to answer in time (`database-busy`), or the authorization store couldn't be reached (`authz-backend-unavailable`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.",
+  retryAfter: true,
 };
 
 /**
  * What a write that takes an `Idempotency-Key` answers when the key's store
  * fails before the write runs, unless the operation declares a 503 of its
- * own — see `answersIdempotencyStoreUnavailable`. A write that declares a
+ * own — see `takesIdempotencyKey`. A write that declares a
  * 401 gets `IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE` instead.
  */
 const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
   description:
     "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
   schema: ref('WireError'),
+  retryAfter: true,
 };
 
 /**
@@ -390,6 +414,7 @@ const IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE: ResponseSpec = {
   description:
     "The `Idempotency-Key` store (`idempotency-store-unavailable`) or the authorization store (`authz-backend-unavailable`) couldn't be reached before the request ran, or the database was too busy for its authorization check (`database-busy`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
   schema: ref('WireError'),
+  retryAfter: true,
 };
 
 /**
@@ -402,44 +427,116 @@ const AUTHZ_UNAVAILABLE: ResponseSpec = {
   description:
     "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again.",
   schema: ref('WireError'),
+  retryAfter: true,
 };
 
 /** The same on a `HEAD`: the status and `Retry-After`, with no body. */
 const AUTHZ_UNAVAILABLE_HEAD: ResponseSpec = {
   description:
     "The authorization store couldn't be reached (`authz-backend-unavailable`), or the database was too busy for the authorization check (`database-busy`), so the request wasn't run; `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.",
+  retryAfter: true,
+};
+
+/**
+ * What any request of a workspace's key or session may answer on a runtime
+ * that sets workspace limits, unless the operation declares a 429 of its own,
+ * which then names it — see `answersRequestLimit`.
+ */
+const REQUEST_LIMIT: ResponseSpec = {
+  description: REQUEST_LIMIT_TEXT,
+  schema: ref('WireError'),
+  retryAfter: true,
+};
+
+/** The same on a `HEAD`: the status and `Retry-After`, with no body. */
+const REQUEST_LIMIT_HEAD: ResponseSpec = {
+  description: `${REQUEST_LIMIT_TEXT} No body, as with any \`HEAD\`.`,
+  retryAfter: true,
+};
+
+/**
+ * What a write that takes an `Idempotency-Key` answers while the same key's
+ * first request still runs — see `takesIdempotencyKey`. A write's own 409
+ * names it after its own codes; one that declares none gets
+ * `IDEMPOTENCY_KEY_IN_FLIGHT`.
+ */
+const IN_FLIGHT_TEXT =
+  "`idempotency-key-in-flight` (with `Retry-After`): a request with the same `Idempotency-Key` still runs, so this one wasn't run; send it again after `Retry-After` to get that request's answer.";
+
+const IDEMPOTENCY_KEY_IN_FLIGHT: ResponseSpec = {
+  description: IN_FLIGHT_TEXT,
+  schema: ref('WireError'),
+  retryAfter: true,
+};
+
+/**
+ * What a write the frozen-workspace gate checks answers when the workspace's
+ * state can't be read, if it gets no other shared 503 — see
+ * `answersTenantStateUnavailable`.
+ */
+const TENANT_STATE_UNAVAILABLE: ResponseSpec = {
+  description: TENANT_STATE_UNAVAILABLE_TEXT,
+  schema: ref('WireError'),
+  retryAfter: true,
 };
 
 /**
  * An operation's own responses plus the ones the generator shares across
- * operations: a 413 for anything with a body, and the shared 503
- * (`shared503`), each only when the operation doesn't declare that status
- * itself.
+ * operations: a 413 for anything with a body, the workspace's request limit
+ * (a 429), the in-flight `Idempotency-Key` (named in a keyed write's 409),
+ * and the shared 503 (`shared503`), each only when the operation doesn't
+ * declare that status itself, but for the 409.
  */
 function responsesWithShared(op: OperationSpec): Readonly<Record<string, ResponseSpec>> {
-  let responses = op.responses;
+  const responses: Record<string, ResponseSpec> = { ...op.responses };
   if (op.requestBody !== undefined && responses['413'] === undefined) {
-    responses = { ...responses, '413': REQUEST_TOO_LARGE };
+    responses['413'] = REQUEST_TOO_LARGE;
+  }
+  if (answersRequestLimit(op) && responses['429'] === undefined) {
+    responses['429'] = op.method === 'head' ? REQUEST_LIMIT_HEAD : REQUEST_LIMIT;
+  }
+  if (takesIdempotencyKey(op)) {
+    const own = responses['409'];
+    responses['409'] =
+      own === undefined
+        ? IDEMPOTENCY_KEY_IN_FLIGHT
+        : { ...own, description: `${own.description} Or ${IN_FLIGHT_TEXT}`, retryAfter: true };
   }
   const unavailable = responses['503'] === undefined ? shared503(op) : undefined;
-  return unavailable === undefined ? responses : { ...responses, '503': unavailable };
+  if (unavailable !== undefined) responses['503'] = unavailable;
+  return responses;
 }
 
 /**
- * The 503 an operation that declares none gets: the one a read answers when
- * the database is too busy, the one a keyed write answers when its key's
- * store fails, or else, for an operation that declares a 401, the one it
- * answers when the authorization store can't be reached. An operation that
- * declares a 401 gets the first two naming `authz-backend-unavailable` too.
- * `undefined` for an operation that answers none of them.
+ * The 503 an operation that declares none gets: `sharedUnavailable`'s, and
+ * for a write the frozen-workspace gate checks, naming
+ * `tenant-state-unavailable` too.
  */
 function shared503(op: OperationSpec): ResponseSpec | undefined {
+  const unavailable = sharedUnavailable(op);
+  if (!answersTenantStateUnavailable(op)) return unavailable;
+  if (unavailable === undefined) return TENANT_STATE_UNAVAILABLE;
+  return {
+    ...unavailable,
+    description: `${unavailable.description} Or ${TENANT_STATE_UNAVAILABLE_TEXT}`,
+  };
+}
+
+/**
+ * The one a read answers when the database is too busy, the one a keyed
+ * write answers when its key's store fails, or else, for an operation that
+ * declares a 401, the one it answers when the authorization store can't be
+ * reached. An operation that declares a 401 gets the first two naming
+ * `authz-backend-unavailable` too. `undefined` for an operation that answers
+ * none of them.
+ */
+function sharedUnavailable(op: OperationSpec): ResponseSpec | undefined {
   const authz = answersAuthzUnavailable(op);
   if (answersDatabaseBusy(op)) {
     if (op.method === 'head') return authz ? DATABASE_BUSY_OR_AUTHZ_HEAD : DATABASE_BUSY_HEAD;
     return authz ? DATABASE_BUSY_OR_AUTHZ : DATABASE_BUSY;
   }
-  if (answersIdempotencyStoreUnavailable(op)) {
+  if (takesIdempotencyKey(op)) {
     return authz ? IDEMPOTENCY_STORE_OR_AUTHZ_UNAVAILABLE : IDEMPOTENCY_STORE_UNAVAILABLE;
   }
   if (!authz) return undefined;
@@ -456,6 +553,7 @@ function buildOperation(op: OperationSpec): Record<string, unknown> {
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
   if (op.streamed === true) doc['x-kindgi-streamed'] = true;
+  if (op.deprecated === true) doc.deprecated = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }
@@ -495,6 +593,8 @@ function buildParameter(p: ParameterSpec): Record<string, unknown> {
   else if (p.in === 'path') doc.required = true;
   if (p.description !== undefined) doc.description = p.description;
   if (p.segmentPath === true) doc['x-kindgi-segment-path'] = true;
+  if (p.style !== undefined) doc.style = p.style;
+  if (p.explode !== undefined) doc.explode = p.explode;
   return doc;
 }
 
@@ -504,6 +604,9 @@ function buildResponses(
   const doc: Record<string, unknown> = {};
   for (const [status, spec] of Object.entries(responses)) {
     const entry: Record<string, unknown> = { description: spec.description };
+    if (spec.retryAfter === true) {
+      entry.headers = { 'Retry-After': { $ref: '#/components/headers/RetryAfter' } };
+    }
     if (spec.schema !== undefined) {
       const contentTypes = spec.contentType ?? 'application/json';
       const types = typeof contentTypes === 'string' ? [contentTypes] : contentTypes;

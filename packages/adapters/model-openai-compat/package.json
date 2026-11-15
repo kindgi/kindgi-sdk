@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/adapter-model-openai-compat",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "OpenAI-compatible ModelProvider for @kindgi/capabilities. Speaks OpenAI's Responses API to OpenAI itself, and the Chat Completions wire format to any compatible endpoint — Ollama (/v1), vLLM, llama-server, LM Studio, OpenRouter, Groq, Together, Fireworks, DeepInfra, LiteLLM proxy (base URLs exported as BASE_URLS), or any other compatible endpoint. One adapter, many backends. Cost per 1K tokens is supplied by the caller (from the provider's public pricing) since the API surface itself doesn't expose it.",
   "license": "Apache-2.0",
   "repository": {
@@ -30,6 +30,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@kindgi/adapter-model-shared": "workspace:*",
     "@kindgi/capabilities": "workspace:*",
     "@kindgi/embedding": "workspace:*",
     "@kindgi/types": "workspace:*",
@@ -43,7 +44,6 @@
     "provenance": true
   },
   "devDependencies": {
-    "@kindgi/adapter-model-shared": "workspace:*",
     "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.11"
+version: "0.1.14"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -76,7 +76,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - **Id** — `<pack-id>.<tool-name>`, kebab-case, dot-namespaced.
 - **Description** — the docstring, or `description=`. The model reads
   it to decide when to call the tool: say what it does and returns.
-- **Version** — the pack's version, or `version=` (an exact semver).
+- **Version** — the pack's version, or `version=` (`MAJOR.MINOR.PATCH`).
 - **Schemas** — from the annotations: the first parameter is the input,
   the return annotation the output. A pydantic model, a `TypedDict`, a
   dataclass — anything pydantic understands — or `input=` / `output=`
@@ -114,7 +114,12 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   system it writes to (an `Idempotency-Key` header, a client reference, a
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
-  Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  Docs: https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+- `ctx.time_zone` — the workspace's time zone, an IANA name such as
+  `"America/Toronto"`: an agent turn reads it once, so all its calls get the
+  same one, `"UTC"` when the workspace sets none. `None` outside an agent
+  turn and from an older runtime: fall back to UTC. A tool that answers a
+  date or a time answers it in this zone (the tool below).
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -138,7 +143,51 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   amounts and outcomes, never what a person typed (a refund's reason, a
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
-  https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#log-from-a-tool
+  https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#log-from-a-tool
+
+### A date and time tool
+
+A model doesn't know the date. When an agent reasons about dates ("this
+month's invoices", "due in 14 days"), write it this tool and give it to the
+agent:
+
+```python
+# tools/today.py
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, Field
+
+from kindgi import ToolContext, tool
+
+
+class NoInput(BaseModel):
+    pass
+
+
+class Today(BaseModel):
+    date: str
+    weekday: str
+    time: str
+    time_zone: str = Field(alias="timeZone")
+
+
+@tool(id="acme.today", mutating=False)
+def today(_input: NoInput, ctx: ToolContext) -> Today:
+    """Today's date, weekday and time in the workspace's time zone. Call it before answering
+    anything that depends on today's date."""
+    zone = ctx.time_zone or "UTC"
+    now = datetime.now(ZoneInfo(zone))
+    return Today(
+        date=now.date().isoformat(),
+        weekday=now.strftime("%A"),
+        time=now.strftime("%H:%M"),
+        timeZone=zone,
+    )
+```
+
+Test it with `ToolContext.for_test(time_zone="Asia/Tokyo")`. Docs:
+https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#answer-in-the-workspaces-time-zone
 
 ## Work that takes longer than a call
 
@@ -175,8 +224,8 @@ it. Ask the user how the other system reports back, then:
 - It can't call back: return the job's id, and check it from a scheduled
   flow.
 
-Docs: https://docs.kindgi.com/v0.6/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
-and https://docs.kindgi.com/v0.6/guides/tools/wait-for-another-system/
+Docs: https://docs.kindgi.com/v0.7/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+and https://docs.kindgi.com/v0.7/guides/tools/wait-for-another-system/
 
 ## Configuration and secrets
 
@@ -277,7 +326,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating=False`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.7/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -285,6 +334,13 @@ Docs: https://docs.kindgi.com/v0.6/guides/connections/use-a-connection/
   `handler-throw` and the exception's message. In an agent turn the
   failure goes to the model only when the agent's `tool_errors` policy
   includes `tool-error` — retrying must be safe for that tool.
+- Raise `ToolFailure` (`from kindgi import ToolFailure`) when the tool ran
+  and knows why the call can't give an answer:
+  `raise ToolFailure("order-not-found", f"No order {order_id}", details={"orderId": order_id})`.
+  The call fails with `tool-failed`, the code as `reason`, the message as
+  written. The code is a fixed kebab-case word (runs are grouped by it), the message is cut at 1,000 characters, and the details are a JSON object of at most 4 KiB that reach the run's failure and the model, so never a secret. An agent sends it to the model only with
+  `"tool-failed"` in `tool_errors` `retryOn`. An outcome the caller acts on
+  belongs in the output model instead (`found: False`).
 - `print()` and `logging` go to the pack service's stdout/stderr
   (`kindgi dev` shows them as `[pack] …`), never into a result.
 
@@ -299,7 +355,7 @@ tool stops a dry run.
 It also sets the tool's approval default. An agent that turns tool
 approval gates on (`conversation_policy={"hitl": {"tools": {...}}}`)
 and has neither an override for the tool nor a `default` doesn't ask
-before a read-only tool, and asks before any other on first use.
+before a read-only tool, and asks before each call to any other.
 
 And it decides what runs together: when a model step asks for several calls at
 once, an agent runs calls to read-only tools (no changing effect either) that
@@ -348,7 +404,7 @@ def refund(request: RefundRequest) -> Refunded:
     """Refunds an order."""
 ```
 
-Docs: https://docs.kindgi.com/v0.6/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.7/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `result_is_outside_data`
 
@@ -372,18 +428,21 @@ lookup_case = http_tool(
     method="GET",
     url_template="https://citator.example.com/{court}/{case_number}",
     headers={"Accept": "application/json"},
-    authorization={"kind": "bearer", "secretRef": {"envName": "local", "name": "CITATOR_KEY"}},
+    authorization={"kind": "bearer", "secretRef": {"name": "CITATOR_KEY"}},
 )
 ```
 
 - `{name}` placeholders in `url_template` are filled from the input's
-  fields, URL-encoded; each must be a field of the input model, or the
-  indexer reports it.
+  fields, URL-encoded. The URL starts with `http://` or `https://` and a
+  host, and its placeholders go in the path and query only, never in the
+  host or port: there, the input would choose where the request goes.
+  Each placeholder must be a field of the input model. `http_tool` raises
+  `DefinitionError` when any of this doesn't hold.
 - `authorization`: `{"kind": "bearer", "secretRef": …}` or
   `{"kind": "header", "headerName": "X-Api-Key", "secretRef": …}`. The
-  runtime resolves the secret on every call — `envName` `local` is the
-  pack's `.env` under `kindgi dev` — and fails the call, naming it, when
-  it's missing.
+  runtime resolves the secret on every call, in the env it serves (the
+  pack's `.env` under `kindgi dev`; `envName` pins one), and fails the
+  call, naming it, when it's missing.
 - `request_body`: `{"kind": "json-input"}` (the input's fields the URL
   didn't use, as JSON — the default for POST, PUT and PATCH),
   `{"kind": "input-passthrough"}` (the whole input), or
@@ -469,7 +528,7 @@ removed field, a narrower type — not on every save.
    modules — the template's import `tools.x` directly.)
 8. **Blocking inside `async def`.** Use a `def` handler for blocking I/O.
 9. **A read-only tool without `mutating=False`.** A dry run stops at it,
-   an agent's tool approval gate asks before it on first use, and an
+   an agent's tool approval gate asks before each call to it, and an
    agent runs each call to it on its own.
 10. **`mutating=False` on a tool that writes.** A dry run then runs it
     for real, and an agent may run it at the same time as other calls.
@@ -485,7 +544,7 @@ removed field, a narrower type — not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `pyproject.toml`: `[tool.kindgi.dev.sandbox]` `allowRead = ["~/.aws"]`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.6/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.7/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

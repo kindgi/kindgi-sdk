@@ -303,6 +303,30 @@ describe('PATCH /v1/auth/providers/:providerId', () => {
     expect(updates).toHaveLength(0);
   });
 
+  test("a SAML key can't go while its certificates stay; both together can", async () => {
+    const { app, updates } = makeApp();
+    await register(app, {
+      providerId: 'acme-saml',
+      kind: 'saml',
+      idpMetadataXml: '<EntityDescriptor entityID="https://sts.example/acme"/>',
+      spSigningKeyRef: 'ACME_SP_KEY',
+      spSigningCertificates: ['-----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----'],
+    });
+    const keyOnly = await patch(app, 'acme-saml', { spSigningKeyRef: null });
+    expect(keyOnly.status).toBe(400);
+    expect((await errorOf(keyOnly)).message).toContain(
+      '`spSigningCertificates` needs `spSigningKeyRef`',
+    );
+    const both = await patch(app, 'acme-saml', {
+      spSigningKeyRef: null,
+      spSigningCertificates: null,
+    });
+    expect(both.status).toBe(200);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).not.toHaveProperty('spSigningKeyRef');
+    expect(updates[0]).not.toHaveProperty('spSigningCertificates');
+  });
+
   test("the deployment can't use it: 422 identity-provider-invalid, with its message", async () => {
     const { app } = makeApp({
       onUpdate: () => ({ kind: 'invalid', message: 'No secret named ACME_OKTA_SECRET_2' }),

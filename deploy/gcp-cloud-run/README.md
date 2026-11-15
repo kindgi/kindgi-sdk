@@ -4,6 +4,7 @@ A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - the pack orchestrator, a Cloud Run Job from the runtime's image that Cloud Scheduler runs once a minute. It gives each pack deployment an IAM-protected Cloud Run service of its own ("5. The pack orchestrator");
 - Kindgi's own Cloud SQL (Postgres 16) instance (unless `database_host_instance` points at an existing one);
+- optionally, a Cloud Run job that renews the license key on a schedule ("8. Renew the license key");
 - everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets and each pack service's token, and Secret Manager containers.
 
 **Three network shapes** (`network_mode`):
@@ -32,7 +33,7 @@ For a dev environment next to an app, with no project of its own: `network_mode 
 - **No VPC.** The server and the pack services reach the internet through Cloud Run's own egress; each pack service takes all ingress, closed by IAM (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
 - **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's, and the module refuses its backup variables with a host; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
 - **The module's grants reach the app.** They're project-wide: the orchestrator's `roles/run.developer`, the server's `roles/run.servicesInvoker` and the orchestrator's `<prefix>_secret_create_list`. In a project with other Cloud Run services, the orchestrator can change and delete them and run the app's Jobs, the runtime can call them, and the orchestrator can create secrets there and list the app's secret names (not their values). Use a project of its own for anything but a trial.
-- **Pack services at zero.** A deployment's pack service scales to zero when idle, and the first tool call after that waits for an instance to start ("The pack services"). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the packs, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or a test run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
+- **Pack services at zero.** A deployment's pack service scales to zero when idle, and the first tool call after that waits for an instance to start ("The pack services"). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. By default the server, unlike the packs, keeps one instance on, with its CPU allocated between requests (`server_min_instances` 1): a run started without waiting, an Improve pass or a test run keeps going after its response returns and needs an instance — and the CPU on it — to finish. With runtime 0.7.0 or later it can scale to zero as well ("Scale the server to zero").
 
 ## Before you start
 
@@ -133,6 +134,10 @@ openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data
 
 # The key that signs public run tokens: Ed25519, PKCS#8 PEM, base64.
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+
+# The key page cursors are sealed with: 32 bytes, base64, its own (never the AAD key or the erasure ledger key).
+# Its first version is the one `pagination_key_version` pins ("1").
+openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-
 
 # Only with export_signing = "secret": the key that signs exports (audit bundles, provenance, evidence).
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
@@ -250,7 +255,7 @@ A new deployment waits up to about a minute for its service, until the next pass
 
 **What the orchestrator's account may do:**
 - **Cloud Run:** `roles/run.developer` on the project. It creates, updates and deletes the project's services and runs its Jobs, Cloud Scheduler's call included. It reads a service's IAM policy and never sets one.
-- **The pack account:** `roles/iam.serviceAccountUser` on it, so each pack service runs as `$N-pack`, and as no other account.
+- **The pack accounts:** `roles/iam.serviceAccountUser` on `$N-pack` and, with `pack_accounts = "per-tenant"`, on each tenant's account, so each pack service runs as one of those, and as no other account ("A pack account per tenant").
 - **The images:** `roles/artifactregistry.reader` on the repository, or yours (`image_repository`). Cloud Run checks that whoever makes a service, or a new revision of one, may read its image.
 - **The pack services' own secrets:** each service's token and secret env values are `kp-` secrets of its own. A custom role, `<prefix>_pack_secrets` (`name_prefix` with `-` as `_`), lets it get and delete those secrets and add, list and destroy their versions, on secrets whose name starts with `kp-` only. It never reads a value: values come from the runtime.
 - **Making those secrets, and finding what a stopped pass left:** a second custom role, `<prefix>_secret_create_list`, creates secrets and lists the project's secrets, names and labels only. A create and a list name the project, not one secret, so it has no condition. A new secret holds no value until a version is added, which only the `kp-` role allows.
@@ -346,12 +351,76 @@ server_secret_env = {
   - in `server_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_ID` or `KINDGI_AUTH_GITHUB_CLIENT_ID`, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
   - in `server_secret_env`: `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, and `KINDGI_AUTH_TURNSTILE_SECRET`;
   - each provider's redirect URI ends in its name: `…/auth/kindgi/social/callback/microsoft` or `…/github`.
+- **Tenant admins by email** (one tenant, with `openfga_api_url`): `KINDGI_ADMIN_EMAILS` (`dana@acme.com,lee@acme.com`) in `server_env`. Each listed person is a tenant admin from their first sign-in, and every start makes them one again until they're off the list. Leaving the variable out of `server_env` takes tenant admin from everyone it made one at the next start, and they stay members.
 - Several ways in share the two maps: with the emailed link too, they hold both sets of settings.
 - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
+## 8. Renew the license key
+
+The license key expires, and the server warns before it does: from 30 days before, or fewer if the key sets its own warning (the startup banner, the console and `kindgi doctor`, each with the exact command). The deployment renews its own key with `kindgi license renew` when you run it: by hand, from your own scheduler, or on a schedule this module adds.
+
+**Once per deployment, enroll it:**
+
+```sh
+terraform output -raw license_enroll_command
+# kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
+```
+
+Run that command with `--for` filled in: your GitHub login, or, for a key Kindgi issued, its subject.
+- It makes the deployment's renewer key and keeps it in `$N-license-renewer` (`license_renewer_secret`). The module creates that secret empty, only the renewal job may read it, and the key is never printed.
+- It prints a line to add at access.kindgi.com, signed in as that login. For a key Kindgi issued, send the line to Kindgi instead.
+- Outside Cloud Run the CLI uses your gcloud credentials (`gcloud auth print-access-token`), which must be able to add versions to that secret.
+
+**By hand, or from your own scheduler:** `terraform output -raw license_renew_command` prints the command. It asks access.kindgi.com for this deployment's key, checks the answer offline, and adds a version of `$N-license-key` only when Kindgi answers with a new key. It prints `renewed: …` or `unchanged: …`, and `⚠ It expires in <days> days. …` while the key is inside its warning window.
+
+**On a schedule:** set `license_renewal_schedule`, a cron in UTC, and apply. Enroll first.
+
+```hcl
+license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
+```
+
+- **The job:** `$N-license-renewal`, a Cloud Run job on the runtime image that runs the same command, started by Cloud Scheduler. Where `region` has no Cloud Scheduler ([its locations](https://docs.cloud.google.com/scheduler/docs/locations)), set `license_renewal_scheduler_region`; the job still runs in `region`. The runtime image carries the `kindgi` CLI with `license renew` from 0.1.7.
+- **Its identity:** a service account of its own, `$N-renew`. It reads the license key and the renewer key (and the usage key, below), and may add versions to the license key, and nothing else: it can't change, delete or restart anything.
+- **Its network:** in `direct`, it leaves through Cloud NAT like the server, and reaches the server through the module's VPC; in `connector` and `none`, through Cloud Run's own egress.
+- **Its runs:** `gcloud run jobs executions list --job $N-license-renewal --region <region>`.
+- **Alerts:** a failed run, and a run that says the key is inside its warning window (its line `⚠ It expires in <days> days`). That alert follows the key's own warning, so it fires from 30 days before the key expires, or fewer if the key sets them. With `license_usage_key_secret` (below), a third: a run that sent no counts (its line `counts: not sent (<why>)`). A production key's renewals never carry counts, so they never raise it. Each opens an incident in Cloud Monitoring, and `alert_notification_channels` sends them on.
+
+**The server, and the counts (`license_usage_key_secret`):** with a system key holding `system:license` alone, the job renews with `--runtime` (the server's run.app URL) and `--runtime-token` (the key's secret), as `license_renew_command` then does too.
+- For a non-production key, the renewal carries counts of the deployment's use (the docs' Renew the license key page says what they are, under "What renewing sends").
+- The job also offers a renewed key to the running server. Runtime 0.7.0 can't take one while it runs, so the run's log says `⚠ The runtime didn't take the new key (…)`, and the job writes the key as it does without the usage key. When the server uses it is below.
+- It needs a server that takes calls without Cloud Run IAM (`server_public`, or `server_invoker_iam_disabled`): the job sends the system key as a Kindgi bearer only, and Cloud Run refuses a call without a Google ID token before the server sees it. The plan refuses `license_usage_key_secret` otherwise.
+
+Mint the key with the deployment's own token, and keep it in a secret of its own, made before the apply that names it. Terraform never holds the key, and the server gets no access to it:
+
+```sh
+gcloud secrets create $N-license-usage-key --replication-policy=user-managed --locations=<region>
+URL=$(terraform output -raw server_url)
+KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=$N-api-token)") \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"scopes": ["system:license"], "label": "license renewal"}' \
+  | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+  && printf '%s' "$KEY" | gcloud secrets versions add $N-license-usage-key --data-file=-
+unset KEY
+```
+
+Then set `license_usage_key_secret = "<prefix>-license-usage-key"` and apply. The version is added only if a key came back: a refused or failed call prints why and adds none. To list the keys or revoke one, see "A key for the counts" on the docs' Renew the license key page. A server serving one tenant that refuses the mint with `system-principal-required` is older than runtime 0.1.10, which has these keys: until you upgrade it, leave `license_usage_key_secret` empty.
+
+**Check the first run.** A renewal that can't send its counts, or hand the key over, still renews, and says so in its log:
+
+```sh
+gcloud run jobs execute $N-license-renewal --region <region> --wait
+gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="'$N'-license-renewal"' \
+  --freshness=1h --limit=20 --format='value(textPayload)'
+```
+
+**When the server uses a renewed key:** when Cloud Run next starts an instance, which reads the secret's latest version: a new revision, or a new instance as it scales. A running instance keeps the key it started with and never stops over its key, so nothing breaks in between.
+
+**Stopping:** unset `license_renewal_schedule`, or stop the renewer at access.kindgi.com.
+
 ## The pack services
 
-The orchestrator makes each deployment's service, named `kp-…`, with the `pack_*` settings. Every one runs as the one pack account, `$N-pack`, so whatever one pack may read, each may.
+The orchestrator makes each deployment's service, named `kp-…`, with the `pack_*` settings. By default every one runs as the one pack account, `$N-pack`, so whatever one pack may read, each may. With `pack_accounts = "per-tenant"`, each tenant's run as an account of the tenant's own, with the same databases, buckets and services, and only its own secrets ("A pack account per tenant").
 
 - **Size:** 1 vCPU and 1 GiB, with a startup CPU boost.
 - **Scaling:** up to `pack_max_instances` instances (8 by default), each running `pack_concurrency` calls at once (32 by default), both whole numbers from 1 to 1000. A service scales to zero when it's idle, and its first call after a quiet spell waits for an instance to start.
@@ -396,7 +465,9 @@ Serving many tenants (`tenancy = "multi"`), the API token holds the full system 
 
 By default (`tenancy = "single"`) the server serves one tenant, `seed_tenant_id`'s. With `"multi"`, on runtime 0.1.8 or later, it serves every tenant created through `POST /v1/system/tenants`, and takes each request's tenant from its key or session. Either way each deployment is a Cloud Run service of its own, which the pack orchestrator makes ("5. The pack orchestrator").
 
-**Every tenant's pack services run as the one pack account,** `$N-pack`. So each tenant's pack code can read every `kp-` secret, other tenants' pack service tokens and secret env values among them, and every secret in `pack_secret_readers`. One installation is for tenants that trust one another's pack code; give tenants that don't an installation each ([Your tools' code](https://docs.kindgi.com/concepts/security/#your-tools-code)).
+**By default (`pack_accounts = "shared"`), every tenant's pack services run as the one pack account, `$N-pack`.** So each tenant's pack code can read every `kp-` secret, other tenants' pack service tokens and secret env values among them, and every secret in `pack_secret_readers`. Such an installation is for tenants that trust one another's pack code.
+
+**With `pack_accounts = "per-tenant"`, each tenant listed in `pack_tenants` gets an account of its own** ("A pack account per tenant"). Turning it on is one-way: going back to shared isn't supported. A tenant leaves `pack_tenants` only after its deployments are retired. Once its pack services have moved to its account and `pack_shared_account` is `false` (step 3 in "A pack account per tenant"), its pack code can read only its own `kp-` secrets and the `pack_secret_readers` secrets listed for it. Until then, a pack service still on `$N-pack` reads every `kp-` secret. Other things stay shared: every tenant's pack code can connect to each instance in `pack_cloud_sql_instances`, read each bucket in `pack_bucket_readers`, and call each service in `pack_run_invokers`. So list there only what every tenant may reach. The pack orchestrator acts as every tenant's account and gives each service its values, so it's trusted with every tenant, as the runtime is. Tenants that don't trust one another's pack code can share an installation only on those terms. Otherwise, give them an installation each ([Your tools' code](https://docs.kindgi.com/concepts/security/#your-tools-code)).
 
 ```hcl
 tenancy         = "multi"
@@ -425,6 +496,57 @@ server_secret_env = {
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would seed a new tenant at every start, so upgrade the runtime first.
 - **`"single"`** sets no `KINDGI_TENANCY`. Its deployments get pack services of their own too.
 
+## A pack account per tenant (`pack_accounts`)
+
+With `tenancy = "multi"`, on runtime 0.7.0 or later, each tenant's pack services can run as an account of the tenant's own instead of `$N-pack`. Turning it on is one-way: going back to shared isn't supported. What it isolates and what it doesn't is in "Many tenants".
+
+```hcl
+pack_accounts = "per-tenant"
+pack_tenants = [
+  "8d3e5f1a-2b4c-4d6e-8f01-23456789abcd",
+  "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d",
+]
+pack_secret_readers = [
+  { secret = "acme-shop-key", tenants = ["8d3e5f1a-2b4c-4d6e-8f01-23456789abcd"] },
+]
+```
+
+On a new installation, set `pack_shared_account = false` from the start: there are no pack services to move, so `$N-pack` isn't needed.
+
+- **Each tenant's account** is `kp-t` and 16 hex digits, from a hash of `name_prefix` and the tenant's id, so two installations in one project never share one. Its pack services' secrets are named under the same key (`kp-t<16 hex>-…`), and the account reads only those, under a condition on that prefix, and the `pack_secret_readers` secrets whose `tenants` list it. The orchestrator gets `roles/iam.serviceAccountUser` on it, and its Job the map of them, `KINDGI_ORCHESTRATOR_TENANT_ACCOUNTS`. The output `service_accounts.tenants` lists them.
+- **What every tenant gets, as `$N-pack` does:** `roles/cloudsql.client` on the instances in `pack_cloud_sql_instances`, `pack_bucket_readers` with their prefixes, and `pack_run_invokers`.
+- **What the plan refuses:** `"per-tenant"` with `tenancy = "single"`; `pack_tenants` in shared mode; an id that isn't a uuid, or one listed twice in any case; more than 93 tenants; with `"per-tenant"`, a `pack_secret_readers` entry without `tenants`, or with a tenant `pack_tenants` doesn't list; `tenants` on an entry in shared mode; and `pack_shared_account = false` in shared mode.
+
+**A tenant not in `pack_tenants`** has nowhere to run pack services: its deployments wait with `tenant-not-provisioned`. Add it and apply. A tenant just added may wait a few minutes with the same code while its grants take effect. If it lasts, the orchestrator's alert says:
+
+```text
+service <service> can't run as <account> yet: the orchestrator was refused iam.serviceAccounts.actAs on it. That's expected for a few minutes after an apply that adds the tenant. If it lasts, check that the install's module still grants the orchestrator act-as on that account, and apply again
+```
+
+**Taking a tenant out of `pack_tenants`** deletes its account, and a pack service that still runs as it fails at its next start. So retire the tenant's deployments first. `upgrade.sh` checks that no service runs as it.
+
+**Turning it on** on a running deployment. `upgrade.sh` prints these steps after the upgrade that crosses 0.7.0:
+
+0. **It needs runtime 0.7.0 or later:** an older orchestrator ignores the tenants' accounts and goes on placing every pack service as `$N-pack`. `upgrade.sh` refuses `"per-tenant"` with an earlier `--to`.
+1. **List the tenants and apply.** List them with a system key holding `system:tenants` (behind Cloud Run IAM, add the ID token line "5. The pack orchestrator" gives):
+   ```sh
+   curl -fsS -H "Authorization: Bearer <system key>" "$URL/v1/system/tenants?limit=100" | jq -r '.data[].id'
+   ```
+   Set `pack_accounts = "per-tenant"` and `pack_tenants` to those ids, and give each `pack_secret_readers` entry its `tenants`. Then plan, read the plan, and apply it. It adds each tenant's account, its grants and the Job's map, and keeps `$N-pack` (`pack_shared_account` stays `true`). New deployments go to their tenant's account from the next pass.
+2. **The orchestrator moves each live pack service** to its tenant's account. A service's calls may fail for a few seconds while it moves, so turn it on at a quiet time. At each pass it logs `pack services left on the shared account: N` and `pack services with a move not finished: N`. Wait until both of these list nothing:
+   ```sh
+   gcloud run services list --project=<project> --region=<region> \
+     --filter='spec.template.spec.serviceAccountName=<N>-pack@<project>.iam.gserviceaccount.com' \
+     --format='value(metadata.name,metadata.labels)'
+   gcloud run services list --project=<project> --region=<region> \
+     --filter='metadata.labels.kindgi-move:* AND NOT metadata.labels.kindgi-move=done' \
+     --format='value(metadata.name,metadata.labels)'
+   ```
+   Each line shows the service's labels. A refused move is in both, with its reason in `kindgi-move-code`: fix the cause or retire the deployment.
+3. **Set `pack_shared_account = false`,** then plan, read the plan, and apply it. It deletes `$N-pack`, its grants and the orchestrator's act-as on it. Only from then on does each tenant's isolation hold. `upgrade.sh` runs both lines of step 2 first, and stops while either lists a service.
+
+**At most 93 tenants per installation.** Each tenant adds a conditional role binding to the project's allow policy, and Google advises at most 100 on one policy ([IAM Conditions overview](https://docs.cloud.google.com/iam/docs/conditions-overview)). The module's own take up to 5, and 2 are kept free for a replace: of the tenants' Cloud SQL binding when `pack_cloud_sql_instances` changes, and of the server's grant on a restored instance (`database_instance`), which a restore needs. A conditional grant another root makes on the same project counts against the same 100, and the module can't see it. Check the project's service-account quota first: it has to allow one account per tenant, beside the module's own ([IAM quotas and limits](https://docs.cloud.google.com/iam/quotas)).
+
 ## Behind your own load balancer (`server_ingress`)
 
 By default the server's `run.app` URL takes every caller (the API still requires its bearer token). To serve it from your own domain behind an external Application Load Balancer, with a Cloud Armor policy in front of every path:
@@ -446,18 +568,45 @@ The `run.app` URL then takes only the load balancer's calls and internal ones, s
 - **On a running deployment** it's one apply. Sign-in with an identity provider sends people back to `public_url`: if it named the `run.app` URL before, register the new callback with each provider first ("7. Turn on sign-in").
 - **The other locks stay:** the bearer token, and Cloud Run IAM unless `server_public` or `server_invoker_iam_disabled`.
 
+## Scale the server to zero (`server_billing`)
+
+By default the server keeps one instance, its CPU always allocated. With runtime 0.7.0 or later it can run on Cloud Run's request-based billing instead, with its CPU allocated (and billed) only while a request is in flight, and no instance when idle:
+
+```hcl
+server_billing       = "request"
+server_min_instances = 0
+```
+
+- **The tick:** a Cloud Scheduler job, `$N-server-tick`, posts to the server's `/internal/tick` each minute (`scheduler.tf`), with an OIDC token of an account of its own, `$N-tick`, which is granted nothing. The tick runs the server's background work that's due (schedules, mail polls, webhook deliveries and more: [Scale the server to zero](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#scale-the-server-to-zero) lists it all) inside its request. The server checks the token itself: for the tick's URL, from the tick's account. The module sets the server's `KINDGI_TICK_CALLER` (the account's email) and `KINDGI_SERVICE_URL` (its own `run.app` URL, Cloud Run's deterministic one); `server_env` can't set either. No retry: next minute's tick is the retry. The deadline is Cloud Scheduler's longest, 30 minutes, so a long pass keeps its request, and its CPU.
+- **Work in flight:** while the server has any (a run started without waiting, a parent's wake, a delivery, an erasure, a tick), it keeps a request to its own `run.app` URL open, so its CPU stays allocated until the work is done.
+- **What the plan needs, and names when it's missing:** `server_ingress = "INGRESS_TRAFFIC_ALL"` (that request goes to the `run.app` URL), `server_max_instances = 1` (it must reach the instance that sent it), and `server_public` or `server_invoker_iam_disabled` (it carries no Google ID token, so Cloud Run IAM would refuse it). All three are the defaults. `server_min_instances = 0` needs `server_billing = "request"`: with CPU always allocated, Cloud Run may stop an instance that has no request in flight, and a run it's executing stops with it.
+- **The first request after a quiet spell** waits for an instance to start. `server_min_instances = 1` keeps one warm, billed while idle too.
+- **Schedules** fire up to about a minute late between requests. A schedule with `--catch-up=skip` and a `--starting-deadline` under 90 seconds can drop a fire.
+- **On a running deployment** it's one apply, which makes the account and the job and rolls out a revision with the new settings.
+
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"` with the endpoint tokens' key, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's ingress behind a load balancer (what it needs, the Job's VPC egress, and the URLs it names), the server's own settings (sign-in), the tenancy: `single` and `multi` with each setting it needs, and what each refuses; the routing per deployment and the pack orchestrator: its Job only once its key is set, its schedule, its rights and the pack account's, the key steps, and what the pack settings refuse; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; and the database's backups: Cloud SQL's defaults, each setting, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings.
+`terraform init -backend=false && terraform test` runs the tests in `tests/` with a mock Google provider. No credentials are used and no cloud calls are made. `tests/module.tftest.hcl` plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"` with the endpoint tokens' key, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's ingress behind a load balancer (what it needs, the Job's VPC egress, and the URLs it names), the server's own settings (sign-in), the tenancy: `single` and `multi` with each setting it needs, and what each refuses; the routing per deployment and the pack orchestrator: its Job only once its key is set, its schedule, its rights and the pack account's, the key steps, and what the pack settings refuse; `database_instance`: the server's volume, URL secret and grants on another instance, the module's own instance and grant kept, and each refusal; the database's backups: Cloud SQL's defaults, each setting, and what each refuses; the page-cursor key: `latest` and the other maps refused, and the previous key's grant and refusals; and the license renewal: by hand by default, the scheduled job, its grants, its network and its alerts, the usage key's arguments and grant, and what each refuses. `tests/store-on-later.tftest.hcl` applies, in order, a deployment without a secrets store and the steps that turn one on later: the full plan refused until `secrets_aad_key_version` is set, the targeted apply of what the store stands on, and then the full apply, with the server's new settings. `tests/pagination-key.tftest.hcl` applies, in order, a deployment before the page-cursor key has a version, the key at its first version, a rotation that keeps the version before it, and the apply that drops that one, with the server's read of the key kept; then it plans the module in another region, and the module's secrets keep their replica in the first. `tests/scale_to_zero.tftest.hcl` checks `server_billing`: by default the CPU stays and nothing ticks; under `"request"` at zero, the server's CPU and scaling, the tick's account, its job (schedule, deadline, no retry, URL and token) and the server's tick settings; and each refusal. `tests/pack_accounts.tftest.hcl` plans a pack account per tenant: each tenant's account and its key, its secrets, the orchestrator's act-as and the Job's map, what every tenant shares, the deployment without the shared account, and what each setting refuses.
 
 ## Upgrading
 
 - **A deployment of this module** (any `network_mode`, from runtime 0.1.8 or later) can be upgraded to 0.4.0 or later with `./upgrade.sh` (log in to `registry.kindgi.com` first: `docker login registry.kindgi.com --username kindgi` asks for your license key; see [Pull the runtime image](https://docs.kindgi.com/deploy/self-hosted/pull-the-runtime-image/)): it reads the current version, mirrors the new image from `registry.kindgi.com` into Artifact Registry and runs the upgrade checks against the database, as jobs that reach it the way the server does (its VPC egress, then the `/cloudsql` socket or the database's private IP), stopping if one fails, backs up Kindgi's database as an export, shows the plan, checks it, and applies exactly that plan only when you type `yes`, and if the new revision doesn't come up it prints the way back rather than rolling back on its own. Outside the deployment, it grants the Cloud SQL instance's service account `roles/storage.objectAdmin` on the backup bucket (the grant stays; a new grant can take a few minutes to take effect, and the export waits for it), and it writes the new image into your var-file's `server_image`, keeping the previous file next to it. It keeps the plan it applies there too, as `<var-file>.upgrade-<UTC time>.tfplan`: `terraform show` reads it, and since it holds what your var files and state hold, only you can read it. Give it one `--var-file` for each file the deployment's variables are in, in the order you give them to `terraform`. A file Terraform doesn't load on its own needs its own, such as one with `server_env` kept beside the var-file: from the directory it runs in, Terraform loads only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`). It lists every file Terraform reads them from, and the `TF_VAR_` names set in the environment, and it stops if one of them, other than the var-file it writes, sets `server_image`: a later `terraform apply` without that `--var-file` would put the old image back. Before it asks for `yes` it checks the plan itself (`terraform show -json`): it stops if the plan replaces anything, or creates, deletes or changes anything but the new image and what the releases crossed change, which their steps to confirm by hand name. So a var file left off the command, whose variables the plan would empty, stops it there, before anything is applied. To see all of that before it happens, add `--dry-run`: it runs the same reads and read-only checks, lists every change a real run would make, in order, with the names it would use, and shows Terraform's plan for the new image. The plan takes no state lock, but reading the variables through `terraform console` briefly does, so a dry run stops, without harm, while an apply holds it. It changes nothing (not your docker config, the var-file or the state) and never asks for `yes`. Only a real run runs the runtime's own checks, since they run as jobs in your project. Use the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release you're upgrading to: it knows the steps up to its own release and refuses a later `--to`. This module needs runtime 0.4.0 or later, so its `upgrade.sh` refuses a `--to` below that, and names the tag whose script goes there. With an earlier `--to` it takes, it still plans its own module, whose changes past the target's release it lists and allows, and it says so. Before the `@kindgi/sdk@0.3.0` tag it takes `network_mode = "none"` only, and one `--var-file`: to 0.2.0 or one of its server fixes, upgrade any other deployment by hand. A server-only release, such as 0.2.0.1, is a server fix for 0.2.0 with no SDK release of its own, so it has no `@kindgi/sdk@` tag of its own: run the `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag with `--to 0.2.0.1`. From 0.2.0, or an earlier 0.2.0.N, it has no steps to confirm by hand. See `./upgrade.sh --help`. The notes below apply whichever way you upgrade.
 - **From the one pack service:** a deployment made with an earlier copy of the module runs one pack service for all its deployments (`pack_image`, `pack_min_instances`, `pack_env`, `pack_secret_env`), or, with `tenancy = "multi"`, a service per deployment that your own orchestrator makes. Here the pack orchestrator makes each deployment's ("5. The pack orchestrator"). `upgrade.sh` makes the switch in one apply. The plan, with the one pack service, deletes it, its token's secret and their grants. It makes the orchestrator's account, its grants and its key's secret, the server's right to invoke the project's services, and, with `secrets_backend = "none"`, the KMS key the pack services' tokens are sealed under, and gives the server the module's routing settings in place of `KINDGI_PACK_SERVICE_URL`, `_TOKEN` and `_AUTH` (with `"multi"`, of the ones you took out of `server_env`). The plan check allows those. Before it backs up or changes anything, it refuses a var file that sets what the module sets itself (`KINDGI_PACK_ROUTING`, `KINDGI_PACK_ENDPOINT_HOSTS`, `KINDGI_PACK_ENDPOINT_KMS_KEY` or `KINDGI_ENV_CLOUD_SECRETS`) in `server_env` or `server_secret_env`, a `name_prefix` of `kp` or `kp-...`, a set `orchestrator_key_version`, and a `pack_secret_env` entry that can't be a cloud secret, such as one at `latest`. The module doesn't declare the four pack variables, so it reads them in a config of its own, from the same files: `pack_env` by its names, and `pack_secret_env` by secret id, project and version, never a value. With the one pack service, from the apply until each pack is deployed again, calls to a deployed pack's tools are refused (`pack-route-missing`, then, for about a minute, `pack-endpoint-pending`); it says so before it asks for `yes`, so you can answer no and run it at a quiet hour. After the apply it prints the steps that finish the switch, by hand: mint the orchestrator's key; set `orchestrator_key_version`, take the four pack variables out, add the secrets the pack's env reads to `pack_secret_readers`, and apply again; set the pack's env in Kindgi with `kindgi env set` (its plain values, and its secrets as cloud secrets); and deploy each pack again with a new `--idempotency-key`. With `tenancy = "multi"`, stop your own orchestrator before you answer `yes`: an endpoint it recorded stays as it is, its calls keep reaching your service while its host matches `*-<project number>.<region>.run.app`, and once each old deployment is retired you delete its service, token and secrets. The way back it prints puts the earlier release's module back first; with `secrets_backend = "none"` it takes the KMS key out of the state, with the one pack service it makes the service's token again if the apply took it, and with `"multi"` it gives `server_env` its routing settings back. Going back makes the one pack service again, with a second such window. By hand: [From the one pack service](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#from-the-one-pack-service).
+- **A pack account per tenant:** an upgrade keeps `pack_accounts = "shared"` unless your var files set it, and then nothing about the pack accounts changes. With `tenancy = "multi"`, the run that crosses 0.7.0 prints the steps that turn it on ("A pack account per tenant"). With `pack_accounts = "per-tenant"` in the var files, `upgrade.sh` refuses a `--to` below 0.7.0, and going back to shared. Its plan check then allows the account and grants of each tenant added, made, and of each one taken out, deleted, with the Job's map of them; a grant made or deleted for a tenant that stays still stops it. Before it backs up or changes anything, it lists the pack services that run as the account of each tenant taken out of `pack_tenants`, and with `pack_shared_account = false`, step 2's two lines; it stops while one lists a service.
 - **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
 - **The module turns Cloud Resource Manager on** (`cloudresourcemanager.googleapis.com`). Its own calls to it are billed to the caller's project, but another root on the same project that reads the project with its calls billed there (the provider's `user_project_override`) needs it on, and couldn't turn it on before that read. A deployment made with an earlier copy of the module gets it at its next apply: one `google_project_service` to add.
 - **The instance gets a backstop for sessions left idle in a transaction** (`database_idle_in_transaction_timeout_ms`, 10 minutes by default; 0 turns it off). A deployment made with an earlier copy of the module gets it at its next apply: one flag added to the instance, changed in place. Cloud SQL lists `idle_in_transaction_session_timeout` as a flag that needs no restart ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **The instance gets Google's deletion protection** (`settings.deletion_protection_enabled`) from `database_deletion_protection`, true by default, beside Terraform's own. Until now the variable set only Terraform's, which a delete from the console, gcloud or the Cloud SQL API ignores. A deployment made with an earlier copy of the module gets it at its next apply. Its plan shows the instance updated in place. Google lists the setting as changeable after creation and names no restart for it ([Cloud SQL: instance settings](https://docs.cloud.google.com/sql/docs/postgres/instance-settings)). If the plan says the instance `must be replaced`, stop: a replace deletes the database. With `database_deletion_protection = false`, Google's protection stays off. With a private-IP database (`database_private_network`), the plan also shows the server's `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: with the instance changing, the module reads its CAs during the apply. It's still the instance's CAs.
+- **The module keeps a page-cursor key** (`<prefix>-pagination-key`). A deployment made with an earlier copy of the module gets the secret, and the server's read access to it, at its next apply. It gets no key yet. With `pagination_key_version` unset, the module sets no `KINDGI_PAGINATION_KEY`, so the server makes one at each start, as before, and a server of one instance works as it did. Then:
+  1. Add the secret's first version, as in step 3.
+  2. Set `pagination_key_version = "1"`, and apply again.
+  - From that revision on, a page cursor outlives a restart and a new revision. The boot lines say `Page cursors: sealed (key from KINDGI_PAGINATION_KEY)`.
+  - Don't set `pagination_key_version` before the secret has that version: the server's new revision wouldn't start.
+  - **If `server_secret_env` sets `KINDGI_PAGINATION_KEY` already,** the plan is refused, because the module owns that name now. Keep the same key, so no cursor breaks:
+    1. Apply only the secret and the server's read access to it: `terraform apply -var-file=<env>.tfvars -target=google_secret_manager_secret_iam_member.server_reads`.
+    2. Copy the key in: `gcloud secrets versions access <its version> --secret=<its secret> | gcloud secrets versions add $N-pagination-key --data-file=-`, with `--project=<its project>` on the read when the entry names one.
+    3. Take the entry out of `server_secret_env`, set `pagination_key_version = "1"`, and apply in full.
+    - **If your secret already has the module's name** (`$N-pagination-key`, in the module's project), there's nothing to copy. In place of steps 1 and 2, bring the secret into the state as it is: `terraform import -var-file=<env>.tfvars 'google_secret_manager_secret.server["pagination_key"]' projects/<project_id>/secrets/$N-pagination-key`. The module keeps the secret's replication, whatever it is: a new replication would replace the secret, and a replace deletes every version, the key with them. If the entry names no `project`, drop its grant from the state, not from the project: `terraform state rm 'google_secret_manager_secret_iam_member.server_reads_its_secrets["KINDGI_PAGINATION_KEY"]'`. The module grants the same read, and two grants of one role to one member on one secret are one, so an apply that deleted the entry's grant would take the server's read away with it. In step 3, set `pagination_key_version` to the version the server reads now (the newest, if the entry said `latest`), and read the plan before you apply: it must not replace `google_secret_manager_secret.server["pagination_key"]`.
 - **By hand**, for any deployment (and for `network_mode = "direct"` or `"connector"` with an `upgrade.sh` from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only): staging first, with `gcloud` set to the deployment's project (`gcloud config set project <project_id>`). Copy the new image by digest (step 2), run the new version's checks as a Cloud Run job that reaches the database, back the database up, set `server_image`, `(umask 077 && terraform plan -var-file=<env>.tfvars -out=upgrade.tfplan)` (the plan holds your variables' values, secret ones too), read it, `terraform apply upgrade.tfplan`, delete the plan, and check the new revision serves. The steps, the commands and the way back: [Upgrade by hand](https://docs.kindgi.com/deploy/self-hosted/cloud-run/#upgrade-by-hand).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
@@ -471,14 +620,27 @@ The `run.app` URL then takes only the load balancer's calls and internal ones, s
   - **What a restore reaches:** any second within the logs' days, or one of the kept daily backups.
   - **On a host or a restored instance:** these set the module's own instance only. With `database_host_instance` they're refused at plan: the host's backups are the app's, set where that instance is managed. An instance `database_instance` names keeps its own.
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
-- **Rotating a secret:** add a version, then roll a new revision of the server (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`). The orchestrator's key is pinned: mint a new one as in step 5, add it as a version, set `orchestrator_key_version` to that version and apply. Once a Job execution after the apply has succeeded (`gcloud run jobs executions list --job=$N-pack-orchestrator --region=<region> --limit=1`), revoke the old one: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys`.
+- **Rotating a secret:** add a version, then set `server_rotation` to a value it hasn't had, such as the date and time (`"2026-11-06-1530"`), and apply. The server rolls a new revision, which reads each secret it takes at `"latest"` again. A `server_secret_env` entry pinned to a version is rotated by setting its `version` instead. Roll it through Terraform, not `gcloud run services update`: the next apply would take back what gcloud set. A rotation made with gcloud before shows once in the next plan, which sets the revision's labels and client fields back: apply that plan before the next `./upgrade.sh`, whose plan check stops on it. The orchestrator's key is pinned: mint a new one as in step 5, add it as a version, set `orchestrator_key_version` to that version and apply. Once a Job execution after the apply has succeeded (`gcloud run jobs executions list --job=$N-pack-orchestrator --region=<region> --limit=1`), revoke the old one: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys`.
 - **Rotating the database's server CA** (private-IP mode): the server trusts the CAs the instance lists at the last apply, so add the new one, apply, and only then rotate. Applying after the rotation is too late: the server refuses the new certificate until it has the new CA.
   1. `gcloud sql ssl server-ca-certs create --instance=$N` adds the upcoming CA.
   2. `terraform apply`: the server's new revision trusts it and the current one. An OpenFGA of yours that checks these CAs gets them again here too (`gcloud sql ssl server-ca-certs list`, as above) and restarts with the new file.
   3. `gcloud sql ssl server-ca-certs rotate --instance=$N` moves the instance to the new CA ([Google: manage SSL/TLS](https://docs.cloud.google.com/sql/docs/postgres/manage-ssl-instance)).
+- **The page-cursor key is pinned too.** The server reads the version `pagination_key_version` names, so every instance and every revision seals and opens page cursors with the same key. `latest` would be read again at each instance's start, so once a version was added, two instances could hold different keys. Rotate it yearly: one apply switches the key, and a second, a day later, drops the one before. The new version seals, and the one before it still opens the cursors it sealed:
+  1. Add a version: `openssl rand 32 | base64 | gcloud secrets versions add $N-pagination-key --data-file=-`.
+  2. Set `pagination_key_version` to it, and give the server the version before it in `server_secret_env`: `KINDGI_PAGINATION_PREVIOUS_KEY = { secret = "<prefix>-pagination-key", version = "<the one before>" }`. Then apply.
+  3. After at least a day (a cursor's life), take that entry out and apply again.
+  - The server already reads the module's own secret, so that entry gets no grant of its own.
+  - A previous key without `pagination_key_version`, or at the version the server seals with, or at `latest`, is refused at plan.
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.
 - **Database timeouts:** from runtime 0.1.9, the server's connections carry their own: 60 s a statement, 30 s waiting for a lock, and 30 s idle in a transaction; a query waits at most 10 s for one of the server's pooled connections. `KINDGI_DB_STATEMENT_TIMEOUT_MS`, `KINDGI_DB_LOCK_TIMEOUT_MS`, `KINDGI_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` and `KINDGI_DB_POOL_WAIT_TIMEOUT_MS` in `server_env` change them; 0 turns one off. The three Postgres timeouts win over the instance's flags. A GET or HEAD the statement or lock timeout or the pool wait ends answers 503 `database-busy` with `Retry-After: 5` (under `/auth/`, a browser signing in is sent back to the sign-in page instead), any other request 500, and the server's log has a `db` warning naming the setting, its value and its variable. The instance's `database_idle_in_transaction_timeout_ms` is the backstop for every other session on the module's own instance. The module sets no such flag on an instance `database_instance` or `database_host_instance` names; set it yourself if you want it — on a shared host instance it also ends the app's own sessions left idle that long, so that's the operator's call ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
+- **Database connections:** each server copy keeps a pool of up to 10 connections, opened as queries need them and closed after 30 s idle. `KINDGI_DB_POOL_SIZE` in `server_env` changes it (runtime 0.7.0 or later): a whole number from 1 to 262143, Postgres's own ceiling. The boot log's `Database timeouts:` line ends with the size in effect. Everything that connects must fit under the instance's `max_connections`:
+  - every server copy's pool (up to `server_max_instances` copies, 1 by default), and the old revision's copies' too, which a deploy keeps up while the new ones start;
+  - up to 5 more for each system tenant purge in flight, up to 10 for each admin command that runs (`kindgi-runtime tenants …`, `check …`), and a pool of this size for a `kindgi-runtime erasures …` run;
+  - OpenFGA's own, when its store is on the same instance;
+  - a reserve.
+
+  Cloud SQL sets `max_connections` from the tier's memory: 100 on the default `database_tier`, `db-custom-1-3840`. With one server copy and the default pool, the server takes up to 20 of them during a deploy. `SHOW max_connections;` reads the value in effect ([Cloud SQL: configure database flags](https://docs.cloud.google.com/sql/docs/postgres/flags)).
 - **Slow tools:** the runtime waits `KINDGI_PACK_CALL_TIMEOUT_MS` (default 120 s, `pack_call_timeout_ms`) for a tool call. Keep the pack services' `pack_timeout` above it.
 
 ## Serving from a restored instance
@@ -526,7 +688,7 @@ With `database_host_instance` set there is no instance of the module's own, so a
    ```
 
    The module doesn't grant this one, since the secret isn't the module's. If a Terraform root of yours makes the secret, that root makes the grant too. When two roots hold the same grant, the first to remove it takes it away from the other.
-4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups.
+4. **Replay the erasure ledger on it before it serves.** A restore brings back what an erasure cleared. The runtime image's `erasures replay` does it, with the server's settings, `KINDGI_DATABASE_URL` from `$R-database-url`, and this instance at `/cloudsql`: a Cloud Run job, say. The docs' "Back up and restore" page has the command, under Erasures and backups. If the runtime has kept repos (`KINDGI_KEPT_REPOS` on, now or before the backup), it takes `--records` too, where their erasure records are (`KINDGI_TENANT_PURGE_RECORD` by default), and the repo store's gateway stays at 0 instances until the replay and `tenants repurge` have run.
 5. **Switch,** in your tfvars, then `terraform apply`:
 
    ```hcl

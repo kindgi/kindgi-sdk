@@ -39,7 +39,11 @@ import type {
   TokenResolver,
   UserRecord,
 } from '../src/index.js';
-import { createAuthorizer } from '../src/middleware/authorize.js';
+import {
+  type AuthorizerOptions,
+  createAuthorizer,
+  tenantWide,
+} from '../src/middleware/authorize.js';
 import type { AppEnv } from '../src/types.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
@@ -100,11 +104,29 @@ function harness(
     return undefined;
   };
 
+  /** Every key minted with `root`, and with those in turn, oldest first: the store's walk. */
+  const mintedFrom = (root: string): StoredKey[] => {
+    const found: StoredKey[] = [];
+    let frontier = [root];
+    while (frontier.length > 0) {
+      const next = [...keys.values()].filter(
+        (k) => k.mintedWith !== undefined && frontier.includes(k.mintedWith as unknown as string),
+      );
+      found.push(...next);
+      frontier = next.map((k) => k.tokenId as unknown as string);
+    }
+    return found.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  };
+
   const tokenAdmin: TokenAdmin = {
     async mint(input) {
       const refused = refusal(input);
       if (refused !== undefined) return refused;
       const p = input.principal;
+      const minter =
+        input.mintedWith !== undefined
+          ? keys.get(input.mintedWith as unknown as string)
+          : undefined;
       const tokenId = randomUUID() as ApiTokenId;
       const secret = `kgi_ak_test_${keys.size + 1}`;
       const record: StoredKey = {
@@ -116,15 +138,24 @@ function harness(
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, keys.size)),
+        ...(input.mintedWith !== undefined && { mintedWith: input.mintedWith }),
+        // Born revoked when its minter is.
+        ...(minter?.revokedAt !== undefined && { revokedAt: minter.revokedAt }),
       };
       keys.set(tokenId as unknown as string, record);
       return { record, token: secret };
     },
-    async list({ limit, principal }) {
+    async list({ limit, principal, mintedWith }) {
+      const tree =
+        mintedWith !== undefined
+          ? new Set(mintedFrom(mintedWith as unknown as string).map((k) => k.tokenId))
+          : undefined;
       return [...keys.values()]
         .filter(
           (k) =>
-            principal === undefined || JSON.stringify(k.principal) === JSON.stringify(principal),
+            (principal === undefined ||
+              JSON.stringify(k.principal) === JSON.stringify(principal)) &&
+            (tree === undefined || tree.has(k.tokenId)),
         )
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         .slice(0, limit);
@@ -136,8 +167,14 @@ function harness(
       changedBy.push(`revoke:${revokedBy}`);
       const k = keys.get(tokenId as unknown as string);
       if (k === undefined) return { kind: 'not-found' };
-      keys.set(tokenId as unknown as string, { ...k, revokedAt: new Date() });
-      return { kind: 'ok' };
+      const at = new Date();
+      if (k.revokedAt === undefined)
+        keys.set(tokenId as unknown as string, { ...k, revokedAt: at });
+      const also = mintedFrom(tokenId as unknown as string).filter(
+        (m) => m.revokedAt === undefined,
+      );
+      for (const m of also) keys.set(m.tokenId as unknown as string, { ...m, revokedAt: at });
+      return { kind: 'ok', alsoRevoked: also.map((m) => m.tokenId) };
     },
   };
 
@@ -384,7 +421,7 @@ function harness(
   return { app, call, code, mint, checked, changedBy, grantReads, batchReads };
 }
 
-describe('a new key and an Idempotency-Key (T392)', () => {
+describe('a new key and an Idempotency-Key', () => {
   test("a retry gets 409 replay-withheld, not the secret, and mints nothing; another person's same key mints their own", async () => {
     const h = harness();
     const send = (as: string) =>
@@ -513,6 +550,75 @@ describe('API keys act for a principal', () => {
     expect((await h.call(daily.token, 'GET', '/v1/tokens')).status).toBe(200);
     const admin = await h.mint(ALICE, { role: 'admin' });
     await h.mint(admin.token, { for: { kind: 'user', id: 'bob' } });
+  });
+});
+
+describe('a key minted with a key stops with it', () => {
+  test("a key caller mints with its key; the deployment's token with none: the record says which", async () => {
+    const h = harness();
+    // A static token has no key: what it mints stands alone.
+    const root = await h.mint(ALICE);
+    expect(root.body).not.toHaveProperty('mintedWith');
+    const child = await h.mint(root.token);
+    expect(child.body.mintedWith).toBe(root.tokenId);
+    const read = await h.call(ALICE, 'GET', `/v1/tokens/${child.tokenId}`);
+    expect(read.body.mintedWith).toBe(root.tokenId);
+  });
+
+  test('revoking a key revokes every key minted with it, to any depth, and says which', async () => {
+    const h = harness();
+    const root = await h.mint(ALICE);
+    const child = await h.mint(root.token);
+    const grandchild = await h.mint(child.token);
+    const apart = await h.mint(ALICE);
+
+    const revoked = await h.call(ALICE, 'POST', `/v1/tokens/${root.tokenId}/revoke`);
+    expect(revoked.status).toBe(200);
+    expect(revoked.body).toEqual({
+      tokenId: root.tokenId,
+      revoked: true,
+      alsoRevoked: [child.tokenId, grandchild.tokenId],
+    });
+    for (const gone of [root, child, grandchild]) {
+      expect((await h.call(gone.token, 'GET', '/v1/identity/whoami')).status).toBe(401);
+    }
+    expect((await h.call(apart.token, 'GET', '/v1/identity/whoami')).status).toBe(200);
+    // Revoked again: nothing more goes.
+    const again = await h.call(ALICE, 'POST', `/v1/tokens/${root.tokenId}/revoke`);
+    expect(again.body.alsoRevoked).toEqual([]);
+  });
+
+  test('`?mintedWith=` lists what revoking a key takes, said on the page, and only within what the caller sees', async () => {
+    const h = harness();
+    const root = await h.mint(ALICE, { role: 'admin' });
+    const own = await h.mint(root.token);
+    const bobs = await h.mint(root.token, { for: { kind: 'user', id: 'bob' } });
+    const deeper = await h.mint(own.token);
+    await h.mint(ALICE);
+
+    const tree = await h.call(ALICE, 'GET', `/v1/tokens?mintedWith=${root.tokenId}`);
+    expect(tree.status).toBe(200);
+    expect((tree.body.data as { tokenId: string }[]).map((k) => k.tokenId).sort()).toEqual(
+      [own.tokenId, bobs.tokenId, deeper.tokenId].sort(),
+    );
+    expect(tree.body.mintedWith).toBe(root.tokenId);
+    // Bob sees only his own key among them.
+    const bobView = await h.call(BOB, 'GET', `/v1/tokens?mintedWith=${root.tokenId}`);
+    expect((bobView.body.data as { tokenId: string }[]).map((k) => k.tokenId)).toEqual([
+      bobs.tokenId,
+    ]);
+    // Without the filter, the page says nothing of it.
+    expect((await h.call(ALICE, 'GET', '/v1/tokens')).body).not.toHaveProperty('mintedWith');
+  });
+
+  test('a member key limited to a project: the key it mints stops with it', async () => {
+    const h = harness();
+    const parent = await h.mint(BOB, { role: 'member', projectId: P1 });
+    const child = await h.mint(parent.token, { projectId: P1 });
+    expect(child.body.mintedWith).toBe(parent.tokenId);
+    expect((await h.call(child.token, 'GET', '/v1/identity/whoami')).status).toBe(200);
+    await h.call(BOB, 'POST', `/v1/tokens/${parent.tokenId}/revoke`);
+    expect((await h.call(child.token, 'GET', '/v1/identity/whoami')).status).toBe(401);
   });
 });
 
@@ -758,8 +864,11 @@ describe('/v1/service-accounts', () => {
 });
 
 describe("a key limited to a project reaches only that project's resources", () => {
-  /** An authorizer whose store places agents `a1` in P1 and `a2` in P2, and allows any grant. */
-  function authorizerWith(placed: boolean) {
+  /**
+   * An authorizer whose store places agents `a1` in P1 and `a2` in P2, and
+   * allows any grant; `options`, the projects it looks a key's org up in.
+   */
+  function authorizerWith(placed: boolean, options: AuthorizerOptions = {}) {
     const asked: string[] = [];
     const binding = {
       check: async () => ({ allowed: true }),
@@ -772,7 +881,36 @@ describe("a key limited to a project reaches only that project's resources", () 
         },
       }),
     } as unknown as AuthzCheckBinding;
-    return { authorizer: createAuthorizer(binding), asked };
+    return { authorizer: createAuthorizer(binding, options), asked };
+  }
+  /** Projects where P1 is in org `o1`, or in none; `got` counts the lookups. */
+  function projectsWith(orgOfP1: string | undefined) {
+    const got: string[] = [];
+    const projects = {
+      get: async (_t: TenantId, id: string) => {
+        got.push(id);
+        return id === P1 ? { id, ...(orgOfP1 !== undefined && { orgId: orgOfP1 }) } : null;
+      },
+    } as unknown as NonNullable<AuthorizerOptions['projects']>;
+    return { projects, got };
+  }
+  /** What a key limited to `keyProject` (`null`: a caller with no limited key) is allowed on each ref, in one request. */
+  async function limitedTo(
+    authorizer: ReturnType<typeof authorizerWith>['authorizer'],
+    checks: readonly (readonly ['read' | 'admin', ResourceRef])[],
+    keyProject: string | null = P1,
+  ) {
+    const r = new Hono<AppEnv>();
+    r.get('/', async (c) => {
+      c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+      if (keyProject !== null) c.set('tokenProjectId', keyProject);
+      const out: boolean[] = [];
+      for (const [action, resource] of checks) {
+        out.push((await authorizer.check(c, action, resource)).allowed);
+      }
+      return c.json(out);
+    });
+    return (await (await r.request('/')).json()) as boolean[];
   }
   async function decide(placed: boolean, keyProject: string | undefined, agentId: string) {
     const { authorizer, asked } = authorizerWith(placed);
@@ -815,19 +953,111 @@ describe("a key limited to a project reaches only that project's resources", () 
     expect(await (await r.request('/')).json()).toEqual(['a1']);
   });
 
-  test('admin on an org or a team is above the key', async () => {
+  test("admin on an org or a team is above the key; it reads its project's org, no other, and no team", async () => {
+    const { projects, got } = projectsWith('o1');
+    const { authorizer } = authorizerWith(true, { projects });
+    expect(
+      await limitedTo(authorizer, [
+        ['admin', ref('org', 'o1')],
+        ['admin', ref('team', 't1')],
+        ['read', ref('org', 'o1')],
+        ['read', ref('org', 'o2')],
+        ['read', ref('team', 't1')],
+      ]),
+    ).toEqual([false, false, true, false, false]);
+    // The key's project is looked up once for the request, however many orgs it asks about.
+    expect(got).toEqual([P1]);
+  });
+
+  test("a lookup that fails, by rejecting or by throwing: the key's own org is refused 403, once per request", async () => {
+    for (const fails of ['rejects', 'throws'] as const) {
+      const got: string[] = [];
+      const projects = {
+        get: (_t: TenantId, id: string) => {
+          got.push(id);
+          if (fails === 'throws') throw new Error('the projects store is down');
+          return Promise.reject(new Error('the projects store is down'));
+        },
+      } as unknown as NonNullable<AuthorizerOptions['projects']>;
+      const { authorizer } = authorizerWith(true, { projects });
+      expect(
+        await limitedTo(authorizer, [
+          ['read', ref('org', 'o1')],
+          ['read', ref('org', 'o1')],
+        ]),
+      ).toEqual([false, false]);
+      // The failed lookup is held for the request: the second check doesn't ask again.
+      expect(got).toEqual([P1]);
+
+      const r = new Hono<AppEnv>();
+      r.get(
+        '/',
+        async (c, next) => {
+          c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
+          c.set('tokenProjectId', P1);
+          await next();
+        },
+        authorizer.authorize('read', () => ref('org', 'o1')),
+        (c) => c.json({ ok: true }),
+      );
+      const res = await r.request('/');
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ error: { code: 'permission-denied' } });
+    }
+  });
+
+  test('a project in no org, or no projects to look it up in: the key reads no org', async () => {
+    const none = authorizerWith(true, { projects: projectsWith(undefined).projects });
+    expect(await limitedTo(none.authorizer, [['read', ref('org', 'o1')]])).toEqual([false]);
+    const unwired = authorizerWith(true);
+    expect(await limitedTo(unwired.authorizer, [['read', ref('org', 'o1')]])).toEqual([false]);
+  });
+
+  test("a caller without a limited key reads every org and team its grants give, and isn't looked up", async () => {
+    const { projects, got } = projectsWith('o1');
+    const { authorizer } = authorizerWith(true, { projects });
+    expect(
+      await limitedTo(
+        authorizer,
+        [
+          ['read', ref('org', 'o2')],
+          ['read', ref('team', 't1')],
+          ['read', tenantWide(tenantId)],
+        ],
+        null,
+      ),
+    ).toEqual([true, true, true]);
+    expect(got).toEqual([]);
+  });
+
+  test("the workspace's own rows and settings (tenantWide) are above the key; the tenant as its project's root isn't", async () => {
     const { authorizer } = authorizerWith(true);
+    expect(
+      await limitedTo(authorizer, [
+        ['read', tenantWide(tenantId)],
+        ['read', ref('tenant', tenantId)],
+      ]),
+    ).toEqual([false, true]);
+  });
+
+  test("listing orgs: a limited key lists its project's org only", async () => {
+    const { projects } = projectsWith('o1');
+    const authorizer = createAuthorizer(
+      {
+        check: async () => ({ allowed: true }),
+        checkBatch: async (_p: unknown, _a: unknown, refs: readonly ResourceRef[]) =>
+          refs.map(() => ({ allowed: true })),
+        listObjects: async () => ['o1', 'o2'],
+      } as unknown as AuthzCheckBinding,
+      { projects },
+    );
     const r = new Hono<AppEnv>();
     r.get('/', async (c) => {
       c.set('principal' as never, userPrincipal('bob' as UserId, tenantId) as never);
       c.set('tokenProjectId', P1);
-      return c.json([
-        (await authorizer.check(c, 'admin', ref('org', 'o1'))).allowed,
-        (await authorizer.check(c, 'admin', ref('team', 't1'))).allowed,
-        (await authorizer.check(c, 'read', ref('org', 'o1'))).allowed,
-      ]);
+      return c.json((await authorizer.listObjects?.(c, 'read', 'org')) ?? null);
     });
-    expect(await (await r.request('/')).json()).toEqual([false, false, true]);
+    expect(await (await r.request('/')).json()).toEqual(['o1']);
   });
 });
 
@@ -989,11 +1219,27 @@ describe('the people list, with their grants (`include=grants`)', () => {
     const bad = await h.call(ALICE, 'GET', '/v1/identity/users?include=grants,keys');
     expect([bad.status, h.code(bad)]).toEqual([400, 'bad-input']);
     expect((bad.body.error as { message: string }).message).toBe(
-      'Unknown `include` value(s): keys',
+      'Unknown `include` value(s): keys. Expected one or more of: grants',
     );
     const bob = await h.call(BOB, 'GET', '/v1/identity/users?include=grants');
     expect([bob.status, h.code(bob)]).toEqual([403, 'permission-denied']);
     expect(h.batchReads).toEqual([]);
+  });
+
+  test('`include` reads repeated keys like the comma form; `include=` adds nothing', async () => {
+    const h = harness({ readMany: true });
+    const repeated = await h.call(ALICE, 'GET', '/v1/identity/users?include=&include=grants');
+    expect(repeated.status).toBe(200);
+    expect(listed(repeated).map(([id, g]) => [id, g !== undefined])).toEqual([
+      ['alice', true],
+      ['bob', true],
+    ]);
+    const empty = await h.call(ALICE, 'GET', '/v1/identity/users?include=');
+    expect(empty.status).toBe(200);
+    expect(listed(empty)).toEqual([
+      ['alice', undefined],
+      ['bob', undefined],
+    ]);
   });
 });
 

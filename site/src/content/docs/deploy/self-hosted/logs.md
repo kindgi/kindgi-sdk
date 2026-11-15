@@ -52,20 +52,29 @@ A subsystem no part of the runtime logs under only warns:
 ## The subsystems
 
 `boot`, `http`, `authz`, `runs`, `provenance` (runtime 0.3.0 or later),
-`kernel`, `leases`, `approvals`, `retention`, `audit`, `webhooks`, `mcp`,
+`kernel`, `leases`, `approvals`, `retention`, `erasure` (runtime 0.6.0 or
+later, for [erasing a person's data](../../../guides/agents/erase-a-persons-data/)),
+`audit`, `webhooks`, `destinations` (runtime 0.7.0 or later), `mcp`,
 `providers`, `promotions`, `pinned-versions` (runtime 0.3.0 or later),
 `block-version-prs` (runtime 0.4.0 or later), `tools`, `guardrails`,
 `pack`, `pack-orchestrator` (runtime 0.4.0 or later, for the
-[pack orchestrator](../pack-orchestrator/)), `ready`, `shutdown`,
+[pack orchestrator](../pack-orchestrator/)), `ready`, `shutdown`, `tick`
+with its nested `tick.hold` (runtime 0.7.0 or later, for a server that
+[scales to zero](../cloud-run/#scale-the-server-to-zero)),
 `schedules`, `references`, `secrets`, `license`, `aws-identity`,
 `expert-queue` (runtime 0.4.0 or later), `db`, `migrations`,
 `openfga`, `sso`, `tenants`, `improvement-passes`,
-`api-keys`, and `connections` (runtime 0.2.0 or later), with these nested
+`memory` (runtime 0.6.0 or later), `api-keys`, and `connections`
+(runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
-`webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
-`mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `providers.keys`,
-`providers.prune`, `secrets.scopes` and `tenants.purge` (runtime 0.1.10 or
-later).
+`webhooks.worker`, `destinations.worker` (runtime 0.7.0 or later),
+`authz.outbox`, `approvals.notifier`, `audit.retention`,
+`mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `memory.embeddings`
+(whether the embeddings endpoint answers, runtime 0.6.0 or later),
+`memory.embedder` (embedding the facts kept without a vector, runtime 0.6.0
+or later), `providers.keys`,
+`providers.prune`, `secrets.scopes`, `tenants.purge` (runtime 0.1.10 or
+later) and `connections.texts-inbound` (runtime 0.7.0 or later).
 
 ## The two formats
 
@@ -209,6 +218,15 @@ never its inputs or outputs. Secret-looking values are redacted. Still, logs
 go to your log system, outside Kindgi's control and outside what Kindgi
 erases. Keep production at `info` or `warn`, and set your log system's
 retention to match your data rules.
+
+In Python, an error your code logs is written with its message, with only
+known secret shapes masked, and a database driver's message can quote the
+statement and the values bound to it. SQLAlchemy adds the statement, and the
+values too unless the engine is made with `hide_parameters=True`, and psycopg
+keeps the server's `DETAIL:` line, which can quote a row's values. Where that
+matters, make the engine with `hide_parameters=True`, and log the error's
+SQLSTATE in a field rather than the error itself: a psycopg error's
+`sqlstate`, or `orig.sqlstate` on SQLAlchemy's.
 
 ## Your pack's service
 

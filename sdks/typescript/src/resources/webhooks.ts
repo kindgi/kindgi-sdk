@@ -103,23 +103,14 @@ export interface WebhooksClient {
    */
   fires(triggerId: string, filter?: ListWebhookFiresFilter): Promise<WebhookFirePage>;
   /**
-   * The trigger's versions, newest first: what it was from each version's
-   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
-   * change makes one; a change that alters nothing, pausing and resuming
-   * make none. A delivery's run uses the newest when it starts, and keeps
-   * it (its `trigger.version`).
-   *
-   * @wire GET /v1/webhooks/:triggerId/versions
+   * The trigger's versions: list and get. Calling it directly lists them.
+   * That is deprecated: use `webhooks.versions.list`, which sends the same
+   * request. A later minor release removes it, announced in advance.
    */
-  versions(
-    triggerId: string,
-    filter?: ListWebhookTriggerVersionsFilter,
-  ): Promise<WebhookTriggerVersionPage>;
+  readonly versions: WebhookTriggerVersionsClient;
   /**
-   * One version of the trigger, by its number (from 1). Returns 404
-   * `trigger-version-not-found` for a number it never had.
-   *
-   * @wire GET /v1/webhooks/:triggerId/versions/:version
+   * @deprecated Use `webhooks.versions.get`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
    */
   getVersion(triggerId: string, version: number): Promise<WebhookTriggerVersion>;
   /**
@@ -142,7 +133,59 @@ interface MutationOptions {
   readonly idempotencyKey?: string;
 }
 
+export interface WebhookTriggerVersionsClient {
+  /**
+   * @deprecated Use `webhooks.versions.list`, which sends the same request. A
+   *   later minor release removes it, announced in advance.
+   */
+  (
+    triggerId: string,
+    filter?: ListWebhookTriggerVersionsFilter,
+  ): Promise<WebhookTriggerVersionPage>;
+  /**
+   * The trigger's versions, newest first: what it was from each version's
+   * `createdAt` on, who made it (`createdBy`) and why (`cause`). Each
+   * change makes one; a change that alters nothing, pausing and resuming
+   * make none. A delivery's run uses the newest when it starts, and keeps
+   * it (its `trigger.version`).
+   *
+   * @wire GET /v1/webhooks/:triggerId/versions
+   */
+  list(
+    triggerId: string,
+    filter?: ListWebhookTriggerVersionsFilter,
+  ): Promise<WebhookTriggerVersionPage>;
+  /**
+   * One version of the trigger, by its number (from 1). Returns 404
+   * `trigger-version-not-found` for a number it never had.
+   *
+   * @wire GET /v1/webhooks/:triggerId/versions/:version
+   */
+  get(triggerId: string, version: number): Promise<WebhookTriggerVersion>;
+}
+
 export function makeWebhooksClient(transport: Transport): WebhooksClient {
+  const list: WebhookTriggerVersionsClient['list'] = async (triggerId, filter) =>
+    transport.request<WebhookTriggerVersionPage>({
+      method: 'GET',
+      path: `/v1/webhooks/${encodeURIComponent(triggerId)}/versions`,
+      query: {
+        ...(filter?.limit !== undefined && { limit: filter.limit }),
+        ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+      },
+    });
+  const versions: WebhookTriggerVersionsClient = Object.assign(
+    (triggerId: string, filter?: ListWebhookTriggerVersionsFilter) => list(triggerId, filter),
+    {
+      list,
+      async get(triggerId: string, version: number) {
+        return transport.request<WebhookTriggerVersion>({
+          method: 'GET',
+          path: `/v1/webhooks/${encodeURIComponent(triggerId)}/versions/${version}`,
+        });
+      },
+    },
+  );
   return {
     async register(input, options) {
       return transport.request<WebhookTrigger>({
@@ -209,22 +252,8 @@ export function makeWebhooksClient(transport: Transport): WebhooksClient {
         },
       });
     },
-    async versions(triggerId, filter) {
-      return transport.request<WebhookTriggerVersionPage>({
-        method: 'GET',
-        path: `/v1/webhooks/${encodeURIComponent(triggerId)}/versions`,
-        query: {
-          ...(filter?.limit !== undefined && { limit: filter.limit }),
-          ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
-        },
-      });
-    },
-    async getVersion(triggerId, version) {
-      return transport.request<WebhookTriggerVersion>({
-        method: 'GET',
-        path: `/v1/webhooks/${encodeURIComponent(triggerId)}/versions/${version}`,
-      });
-    },
+    versions,
+    getVersion: (triggerId, version) => versions.get(triggerId, version),
     async takeOwnership(triggerId, input, options) {
       return transport.request<WebhookTrigger>({
         method: 'POST',

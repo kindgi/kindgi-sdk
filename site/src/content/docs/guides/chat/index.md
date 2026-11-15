@@ -88,6 +88,11 @@ Claude stops acting for you at once: its next request to Kindgi is refused,
 and it can't sign in again on its own. To use it again, connect it from
 claude.ai.
 
+A tenant admin can disconnect it for you too, from your page in
+[**People**](../../deploy/people-and-keys/#people) (runtime 0.7.0 or later).
+Where the runtime sends mail, you're emailed which app was disconnected, by
+whom and when. It isn't a block: you can connect it again from claude.ai.
+
 Removing the connector in claude.ai doesn't end what you allowed in Kindgi,
 so disconnect in Kindgi too.
 

@@ -10,23 +10,31 @@ import {
 } from '@kindgi/capabilities';
 
 import { type PrepareInProcessParams, prepareInProcessModel } from './prepare.js';
-import { type LocalModel, MODEL_SPECS, createInProcessModelProvider } from './provider.js';
+import { type LocalModel, MODEL_SPECS, registeredInProcessProvider } from './provider.js';
 
 /** The id the runtime registers this adapter under. */
 export const IN_PROCESS_ADAPTER_ID = '@kindgi/adapter-model-in-process';
 
 /**
  * The runtime's factory. A provider registered with it lists models by
- * their `MODEL_SPECS` key in `metadata.models[].name`.
+ * their `MODEL_SPECS` key in `metadata.models[].name`. A model's
+ * `maxOutputTokens` there caps a call that sets none.
  */
 export const inProcessAdapterFactory: AdapterFactory = (input) => {
   const problem = modelsProblem(input.metadata);
   if (problem !== undefined)
     throw adapterConfigError(IN_PROCESS_ADAPTER_ID, input.metadata.id, problem);
-  return createInProcessModelProvider({
-    models: input.metadata.models.map((m) => m.name as LocalModel),
-    providerId: input.metadata.id,
-  });
+  return registeredInProcessProvider(
+    {
+      models: input.metadata.models.map((m) => m.name as LocalModel),
+      providerId: input.metadata.id,
+    },
+    new Map(
+      input.metadata.models.flatMap((m) =>
+        m.maxOutputTokens !== undefined ? [[m.name as LocalModel, m.maxOutputTokens] as const] : [],
+      ),
+    ),
+  );
 };
 
 /**

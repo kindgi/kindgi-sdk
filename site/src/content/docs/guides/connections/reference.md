@@ -229,8 +229,11 @@ there.
   ([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
 - **An app that gives no refresh token** ends a connection when its access
   token ends: LinkedIn gives them only to partners it approves, and its
-  access lasts 60 days. Kindgi knows when, and just before then the
-  connection needs reconnecting, with no call to the app
+  access lasts 60 days. Kindgi knows when. From seven days before, the
+  connection says when it ends, and where the deployment sends mail,
+  whoever can reconnect it gets one email (runtime 0.7.0 or later). Just
+  before its access ends, the connection needs reconnecting, with no call
+  to the app
   ([LinkedIn](../linkedin/#when-linkedin-ends-access)).
 - **The connection's page shows when it was last used,** so you can
   disconnect what nobody uses.
@@ -252,7 +255,7 @@ console's **Connections** page, or from a terminal, by its id from
 `kindgi connections list`:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connections disconnect <connection-id>
+npx --yes @kindgi/cli@0.7 connections disconnect <connection-id>
 ```
 
 It asks first, unless `--yes`, and prints what was done. Kindgi then:
@@ -328,8 +331,7 @@ already gone at the app, so Kindgi only destroys the stored token.
 
 - **`connection-app-missing`:** no registration of that app allows the
   run's project, and an admin registers it. Or the runtime doesn't offer
-  connections at all, as under `kindgi dev`
-  ([What you need](../#what-you-need)).
+  connections at all ([What you need](../#what-you-need)).
 - **`connection-needs-a-person`:** the tool needs a person's connection,
   and the run acts as nobody: a service account's run, or an event's.
 - **`connection-missing`:** the connection isn't there, lacks a

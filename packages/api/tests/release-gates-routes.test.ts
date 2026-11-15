@@ -4,7 +4,9 @@
 /**
  * `/v1/release-gates`: the registry routes over a fake
  * binding, the strict spec check, `admin` on the tenant for writes, and
- * `read` on a release gate's scope for reads.
+ * `read` on a release gate's scope for reads. A key limited to a project
+ * reads the tenant's release gates and its project's org's, and no other
+ * org's.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -12,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
+import { type AuthzCheckBinding, userPrincipal } from '@kindgi/authz';
 import type { AgentPinScope, TenantId, Timestamp, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -24,7 +27,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
-import type { Authorizer } from '../src/middleware/authorize.js';
+import { type Authorizer, createAuthorizer } from '../src/middleware/authorize.js';
 import { parseReleaseGateSpec } from '../src/routes/release-gate-spec.js';
 import { releaseGatesRouter } from '../src/routes/release-gates.js';
 import type { AppEnv } from '../src/types.js';
@@ -363,6 +366,82 @@ describe('authorization: writes need admin on the tenant; reads need read on the
     expect(((await res.json()) as { data: unknown[] }).data).toEqual([]);
     for (const p of RELEASE_GATES) {
       expect((await mounted([], []).request(`/${p.id}`)).status).toBe(404);
+    }
+  });
+});
+
+describe("a key limited to a project: the tenant's release gates and its own org's, no other org's", () => {
+  const OTHER = randomUUID();
+  const OWN_ORG = randomUUID();
+  const OTHER_ORG = randomUUID();
+  const scoped = (id: string, scope: AgentPinScope): ReleaseGate => ({
+    ...releaseGate(),
+    id,
+    scope,
+  });
+  const RELEASE_GATES: readonly ReleaseGate[] = [
+    scoped('acme.a', { kind: 'project', projectId: PROJECT } as AgentPinScope),
+    scoped('acme.b', { kind: 'project', projectId: OTHER } as AgentPinScope),
+    scoped('acme.org', { kind: 'org', orgId: OWN_ORG } as AgentPinScope),
+    scoped('acme.other-org', { kind: 'org', orgId: OTHER_ORG } as AgentPinScope),
+    scoped('acme.all', { kind: 'tenant' }),
+  ];
+
+  /** The person reads every scope; `keyProject`, the project their key is limited to (`PROJECT` is in `OWN_ORG`). */
+  function mounted(keyProject?: string) {
+    const store = {
+      check: async () => ({ allowed: true }),
+      checkBatch: async (_p: unknown, _a: unknown, refs: readonly unknown[]) =>
+        refs.map(() => ({ allowed: true })),
+    } as unknown as AuthzCheckBinding;
+    const authorizer = createAuthorizer(store, {
+      projects: {
+        get: async (_t: TenantId, id: string) => (id === PROJECT ? { id, orgId: OWN_ORG } : null),
+      } as never,
+    });
+    const binding: ReleaseGateBinding = {
+      ...fakeBinding().binding,
+      list: async () => ({ data: [...RELEASE_GATES] }),
+      get: async ({ id }) => RELEASE_GATES.find((p) => p.id === id) ?? null,
+      getVersion: async ({ id }) => RELEASE_GATES.find((p) => p.id === id) ?? null,
+      listVersions: async ({ id }) => RELEASE_GATES.filter((p) => p.id === id),
+    };
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-gate' as never);
+      c.set('principal' as never, userPrincipal(userId, tenantId) as never);
+      if (keyProject !== undefined) c.set('tokenProjectId', keyProject);
+      return next();
+    });
+    app.route('/', releaseGatesRouter(binding, authorizer));
+    return app;
+  }
+  const listed = async (keyProject?: string) =>
+    (
+      (await (await mounted(keyProject).request('/')).json()) as { data: { id: string }[] }
+    ).data.map((p) => p.id);
+
+  test("its person lists every one; the key, its project's, its org's and the tenant's", async () => {
+    expect(await listed()).toEqual(RELEASE_GATES.map((p) => p.id));
+    expect(await listed(PROJECT)).toEqual(['acme.a', 'acme.org', 'acme.all']);
+  });
+
+  test.each([
+    ['acme.a', 200],
+    ['acme.org', 200],
+    ['acme.all', 200],
+    ['acme.b', 404],
+    ['acme.other-org', 404],
+  ] as const)('the key: %s → %i on each read route', async (id, status) => {
+    for (const path of [`/${id}`, `/${id}/versions`, `/${id}/versions/1.0.0`]) {
+      const res = await mounted(PROJECT).request(path);
+      expect(res.status, path).toBe(status);
+      if (status === 404) {
+        expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+          'release-gate-not-found',
+        );
+      }
     }
   });
 });

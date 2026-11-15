@@ -25,8 +25,8 @@ page does the same steps ([From the console](#from-the-console)).
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../deploy/people-and-keys/#api-keys)).
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../start/install/)). Inside a pack
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../start/install/)). Inside a pack
   project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get what to send IT
@@ -35,7 +35,7 @@ page does the same steps ([From the console](#from-the-console)).
 registered:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers start acme-kc --idp=keycloak
+npx --yes @kindgi/cli@0.7 sso providers start acme-kc --idp=keycloak
 ```
 
 - `acme-kc` is the provider's id in your workspace. Pick one per identity
@@ -86,12 +86,15 @@ IT follows your identity provider's page, with exactly the redirect URI that
 by name, so the secret never travels by email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_KC_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.7 secrets set ACME_KC_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_KC_SECRET` is the secret's name. The provider's registration keeps
   only this name. The secret stays in the store.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
@@ -106,11 +109,11 @@ Re-enter to confirm:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_KC_SECRET at tenant in production.
+  Set ACME_KC_SECRET at tenant in prod.
 ```
 
 IT then sends back the issuer URL, the client ID and the secret's name.
@@ -120,7 +123,7 @@ IT then sends back the issuer URL, the client ID and the secret's name.
 `finish` registers the provider, and offers it to people at your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/realms/acme \
+npx --yes @kindgi/cli@0.7 sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/realms/acme \
   --client-id=kindgi-live --client-secret-ref=ACME_KC_SECRET --domains=acme.test --name="Acme Keycloak"
 ```
 
@@ -174,7 +177,7 @@ provider confirms. Add each person first, with their email
 to try the sign-in:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers test acme-kc
+npx --yes @kindgi/cli@0.7 sso providers test acme-kc
 ```
 
 `test` gives a link for someone at the provider's first domain.
@@ -191,7 +194,43 @@ Open the link, and sign in as a person you've added. The console then shows
 who you're signed in as. From then on, people sign in from the console's
 sign-in page with their email ([Sign in to the console](sign-in/)). Someone
 who isn't added is refused, even when the identity provider lets them
-through.
+through, unless the provider lets them join.
+
+### Or let your colleagues join
+
+Instead of adding each person, a provider can let in anyone it signs in
+with a verified email at one of its domains:
+
+```sh
+npx --yes @kindgi/cli@0.7 sso providers update acme-kc --join=domain --join-role=viewer
+```
+
+- **The first time** someone at one of its domains signs in through it,
+  they're added to the workspace with the provider's join role: `viewer`
+  (the default) or `runner` on the default project (a runner also runs its
+  agents and flows), or `none`, a member with no project yet. Never tenant
+  admin. Their record says the provider added them (`createdBy` is
+  `identity_provider:<provider-id>`).
+- **Only through this provider,** with an email it says it verified, at a
+  domain that finds this workspace. An OIDC provider says so with an
+  `email_verified` claim of `true`, in its ID token or userinfo. One that
+  doesn't send the claim lets no one join, and the runtime's log says why.
+  A SAML provider's signed assertion counts as its word. A runtime that
+  serves one workspace finds it by the provider's domains. One that serves
+  several needs its operator to list the domain in
+  `KINDGI_AUTH_VERIFIED_DOMAINS`
+  ([Which domains find a workspace's identity provider](../../deploy/self-hosted/sign-in/#which-domains-find-a-workspaces-identity-provider)).
+  Continue with Google, Microsoft or GitHub, and the emailed link, still
+  need the person added.
+- **Someone you removed stays out,** however they sign in. Add them again
+  to let them back in.
+- **`--join=invite`** turns it off, so only people you add get in. The
+  provider keeps its join role for when you turn it back on. In the API,
+  these are the provider's `join` and `joinRole`.
+- **It needs the runtime's authorization store.** Without one, setting it is
+  refused with `409 domain-join-needs-authorization`, since a joiner would
+  work in every project
+  ([Without authorization](../../deploy/people-and-keys/#without-authorization)).
 
 ## Change it, list it, remove it
 
@@ -199,7 +238,7 @@ through.
 table:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers list --table
+npx --yes @kindgi/cli@0.7 sso providers list --table
 ```
 
 ```text
@@ -209,9 +248,10 @@ acme-kc   oidc  Acme Keycloak  acme.test
 ```
 
 - **`get <id>`** shows one provider, with its sign-in URLs.
-- **`update <id>`** changes a field in place: `--name`, `--domains` or a new
-  `--client-secret-ref`, for example. `--remove=<field>` takes out an
-  optional field, such as `displayName`. The URLs IT has don't change.
+- **`update <id>`** changes a field in place: `--name`, `--domains`,
+  `--join` and `--join-role`, or a new `--client-secret-ref`, for example.
+  `--remove=<field>` takes out an optional field, such as `displayName`. The
+  URLs IT has don't change.
   Changing which identity provider is behind it signs its people out: a new
   issuer or client, or new SAML metadata or certificates. They then sign in
   again as usual. Renaming it or changing its domains doesn't sign anyone

@@ -796,6 +796,19 @@ describe('microsoftMail.read', () => {
     expect(calls.filter((c) => c.url.split('?')[0]?.endsWith('/me/messages'))).toHaveLength(0);
   });
 
+  it('sets in a line the sender wrote that would read as the mark a quote cut leaves', async () => {
+    const { call } = graph(() =>
+      Response.json({
+        ...message('m3', '2026-10-26T01:00:00Z', {
+          uniqueBody: { contentType: 'text', content: 'Thursday works.\n[earlier mail left out]' },
+        }),
+        conversationId: null,
+      }),
+    );
+    const read = await microsoftMail.read(call, { messageId: 'm3', budget: MAIL_TURN_BUDGET });
+    expect(read.kind === 'ok' && read.mail.body).toBe('Thursday works.\n [earlier mail left out]');
+  });
+
   it('says not-found for a message deleted before it was read', async () => {
     const { call } = graph(() =>
       graphError(404, 'ErrorItemNotFound', 'The specified object was not found in the store.'),

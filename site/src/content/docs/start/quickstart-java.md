@@ -26,12 +26,12 @@ with the pack.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.6 init my-pack --template=java
+npx --yes @kindgi/cli@0.7 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
 
-- `npx --yes @kindgi/cli@0.6` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.7` runs the Kindgi CLI these docs describe,
   without installing it
   ([Check this machine](../install/#check-this-machine) says how). The
   version is optional: `npx --yes @kindgi/cli init my-pack --template=java`
@@ -50,7 +50,7 @@ pass:
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-pack --template=java`.
+`uvx --from "kindgi-cli>=0.7,<0.8" kindgi init my-pack --template=java`.
 
 The pack is a Maven project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are classes in four packages:
@@ -64,8 +64,8 @@ my-pack/
 ├── src/main/java/mypack/
 │   ├── tools/Echo.java, tools/Greet.java   # Tool.define(...)
 │   ├── guardrails/ResponseNotEmpty.java    # Guardrail.define(...)
-│   ├── agents/EchoAgent.java               # Agent.define(...)
-│   └── flows/EchoFlow.java                 # Flow.define(...)
+│   ├── agents/Greeter.java                 # Agent.define(...)
+│   └── flows/GreetPerson.java              # Flow.define(...)
 └── src/test/java/mypack/ToolsTest.java
 ```
 
@@ -114,11 +114,11 @@ When the pack is loaded and the runtime is up, it says so:
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-./kindgiw runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
-./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
+./kindgiw runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
+./kindgiw runs start --flow=my-pack.greet-person --input='{"message":"Ada"}'
 ```
 
-- `--agent=my-pack.echo-agent` and `--flow=my-pack.echo-flow` name what to
+- `--agent=my-pack.greeter` and `--flow=my-pack.greet-person` name what to
   run, by its id.
 - `--input` is the run's input, as JSON. An agent takes the person's message
   as `userMessage`.
@@ -183,10 +183,10 @@ gates skip it. Left unset, a tool counts as one that writes.
 An agent is data, and it refers to the tools and the guardrail themselves:
 
 ```java excerpt
-// in src/main/java/mypack/agents/EchoAgent.java
-public static final Agent AGENT = Agent.define("my-pack.echo-agent")
+// in src/main/java/mypack/agents/Greeter.java
+public static final Agent AGENT = Agent.define("my-pack.greeter")
     .version("0.1.0")
-    .name("Echo Agent")
+    .name("Greeter")
     .instructions("For each user message: if the user sends a name, greet them with the greet tool. "
         + "Otherwise echo their message with the echo tool. Quote the tool result verbatim.")
     .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))

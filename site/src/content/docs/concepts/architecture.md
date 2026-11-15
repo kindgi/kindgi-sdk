@@ -49,7 +49,8 @@ your code when they need it, and records every step.
   needs, and Kindgi picks a model that fits.
 - **The console**, at `/console/` on any runtime, shows each run on one page:
   what it did and cost, its journal, and where an agent's answer came from.
-  It shows the agents, tools and conversations, project by project.
+  It shows the agents, tools and conversations, project by project, and
+  each project's results: what each of its runs gave back, newest first.
   Reviewers approve or reject there. It follows your system's light or dark
   setting, or the one you choose in its settings or with ⌘K.
 
@@ -63,7 +64,7 @@ The same runtime image runs everywhere:
 - **In your infrastructure:** you deploy the runtime and your pack service
   next to your data. Prompts, data and keys stay there. See
   [Deploy](../../deploy/).
-- **Kindgi Cloud:** Kindgi operates the runtime for you (private preview).
+- **Kindgi Cloud:** Kindgi operates the runtime for you.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub or your

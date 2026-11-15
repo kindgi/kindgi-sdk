@@ -12,8 +12,8 @@ import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
  * An API key always acts for one principal (`TokenPrincipal`): a person
  * (`user:<id>`) or a service account (`service_account:<id>`), with that
  * principal's grants and nothing more. Its `role` is a ceiling under those
- * grants, and its `projectId` narrows it to one project; neither ever
- * widens it. `POST /v1/tokens` mints; `GET /v1/tokens` and
+ * grants, its `projectId` narrows it to one project, and `readOnly` keeps
+ * it to reads; none of them ever widens it. `POST /v1/tokens` mints; `GET /v1/tokens` and
  * `GET /v1/tokens/:tokenId` read (never the secret);
  * `POST /v1/tokens/:tokenId/revoke` revokes.
  */
@@ -64,10 +64,25 @@ export interface TokenMintInput {
   /** Optional project: the key is narrowed to it, refused on any other. */
   readonly projectId?: ProjectId;
   /**
+   * The key only reads: every request it makes but a `GET` or a `HEAD` is
+   * refused (`read-only-key`), apart from an agent's pin check, which
+   * writes nothing. Set only at mint. A store that can't keep it leaves it off the record, and
+   * the route then revokes the key and refuses the mint.
+   */
+  readonly readOnly?: boolean;
+  /**
    * Who minted it, as a principal reference: `user:<id>` or
    * `service_account:<tokenId>`.
    */
   readonly createdBy?: string;
+  /**
+   * The key it was minted with: the caller's key, or the key a token
+   * sign-in session was opened with. Absent when none was (another
+   * session, the deployment's token). Revoking that key revokes this one,
+   * and every key minted with it in turn. A store hands the new key back
+   * revoked when that key turns out revoked as it mints.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 /**
@@ -105,6 +120,8 @@ export interface ApiTokenRecord {
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: ProjectId;
+  /** True when the key only reads (`TokenMintInput.readOnly`). */
+  readonly readOnly?: boolean;
   readonly createdBy?: string;
   readonly createdAt: Date;
   readonly expiresAt?: Date;
@@ -112,6 +129,11 @@ export interface ApiTokenRecord {
   readonly revokedAt?: Date;
   /** When the key last authenticated a request (updated at most once a minute). */
   readonly lastUsedAt?: Date;
+  /**
+   * The key it was minted with; absent when none was, or for a key minted
+   * before stores recorded it. It stops when that key is revoked.
+   */
+  readonly mintedWith?: ApiTokenId;
 }
 
 /**
@@ -125,6 +147,11 @@ export interface TokenListInput {
   readonly limit: number;
   /** Only the keys that act for this principal (a person sees only their own). */
   readonly principal?: TokenPrincipal;
+  /**
+   * Only the keys minted with this key, and with those in turn, to any
+   * depth, revoked ones too: revoking it takes the live ones among them.
+   */
+  readonly mintedWith?: ApiTokenId;
   /** The last record of the previous page. */
   readonly after?: { readonly createdAt: Date; readonly tokenId: ApiTokenId };
 }
@@ -141,4 +168,14 @@ export interface TokenRevokeInput {
   readonly revokedBy?: string;
 }
 
-export type TokenRevokeOutcome = { readonly kind: 'ok' } | { readonly kind: 'not-found' };
+export type TokenRevokeOutcome =
+  | {
+      readonly kind: 'ok';
+      /**
+       * The keys revoked with it: every key minted with it, and with those
+       * in turn, that wasn't revoked yet, oldest first. Absent from stores
+       * that don't record which key minted which.
+       */
+      readonly alsoRevoked?: readonly ApiTokenId[];
+    }
+  | { readonly kind: 'not-found' };

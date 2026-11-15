@@ -27,8 +27,11 @@ import { throwAgentTurnFailure } from './errors.js';
 import { finalIteration } from './final-iteration.js';
 import { type PointWhere, guardrailsAt, pointFaultOutcome } from './guardrail-points.js';
 import { answerNotes, isRetryGuardrail, judgedInLoop, turnRetryNotes } from './guardrail-retry.js';
+import { turnHistory } from './history.js';
+import { addModelWarnings } from './model-call.js';
 import { replayTag } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
+import { agentActor } from './turn-provenance.js';
 
 /**
  * Guardrail gate on the turn's final response, before it is stored, on
@@ -171,8 +174,9 @@ function inGuardrailOrder(
 }
 
 /**
- * The final answer's `model-output` node in provenance, `produced` by its
- * model call: what its guardrail checks link to (`addCheckNodes`).
+ * The final answer's `model-output` node in provenance, its actor the
+ * agent, `produced` by its model call: what its guardrail checks link to
+ * (`addCheckNodes`).
  */
 export function addModelOutputNode(
   ctx: TurnContext,
@@ -186,6 +190,7 @@ export function addModelOutputNode(
     id: output,
     kind: 'model-output',
     timestamp: at,
+    actor: agentActor(ctx.input.agent),
     modelVersion: `${provider.id}/${provider.model}`,
   });
   provenance.addEdge({ from: output, to: `model-call:${ctx.usage.steps}`, kind: 'produced' });
@@ -256,6 +261,25 @@ export function violationsOf(categorized: Categorized): readonly EvaluationResul
 }
 
 /**
+ * Keep what each judge's model call warned about (`CheckResult.warnings`)
+ * for the turn's result, as its own calls' are: once per code, each
+ * naming the guardrail whose judge it was.
+ */
+export function addJudgeWarnings(ctx: TurnContext, outcomes: readonly EvaluationOutcome[]): void {
+  for (const outcome of outcomes) {
+    if (outcome.kind !== 'ok') continue;
+    const { guardrailId, result } = outcome.value;
+    addModelWarnings(
+      ctx,
+      result.warnings?.map((w) => ({
+        code: w.code,
+        message: `Guardrail "${guardrailId}"'s judge: ${w.message}`,
+      })),
+    );
+  }
+}
+
+/**
  * Judges `answer` on `guardrails`: the turn's trace with it as the
  * response, as it would be stored, through the gate. Shared by this
  * node and the loop's `budget-check`, which judges each finished answer
@@ -301,6 +325,7 @@ export async function judgeAnswer(
     judgeUsageSink(ctx, kctx),
   );
   throwIfJudgeCallsUnrecorded(ran);
+  addJudgeWarnings(ctx, ran);
   let next = 0;
   const outcomes = guardrails.map((g) => {
     const fault = faults?.get(g.id as string);
@@ -315,7 +340,9 @@ export async function judgeAnswer(
 /**
  * The trace fields every gate of the turn shares: who, where, the turn's
  * input and its usage so far, and, when one of `guardrails` is scoped to
- * flows, the flow whose step started the turn (`flowOfTurn`).
+ * flows, the flow whose step started the turn (`flowOfTurn`). When one of
+ * them sees the conversation (`Guardrail.sees`), the earlier messages the
+ * model was given (`turnHistory`): the engine gives them to that one only.
  */
 export async function traceBaseOf(
   ctx: TurnContext,
@@ -332,6 +359,7 @@ export async function traceBaseOf(
   readonly flowId?: FlowId;
   readonly userMessage: string;
   readonly stepInput?: unknown;
+  readonly earlier?: readonly ConversationMessage[];
   readonly usage: {
     readonly steps: number;
     readonly promptTokens: number;
@@ -341,6 +369,9 @@ export async function traceBaseOf(
   };
 }> {
   const flowId = await flowOfTurn(ctx, kctx, guardrails);
+  const earlier = guardrails.some((g) => g.sees === 'conversation')
+    ? await turnHistory(ctx)
+    : undefined;
   return {
     runId: kctx.runId,
     tenantId: ctx.input.tenantId,
@@ -352,6 +383,7 @@ export async function traceBaseOf(
     ...(flowId !== undefined && { flowId }),
     userMessage: ctx.input.userMessage,
     ...(ctx.input.input !== undefined && { stepInput: ctx.input.input }),
+    ...(earlier !== undefined && { earlier }),
     usage: {
       steps: ctx.usage.steps,
       promptTokens: ctx.usage.promptTokens,

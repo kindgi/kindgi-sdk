@@ -20,7 +20,7 @@ A finished flow run has a record too, of its steps and the runs they started:
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.6's CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.7's CLI.
 - **The id of an agent turn's run.** `kindgi runs list` shows it.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set in your shell, for the
   HTTP requests. With `kindgi dev`, they're `apiUrl` and `token` in the pack's
@@ -78,11 +78,11 @@ Both answer the record:
   "dag": {
     "nodes": [
       {"id": "input:0", "kind": "input", "timestamp": "2026-10-08T15:13:29.826Z"},
-      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-08T15:13:31.345Z", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 1, "model": "claude-sonnet-5-5", "callId": "975d170b-d14f-4fbf-b662-85bcf26b9431", "providerId": "anthropic", "finishReason": "tool-use"}},
-      {"id": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-call", "timestamp": "2026-10-08T15:13:31.369Z", "attributes": {"toolId": "acme.echo", "toolVersion": "0.1.0", "invocationId": "toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "toolVersionRange": "0.1.0"}},
+      {"id": "model-call:1", "kind": "model-call", "timestamp": "2026-10-08T15:13:31.345Z", "actor": "agent:acme.assistant@0.1.0", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 1, "model": "claude-sonnet-5-5", "callId": "975d170b-d14f-4fbf-b662-85bcf26b9431", "providerId": "anthropic", "finishReason": "tool-use"}},
+      {"id": "tool-call:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-call", "timestamp": "2026-10-08T15:13:31.369Z", "actor": "agent:acme.assistant@0.1.0", "attributes": {"toolId": "acme.echo", "toolVersion": "0.1.0", "invocationId": "toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "toolVersionRange": "0.1.0"}},
       {"id": "tool-result:toolu_01LiLE7Xk9BK16Hkr2tLBEq4", "kind": "tool-result", "timestamp": "2026-10-08T15:13:31.369Z"},
-      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-08T15:13:32.418Z", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 2, "model": "claude-sonnet-5-5", "callId": "99929d2e-05e2-4452-853e-b6c6f0deed6e", "providerId": "anthropic", "finishReason": "stop"}},
-      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-08T15:13:32.442Z", "modelVersion": "anthropic/claude-sonnet-5-5"}
+      {"id": "model-call:2", "kind": "model-call", "timestamp": "2026-10-08T15:13:32.418Z", "actor": "agent:acme.assistant@0.1.0", "modelVersion": "anthropic/claude-sonnet-5-5", "attributes": {"step": 2, "model": "claude-sonnet-5-5", "callId": "99929d2e-05e2-4452-853e-b6c6f0deed6e", "providerId": "anthropic", "finishReason": "stop"}},
+      {"id": "model-output:2", "kind": "model-output", "timestamp": "2026-10-08T15:13:32.442Z", "actor": "agent:acme.assistant@0.1.0", "modelVersion": "anthropic/claude-sonnet-5-5"}
     ],
     "edges": [
       {"from": "model-call:1", "to": "input:0", "kind": "caused-by"},
@@ -116,6 +116,13 @@ Read it from the answer backwards:
 | `tool-call`, `tool-result` | A tool the model called, with the exact tool version that ran, and what it returned. |
 | `model-output` | The answer. |
 | `wait`, `resume` | A tool call that waited for an approval: the wait, and the decision that ended it. |
+
+The nodes of the agent's own acts name it as their `actor`, as
+`agent:<id>@<version>`: its model calls, the tool calls they made, its
+answer, what it remembered (a `memory-write` node), and the `wait` of an
+approval it waited for. A `tool-result` node has no `actor`: the result is the
+tool's. A `resume` node names who decided, and no one when the decision
+doesn't say or the wait was cancelled.
 
 Edges point from an effect to its cause: `caused-by`, `invoked`, `produced`,
 and `influenced-by` from a model call to each tool result it read.
@@ -370,7 +377,7 @@ steps: a tool (`parse`), an agent (`classify`) and another tool (`count`):
   "runId": "22e085a4-103a-41a1-8667-f68796c5edb1",
   …
   "version": "1.1.0",
-  "flowRef": {"id": "acme.typed-agent", "version": "0.1.0"},
+  "flowRef": {"id": "acme.classify-text", "version": "0.1.0"},
   "dag": {
     "nodes": [
       {"id": "input", "kind": "input", "timestamp": "2026-10-28T11:20:21.844Z"},
@@ -499,38 +506,38 @@ One flow's records:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi provenance list --flow=acme.typed-agent --limit=3 --table
+pnpm exec kindgi provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi provenance list --flow=acme.typed-agent --limit=3 --table
+uv run kindgi provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw provenance list --flow=acme.typed-agent --limit=3 --table
+./kindgiw provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw provenance list --flow=acme.typed-agent --limit=3 --table
+./kindgiw provenance list --flow=acme.classify-text --limit=3 --table
 ```
 
 </TabItem>
 </Tabs>
 
 ```text
-RUN                                   CREATED                   FLOW                    SIGNED
-────────────────────────────────────  ────────────────────────  ──────────────────────  ──────
-706d9ef4-6b5f-44a0-8dd5-54c6b488071c  2026-10-28T11:20:44.208Z  acme.typed-agent@0.1.0  no
-22e085a4-103a-41a1-8667-f68796c5edb1  2026-10-28T11:20:27.593Z  acme.typed-agent@0.1.0  no
+RUN                                   CREATED                   FLOW                      SIGNED
+────────────────────────────────────  ────────────────────────  ────────────────────────  ──────
+706d9ef4-6b5f-44a0-8dd5-54c6b488071c  2026-10-28T11:20:44.208Z  acme.classify-text@0.1.0  no
+22e085a4-103a-41a1-8667-f68796c5edb1  2026-10-28T11:20:27.593Z  acme.classify-text@0.1.0  no
 ```
 
 Over HTTP it's `GET /v1/provenance`, filtered by `runId`, `agentId`,

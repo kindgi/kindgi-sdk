@@ -14,11 +14,17 @@ import type { KindgiClient, PolicyVersionRow } from '../src/index.js';
 /** What a call answers. */
 type Answer<F> = F extends (...args: never[]) => Promise<infer R> ? R : never;
 
-describe('policies.getVersion', () => {
+describe('policies.versions.get', () => {
   test('answers a PolicyVersionRow, with an optional unregisteredAt', () => {
+    expectTypeOf<
+      Answer<KindgiClient['policies']['versions']['get']>
+    >().toEqualTypeOf<PolicyVersionRow>();
+    expectTypeOf<PolicyVersionRow['unregisteredAt']>().toEqualTypeOf<string | undefined>();
+  });
+
+  test('the deprecated policies.getVersion answers the same', () => {
     expectTypeOf<
       Answer<KindgiClient['policies']['getVersion']>
     >().toEqualTypeOf<PolicyVersionRow>();
-    expectTypeOf<PolicyVersionRow['unregisteredAt']>().toEqualTypeOf<string | undefined>();
   });
 });

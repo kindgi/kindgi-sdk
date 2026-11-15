@@ -17,8 +17,8 @@ provider.
 - **Someone who can create a SAML app in your identity provider.**
 - **`openssl`,** if your identity provider wants signed sign-in requests
   ([When your identity provider wants signed requests](#when-your-identity-provider-wants-signed-requests)).
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the SAML URLs
@@ -26,7 +26,7 @@ provider.
 `start` with `--kind=saml` gives you the URLs a SAML app asks for:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers start acme-saml --kind=saml
+npx --yes @kindgi/cli@0.7 sso providers start acme-saml --kind=saml
 ```
 
 - `acme-saml` is the provider's id in your workspace.
@@ -74,7 +74,7 @@ Save the identity provider's metadata XML to a file, such as
 your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
+npx --yes @kindgi/cli@0.7 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain>
 ```
 
 - `--kind=saml` says the provider speaks SAML.
@@ -93,7 +93,7 @@ sign-in requests. Keycloak's metadata always says so. `finish` then refuses
 without a key:
 
 ```text
-Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, give IT the certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name
+Error [identity-provider-invalid]: The identity provider wants signed sign-in requests (its metadata says WantAuthnRequestsSigned="true"): make a signing key and certificate, put the key (PEM) in the secret store, and set `spSigningKeyRef` to its name and `spSigningCertificates` to the certificate
 ```
 
 Make a key and certificate, and store the key in Kindgi's secret store by
@@ -101,7 +101,7 @@ name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+npx --yes @kindgi/cli@0.7 secrets set ACME_SAML_SIGNING_KEY --env=prod --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
 - `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
@@ -110,8 +110,11 @@ npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=production --s
 - `-keyout` and `-out` name the key's file and the certificate's file.
 - `-days 730` makes the certificate last two years.
 - `-subj` sets the certificate's name. Use your own domain in it.
-- `--env` is the runtime's environment, its `KINDGI_ENV`, and
-  `--scope=tenant` stores the key for the whole workspace.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
+- `--scope=tenant` stores the key for the whole workspace.
 - `--from-stdin` makes `set` read the key from its input, instead of asking
   for it. `< acme-sp-key.pem` gives it the key file as that input.
 
@@ -127,24 +130,36 @@ it stored:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_SAML_SIGNING_KEY at tenant in production.
+  Set ACME_SAML_SIGNING_KEY at tenant in prod.
 ```
 
-Give the certificate, `acme-sp-cert.pem`, to whoever runs your identity
-provider, to add to the app. Kindgi's service provider metadata doesn't
-carry the certificate, so they add it by hand. Then run `finish` again with
-the key's name:
+Then run `finish` again with the key's name and its certificate:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
-  --sp-signing-key-ref=ACME_SAML_SIGNING_KEY
+npx --yes @kindgi/cli@0.7 sso providers finish acme-saml --kind=saml --idp-metadata=@idp-metadata.xml --domains=<your domain> \
+  --sp-signing-key-ref=ACME_SAML_SIGNING_KEY --sp-signing-certificate=@acme-sp-cert.pem
 ```
 
-`--sp-signing-key-ref` is the signing key's name in the secret store.
+- `--sp-signing-key-ref` is the signing key's name in the secret store.
+- `--sp-signing-certificate` is its certificate's file. Kindgi's service
+  provider metadata then carries the certificate, so an identity provider
+  that imports the metadata has it. If yours doesn't, give whoever runs it
+  `acme-sp-cert.pem` to add to the app.
+- The flag comes with CLI 0.7.0, and the metadata carries the
+  certificate on runtime 0.7.0 or later. An earlier runtime takes the
+  certificate and keeps none: `sso providers get acme-saml` then shows no
+  `spSigningCertificates`, and the identity provider goes on refusing the
+  signed requests.
+
+To change the key, first run `update` with both certificates, the old
+key's and the new one's, each with its own `--sp-signing-certificate`. Once
+the identity provider has the new metadata, run `update` again with the new
+key's name and only its certificate.
+
 [Keycloak](../keycloak/#saml) has these steps for one identity provider,
 checked end to end.
 

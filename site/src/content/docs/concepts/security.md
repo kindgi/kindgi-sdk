@@ -49,7 +49,14 @@ another's is how that service runs:
   [many](../../deploy/self-hosted/serve-many-tenants/), so no deployment's
   code shares a process with another's. They all run as the
   installation's one pack identity, apart from the runtime's: whatever one
-  of them may read, every one may, each other's secrets included. Whatever
+  of them may read, every one may, each other's secrets included. On Cloud
+  Run, the module can give each tenant an account of its own instead
+  ([`pack_accounts = "per-tenant"`](../../deploy/self-hosted/cloud-run/#a-pack-account-per-tenant)).
+  Once a tenant's pack services have moved to its account and
+  `pack_shared_account` is `false`, its pack code reads only its own
+  secrets, and only the secrets the operator lists for it. What the
+  operator lists for every tenant (databases, buckets, services it calls)
+  stays shared. Whatever
   runs those services records each one's endpoint and gives each its
   values, secrets included, with system keys holding `system:deployments`
   and `system:pack-env`. Those keys reach nothing else of the runtime, and
@@ -94,6 +101,9 @@ webhook delivery's included. An artifact upload and a webhook delivery have
 size limits of their own
 ([Keep files with a run](../../guides/runs/keep-files-with-a-run/),
 [Start runs from webhooks](../../guides/webhooks/start-runs-from-webhooks/)).
+Someone who may only run a project uploads files for their own runs within a
+limit per person: by default 1 GiB and 1,000 files in 24 hours in a
+workspace, and `429 upload-limit-reached` past it.
 
 Rendering an agent's instructions template may use 16,777,216 of the
 template engine's memory units, roughly the characters of the strings the
@@ -114,7 +124,10 @@ its environment, never its database URLs, keys or tokens.
 
 With [authorization](../../deploy/authorization/) on, people and service
 accounts have API keys of their own, `kgi_ak_…`. Each key acts with its
-holder's grants and no more. A revoked key is refused from its next request.
+holder's grants and no more. A revoked key is refused from its next request,
+and so is every key made with it, and with those in turn: a key can't
+outlive the key that makes it. A key an older runtime made, which records
+none, stands alone ([API keys](../../deploy/people-and-keys/#api-keys)).
 [People, API keys and service accounts](../../deploy/people-and-keys/) shows
 how keys are made and revoked.
 
@@ -262,6 +275,14 @@ code 2):
 ```text
 KINDGI_TENANT_HOST_ACCESS=isolated refuses private networks to tenant configuration, and KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow opens them to webhooks: set one of them, not both.
 ```
+
+On a network that lets traffic out only through a forward proxy,
+`KINDGI_TENANT_EGRESS_PROXY` sends these connections and webhooks through it.
+The runtime still refuses IP addresses and `localhost` by the level, and the
+proxy checks every other host's address, so it must refuse at least what the
+level refuses, and private networks for webhooks unless
+`KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`
+([Behind an egress proxy](../../deploy/self-hosted/self-host/#behind-an-egress-proxy)).
 
 A model provider's calls carry only its own registration's settings and its
 own key: nothing of the server's environment goes with them.

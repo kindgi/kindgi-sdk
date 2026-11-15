@@ -1,5 +1,165 @@
 # @kindgi/connections-inmemory
 
+## 0.7.0
+
+### Patch Changes
+
+- b8cb40c: **The connections API for an app that connects through Kindgi's own app.** Everything is new and optional, and a server with no such app sends none of it:
+  
+  - A connection entry's `signIn.kind` can be `kindgi-app`: the app connects through Kindgi's own app, by Kindgi's connect step, with no client to register.
+  - A registration (`ConnectionApp`) can carry `via: 'kindgi'`: the server made it itself for such an app, and it has no `oauth2` or `githubApp`. `POST /v1/connection-apps` doesn't register such an app (`connection-app-invalid`, `app`), and `PATCH` changes only its label and projects.
+  - When the business shared several accounts that fit the app and none was picked, the finish answers `kind: 'pick-account'`, and the request, still `pending`, lists them in `accounts` (`{ id, label }` each). The person picks one and starts the request again with `accountId`, which can't go with `installationId` or `newInstallation`.
+  - The finish takes what Kindgi's connect step sends back: `state`, with `error` when the connect didn't happen, and never a `code`.
+  
+  The TypeScript client's types and the Python client's models gain the same fields. The in-memory binding (`@kindgi/connections-inmemory`) refuses `accountId` (`bad-input`, `accountId`): it holds no app that connects through Kindgi's own app.
+- 768e1b3: **A run can start from a text message.** `RunStartedBy` gains `text`, for a run a text trigger fired. Such a run is one no person is watching, with the rules a mail-started run has:
+  - The text is read as outside data, in an `<event>` block, never as the person's own message.
+  - Every tool that changes something (any tool that isn't `mutating: false`) waits for a person's yes, with the new reason `text-change` (`UnattendedWaitReason`), unless the trigger lists it in `toolsAllowedUnattended`. A read-only tool runs.
+  - A tool that declares `needsApprovalWhenUnattended`, or uses a person's connection, waits as in any run no person started, unless the trigger lists it.
+  - A run's `startedBy` in the API can be `text`, and such a run acts for the trigger's owner.
+  
+  **Text triggers.** A text trigger starts a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as the run's input. `TRIGGER_KINDS` gains `text`.
+  - The API has `/v1/text-triggers`: register, list, get, update, pause, resume, unregister, its fires, its versions, and take ownership. The CLI has `kindgi text-triggers`, and the TypeScript client has `textTriggers`.
+  - Its `config` names the number, `connectionId`: one of the project's company connections of app `texts`. `runsPerHour` (1-600, default 60) and `perSenderPerHour` (1-60, default 10) limit how many runs it starts.
+  - One live text trigger answers a number. Registering another on it, or moving one onto it, is refused with `409 trigger-connection-taken`, whose `heldBy` names the trigger that answers it, which can be in another project of the workspace. A paused trigger keeps its number; unregistering it frees the number.
+  - The number is the company's, so registering a text trigger and every change to one take a project admin. Pausing, resuming and unregistering follow the rules other triggers have.
+  - `toolsAllowedUnattended` never lists `kindgi_send_text`: a text that isn't a reply always waits for a person's yes.
+  
+  **Texts come in at `/v1/texts-inbound/{tenantId}/{appId}`.** It's where a texting provider delivers to a texts registration: `POST` for texts and delivery statuses, `GET` for a provider's handshake.
+  - No sign-in: the server checks the provider's own signature over the URL it called and the body's exact bytes, before anything is written. A bearer token, a cookie or a `Proxy-Authorization` header, if sent, is never read nor passed on.
+  - A request that doesn't prove its sender is `401 texts-inbound-refused`, the same answer whatever the reason, a body over the cap included, at any size, and a client past its refusals this minute gets `429`. The server's own trouble is `503 texts-inbound-unavailable`, and the provider sends the texts again.
+  - `ConnectionBinding` gains an optional `receiveTexts`, and the route is mounted only where a binding has it.
+  
+  **The texts connection: a business number, connected without a browser.** `@kindgi/connections` gains the `texts` entry (`@kindgi/connections/texts`), for the company: a number at a texting provider (Telnyx for now), with the permissions `texts.reply` and `texts.send`.
+  - `SignIn` gains `token`, an account's credential kept on the registration by reference, with the providers it serves. `AccountLookup` gains `number`, and `AppRemoval.revoke` gains `restore-inbound`. `defineApp` checks that the three go together, and that each permission of a `token` sign-in grants its own key.
+  - A texts registration takes `token`: the provider, its API key by reference (`apiKey`) and the account's Ed25519 public key (`publicKey`, base64 of 32 bytes), on `POST` and `PATCH /v1/connection-apps`. The key reaches the whole provider account, so a secret a tool, MCP endpoint, webhook endpoint, webhook trigger or destination uses is refused with `409 connection-key-in-use`, and nothing is stored.
+  - Only its registration names that key. A tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a model provider or another connection app registration that names it is refused with `400 connection-key-refused` (`details.secret`, `details.appId`), and nothing is stored; a texts registration whose key another registration names in any of its secrets is `409 connection-key-in-use`, with that registration in `usedBy` (kind `connection-app`). Both ask for a new API key from the provider, stored under its own name, since a copy of the account key under another name reaches the same account; the 409 also says to rotate a shared key at the provider. A removed registration frees its key, and one kept while its numbers' inbound can't be put back still holds it. `@kindgi/api` exports `connectionKeysOf` (its `ConnectionKeys` maps each key to every live registration holding it) and `connectionKeyRefusal`, and the TypeScript and Python clients read the new code as an invalid request.
+  - `POST /v1/connections` takes `number` (E.164) and `replaceInbound`. A texts connect comes back `connected` at once, with its `connectionId`; it keeps `connectUrl`, whose page only shows it connected, and `expiresAt`, which ends only a `pending` request. A number whose texts go somewhere else today is refused with `409 inbound-in-use`, naming the webhook's host or the messaging profile, until the connect says `replaceInbound: true`. A number live in another environment, or under another texts registration, is `409 number-in-use`. A reconnect names the same number, and is how a connection whose key the provider refused (`credential-refused`) works again once the registration's secret is updated.
+  - A disconnect puts the number's old inbound back first. When that fails, the connection stays `removing` and the answer is `502 inbound-restore-failed`; disconnecting again retries, and `DELETE /v1/connections/{connectionId}?skipInboundRestore=true` drops what was kept without putting it back. The flag is ignored for a connection of any other app. Removing a registration with its connections does the same for each number, and keeps the registration while one fails.
+  - A connection gains `lastProvenInboundAt` and `textsThisMonth` (`received`, `sent`, `unanswered`), for a number only.
+  - The CLI: `kindgi connection-apps add texts --provider=telnyx --api-key-ref=<env>/<name> --public-key=<base64>`, `kindgi connections connect texts --for-company --number=<E.164> [--replace-inbound]`, which prints the connection, and `kindgi connections disconnect <connection> --skip-inbound-restore`. The TypeScript client's `connections.disconnect` takes `skipInboundRestore`.
+  - `@kindgi/connections-inmemory` serves the entry with a fake provider: connect, reconnect and removal work, with hooks for the lookup and the restore, and `seed.inbound` and `seed.credentialRefused` set up a number's state. Texts come in only on a Kindgi server.
+- d86edd5: **A texts registration's account key is refused when it's read, and in a pack's `env`.** A name stored before a registration took it as its key is refused too, when the secret is read through the guard; a webhook trigger's signing secret and a pack's `env` are read through it here:
+  - `guardSecretKeys(binding, { providerKeys, connectionKeys }, user)` wraps a `SecretsBinding` so each read refuses a model provider's key, then a texts registration's account key, to `user` (`SecretKeys` is its second argument; either set may be left out). Only the registration reads its own key: a read as `'a connection app'` whose context says `caller: 'connections'` and that registration's `appId`. `getVersion` carries no context, so it refuses the key to every user. Nothing is cached, so a key that a registration takes after a secret was written is refused at the next read. `guardProviderKeys` is `guardSecretKeys` with provider keys only.
+  - `SecretError` gains `connection-key-refused` (`name`, `appId`), and `ResolveContext` gains an optional `appId`, the reader's own say, which only that guard reads.
+  - `SecretUser` gains `"a pack's env"`. A pack's env never gets a held key: the name is left out as unreadable (`pack-env-secret-unreadable`, with code `connection-key-refused`) and the store isn't asked. A model provider's key in a pack's `env` is given as before.
+  - `POST /v1/deployments` answers `400 connection-key-refused` (`details.secret`, `details.appId`) when a name the pack's `env` declares is a live texts registration's account key: the first such name, its required names before its optional ones and each list sorted by name, checked after the tools' own issues. Nothing is registered.
+  - A webhook trigger whose signing secret is a held key answers `401` at its next delivery once the receiver's 10-second keep of its signing key runs out, and the receiver then keeps that answer as long as it keeps a missing secret's.
+  - `ConnectionKeys` reads one key's holders: `holders(tenantId, name)`. `connectionKeysOf` uses the new optional `ConnectionBinding.keyHolders({ tenantId, name })`, a point read in `listApps` order, when the binding has it. Without it, every read lists all of the workspace's registrations, with no page cap, so a key held by a registration past the first pages is refused too. The deploy route and the other write routes refuse a held key from the same read.
+  - `@kindgi/connections-inmemory` serves `keyHolders`. A removal kept while a number's inbound can't be put back still holds its key, and the removal frees it.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [3621ee2]
+- Updated dependencies [70a156b]
+- Updated dependencies [591568a]
+- Updated dependencies [95494bb]
+- Updated dependencies [5903a0b]
+- Updated dependencies [9d9ab0e]
+- Updated dependencies [a976d95]
+- Updated dependencies [4c43200]
+- Updated dependencies [cf07be5]
+- Updated dependencies [1a5deb5]
+- Updated dependencies [478a3d3]
+- Updated dependencies [f9a6250]
+- Updated dependencies [1ae2843]
+- Updated dependencies [821552c]
+- Updated dependencies [c7b560c]
+- Updated dependencies [b095fe4]
+- Updated dependencies [5461b4e]
+- Updated dependencies [efc220c]
+- Updated dependencies [cde9433]
+- Updated dependencies [5d0d0a3]
+- Updated dependencies [b8cb40c]
+- Updated dependencies [f418104]
+- Updated dependencies [9b65483]
+- Updated dependencies [f8a4191]
+- Updated dependencies [abea110]
+- Updated dependencies [5b85c66]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [fc320f4]
+- Updated dependencies [852eff3]
+- Updated dependencies [6ac7e3d]
+- Updated dependencies [1d47709]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [e975c6f]
+- Updated dependencies [3b5216b]
+- Updated dependencies [0c60659]
+- Updated dependencies [f2baded]
+- Updated dependencies [5ec7895]
+- Updated dependencies [8c5e37a]
+- Updated dependencies [7399226]
+- Updated dependencies [f5b88e9]
+- Updated dependencies [9b9bb22]
+- Updated dependencies [1492439]
+- Updated dependencies [b247ee3]
+- Updated dependencies [520e54d]
+- Updated dependencies [9c4b4f1]
+- Updated dependencies [6a6b029]
+- Updated dependencies [712383f]
+- Updated dependencies [712383f]
+- Updated dependencies [0ce1b0c]
+- Updated dependencies [2d81e64]
+- Updated dependencies [7745812]
+- Updated dependencies [b4addfd]
+- Updated dependencies [054e09f]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [1dd8f20]
+- Updated dependencies [090706e]
+- Updated dependencies [f7264e7]
+- Updated dependencies [ea7d74f]
+- Updated dependencies [697cdc8]
+- Updated dependencies [ea5b156]
+- Updated dependencies [c003626]
+- Updated dependencies [80ee9d9]
+- Updated dependencies [363dd24]
+- Updated dependencies [6279526]
+- Updated dependencies [3905040]
+- Updated dependencies [d5e05dc]
+- Updated dependencies [d9c762d]
+- Updated dependencies [e2cddae]
+- Updated dependencies [c09130a]
+- Updated dependencies [de3a30f]
+- Updated dependencies [3af15cf]
+- Updated dependencies [311ceaa]
+- Updated dependencies [3cf1c3f]
+- Updated dependencies [d4814d8]
+- Updated dependencies [7b44a57]
+- Updated dependencies [ced2a0f]
+- Updated dependencies [1df25b1]
+- Updated dependencies [439bffc]
+- Updated dependencies [54faad5]
+- Updated dependencies [86c2610]
+- Updated dependencies [d1dbacc]
+- Updated dependencies [8cac758]
+- Updated dependencies [fda6124]
+- Updated dependencies [f3d8f7d]
+- Updated dependencies [64b51fe]
+- Updated dependencies [15c2925]
+- Updated dependencies [c7bef1f]
+- Updated dependencies [fd2d147]
+- Updated dependencies [768e1b3]
+- Updated dependencies [d86edd5]
+- Updated dependencies [00afa37]
+- Updated dependencies [a478edf]
+- Updated dependencies [7f9d20f]
+- Updated dependencies [cdf511b]
+- Updated dependencies [c06243b]
+- Updated dependencies [d3f48a7]
+- Updated dependencies [a6a4ecb]
+- Updated dependencies [25d902a]
+- Updated dependencies [0876939]
+- Updated dependencies [026b7b5]
+- Updated dependencies [85274b1]
+- Updated dependencies [5491d46]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/agents@0.7.0
+  - @kindgi/api@0.7.0
+  - @kindgi/tools@0.7.0
+  - @kindgi/connections@0.7.0
+  - @kindgi/authz@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

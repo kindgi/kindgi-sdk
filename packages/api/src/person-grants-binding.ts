@@ -15,12 +15,20 @@ import type { Result, TenantId } from '@kindgi/types';
  * What a team's or an org's grants imply is not expanded. Project and
  * team roles keep their own membership routes; only tenant admin is
  * granted here, written before the call answers so the person's next
- * request already holds it.
+ * request already holds it. Capabilities are given and taken back at
+ * `/capabilities` (`PersonCapabilitiesBinding`), and read here.
  */
 export interface PersonGrants {
   readonly userId: string;
   /** Absent when the runtime has no authorization store: nothing grants it then. */
   readonly tenantAdmin?: boolean;
+  /**
+   * The running server's `KINDGI_ADMIN_EMAILS` names them: they're a tenant
+   * admin at every start, and taking tenant admin from them, or removing
+   * them, is refused (`listed-admin`) until the address is off the list.
+   * Absent when the runtime doesn't report it.
+   */
+  readonly tenantAdminFromSetting?: boolean;
   /**
    * A tenant member: reads the tenant's settings, not its projects. A
    * person is one from being added. Absent when the runtime has no
@@ -33,6 +41,11 @@ export interface PersonGrants {
   readonly teams: readonly { readonly teamId: string; readonly role: TeamRole }[];
   /** The person's active entry on the reviewer roster. */
   readonly reviewer?: { readonly role: ReviewerRole };
+  /**
+   * The capabilities the person holds (`env:write`, `signing-keys:write`,
+   * …). Absent when the runtime doesn't report them: unknown, not none.
+   */
+  readonly capabilities?: readonly string[];
 }
 
 /** What `grant` and `ungrant` take: tenant admin (project and team roles have membership routes). */
@@ -58,6 +71,8 @@ export type PersonGrantErrorCode =
   | 'last-tenant-admin'
   /** Removing tenant admin from the seed user, whom the runtime grants it at every boot. */
   | 'seed-user-admin'
+  /** Removing tenant admin from someone `KINDGI_ADMIN_EMAILS` names, whom every start makes one. */
+  | 'listed-admin'
   /** A person a site signs in: they hold only the grants their site's sign-in writes. */
   | 'site-person-grants-managed'
   /** The runtime has no authorization store to write grants to. */

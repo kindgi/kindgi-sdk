@@ -4,6 +4,7 @@
 import type { ProjectBinding } from '@kindgi/platform';
 import type { AgentPinScope, ProjectId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
+import { aFewAtOnce } from './a-few-at-once.js';
 import type {
   AgentPinBindings,
   AgentPinResolveInput,
@@ -54,12 +55,16 @@ export interface WhatRunsInProject {
   }[];
 }
 
+/** How many projects' pin lookups `whatRunsByProject` runs at once. */
+const PROJECTS_AT_ONCE = 2;
+
 /**
  * What runs for an agent in each of `projectIds`, in that order: `whatRuns`
  * for the project (a pin that covers it, its own, its org's or the
  * tenant's, else its Latest), with the segment pins inside it. One read of
  * the agent's pins and one of its Latest everywhere
- * (`LatestBinding.byProject`), then a pin lookup per project.
+ * (`LatestBinding.byProject`), then the pin lookups, two projects at a
+ * time, started in the projects' order.
  */
 export async function whatRunsByProject(
   agentPins: Pick<AgentPinBindings, 'pinned' | 'latest'>,
@@ -72,9 +77,11 @@ export async function whatRunsByProject(
     agentPins.latest.byProject(q),
   ]);
   const latestIn = new Map(latest.map(({ projectId, ...answer }) => [projectId, answer]));
-  const rows: WhatRunsInProject[] = [];
-  for (const projectId of projectIds) {
-    const pin = await agentPins.pinned.resolve({ ...q, projectId });
+  const found = await aFewAtOnce(projectIds, PROJECTS_AT_ONCE, async (projectId) => ({
+    projectId,
+    pin: await agentPins.pinned.resolve({ ...q, projectId }),
+  }));
+  return found.map(({ projectId, pin }): WhatRunsInProject => {
     const own = latestIn.get(projectId);
     const runs: WhatRuns | null =
       pin !== null
@@ -88,9 +95,8 @@ export async function whatRunsByProject(
         ? [{ path: p.scope.path, version: p.version, pin: p }]
         : [],
     );
-    rows.push({ projectId, runs, ...(covering !== undefined && { pin: covering }), segments });
-  }
-  return rows;
+    return { projectId, runs, ...(covering !== undefined && { pin: covering }), segments };
+  });
 }
 
 /** A project that follows Latest, and the version it runs there (`projectsPinTakesOffLatest`). */

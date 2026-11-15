@@ -1,5 +1,66 @@
 # @kindgi/runtime
 
+## 0.7.0
+
+### Patch Changes
+
+- e2cddae: A removed schedule, webhook trigger, mail trigger or text trigger can be read. `GET …/{triggerId}/versions/{version}` answers a removed trigger's version, with `unregisteredAt` saying when the trigger was removed, so a run's `trigger.version` resolves whatever became of its trigger. Before, it was `404 trigger-not-found`. The trigger itself, its versions and its fires read with `?includeUnregistered=true`, and so do the lists; `?status=` matches the status a removed trigger had. Changing a removed trigger is still `404`. `TriggerRegistryBinding`'s reads take an optional `includeUnregistered`, and its records and versions carry an optional `unregisteredAt`: a registry that ignores the input answers as before. The in-memory registry (`@kindgi/api/testing`) keeps a removed trigger and answers it when asked. `kindgi exports create` asks for removed triggers too, with their versions and fires, so a run's `trigger.version` resolves inside the export as well.
+- e2c3e1a: `SchedulerBinding.startCronScheduler`, `CronSchedulerOptions` and `CronSchedulerHandle` are deprecated. A deployment fires its schedules itself, and nothing calls `startCronScheduler`. To schedule runs, register a `cron` trigger with `TriggerRegistryBinding.register`, which the schedules routes use.
+- 439bffc: **A schedule can send its results somewhere: to its owner's email, or to a destination a workspace admin set up.**
+  - New resource `/v1/destinations` (`client.destinations`): a named place results go. Its kinds are `email` (workspace members), `slack`, `teams`, `google-chat`, `discord` and `webhook`. Admins create, list, get, update and remove destinations; remove is a soft delete, like connection apps. Each destination also has a test message, a delivery list and redeliver; a redelivered message is checked again, so one skipped for a removed destination, a project it's no longer for or a person without access stays skipped. A chat or webhook `url` is a credential: it is write-only and never returned. `content` is `link` (the default: the run's status and a link to it) or `answer`, which also sends the run's answer and needs `projects`. With `?projectId=`, anyone who may run in that project lists the destinations its schedules may use, with what picks one and without where they send: no `host`, `urlRef`, `secretRef`, `people` or `projects`. A schedule sends one place at most 30 messages an hour; it skips the rest, and one `rate-cap.summary` message at the hour's end says how many.
+  - A schedule gains `sendResultsTo`: at most five `{ to, on }`, where `to` is a destination id or `me` and `on` is any of `completed`, `failed`, `cancelled` and `waiting` (all four when left out). A save checks each destination: it must exist, and the schedule's project must be one it is for. `me` needs a schedule owned by a person, on a deployment that sends email, and a schedule that sends to `me` can't be handed to a service account. A change is a new schedule version, and its owner hears of a change someone else made. `GET /v1/schedules/{triggerId}/deliveries` (`client.schedules.listDeliveries()`) lists where its results went.
+  - `GET /v1/runs` takes `completedAfter`, `afterRunId`, `completedBefore` and `startedBy`. The completion bounds page by `(completedAt, id)` in ascending order and can't be combined with `cursor`. To ask for the next page, set `completedAfter` and `afterRunId` to the last run's `completedAt` and `id`.
+  - The `run.finished` event gains `trigger` and `startedBy`, and `approval.requested` gains `runId`. All three are optional.
+  - A runtime before Kindgi 0.7.0 ignores the new fields and parameters and doesn't serve `/v1/destinations`.
+- 768e1b3: **A run can start from a text message.** `RunStartedBy` gains `text`, for a run a text trigger fired. Such a run is one no person is watching, with the rules a mail-started run has:
+  - The text is read as outside data, in an `<event>` block, never as the person's own message.
+  - Every tool that changes something (any tool that isn't `mutating: false`) waits for a person's yes, with the new reason `text-change` (`UnattendedWaitReason`), unless the trigger lists it in `toolsAllowedUnattended`. A read-only tool runs.
+  - A tool that declares `needsApprovalWhenUnattended`, or uses a person's connection, waits as in any run no person started, unless the trigger lists it.
+  - A run's `startedBy` in the API can be `text`, and such a run acts for the trigger's owner.
+  
+  **Text triggers.** A text trigger starts a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as the run's input. `TRIGGER_KINDS` gains `text`.
+  - The API has `/v1/text-triggers`: register, list, get, update, pause, resume, unregister, its fires, its versions, and take ownership. The CLI has `kindgi text-triggers`, and the TypeScript client has `textTriggers`.
+  - Its `config` names the number, `connectionId`: one of the project's company connections of app `texts`. `runsPerHour` (1-600, default 60) and `perSenderPerHour` (1-60, default 10) limit how many runs it starts.
+  - One live text trigger answers a number. Registering another on it, or moving one onto it, is refused with `409 trigger-connection-taken`, whose `heldBy` names the trigger that answers it, which can be in another project of the workspace. A paused trigger keeps its number; unregistering it frees the number.
+  - The number is the company's, so registering a text trigger and every change to one take a project admin. Pausing, resuming and unregistering follow the rules other triggers have.
+  - `toolsAllowedUnattended` never lists `kindgi_send_text`: a text that isn't a reply always waits for a person's yes.
+  
+  **Texts come in at `/v1/texts-inbound/{tenantId}/{appId}`.** It's where a texting provider delivers to a texts registration: `POST` for texts and delivery statuses, `GET` for a provider's handshake.
+  - No sign-in: the server checks the provider's own signature over the URL it called and the body's exact bytes, before anything is written. A bearer token, a cookie or a `Proxy-Authorization` header, if sent, is never read nor passed on.
+  - A request that doesn't prove its sender is `401 texts-inbound-refused`, the same answer whatever the reason, a body over the cap included, at any size, and a client past its refusals this minute gets `429`. The server's own trouble is `503 texts-inbound-unavailable`, and the provider sends the texts again.
+  - `ConnectionBinding` gains an optional `receiveTexts`, and the route is mounted only where a binding has it.
+  
+  **The texts connection: a business number, connected without a browser.** `@kindgi/connections` gains the `texts` entry (`@kindgi/connections/texts`), for the company: a number at a texting provider (Telnyx for now), with the permissions `texts.reply` and `texts.send`.
+  - `SignIn` gains `token`, an account's credential kept on the registration by reference, with the providers it serves. `AccountLookup` gains `number`, and `AppRemoval.revoke` gains `restore-inbound`. `defineApp` checks that the three go together, and that each permission of a `token` sign-in grants its own key.
+  - A texts registration takes `token`: the provider, its API key by reference (`apiKey`) and the account's Ed25519 public key (`publicKey`, base64 of 32 bytes), on `POST` and `PATCH /v1/connection-apps`. The key reaches the whole provider account, so a secret a tool, MCP endpoint, webhook endpoint, webhook trigger or destination uses is refused with `409 connection-key-in-use`, and nothing is stored.
+  - Only its registration names that key. A tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a model provider or another connection app registration that names it is refused with `400 connection-key-refused` (`details.secret`, `details.appId`), and nothing is stored; a texts registration whose key another registration names in any of its secrets is `409 connection-key-in-use`, with that registration in `usedBy` (kind `connection-app`). Both ask for a new API key from the provider, stored under its own name, since a copy of the account key under another name reaches the same account; the 409 also says to rotate a shared key at the provider. A removed registration frees its key, and one kept while its numbers' inbound can't be put back still holds it. `@kindgi/api` exports `connectionKeysOf` (its `ConnectionKeys` maps each key to every live registration holding it) and `connectionKeyRefusal`, and the TypeScript and Python clients read the new code as an invalid request.
+  - `POST /v1/connections` takes `number` (E.164) and `replaceInbound`. A texts connect comes back `connected` at once, with its `connectionId`; it keeps `connectUrl`, whose page only shows it connected, and `expiresAt`, which ends only a `pending` request. A number whose texts go somewhere else today is refused with `409 inbound-in-use`, naming the webhook's host or the messaging profile, until the connect says `replaceInbound: true`. A number live in another environment, or under another texts registration, is `409 number-in-use`. A reconnect names the same number, and is how a connection whose key the provider refused (`credential-refused`) works again once the registration's secret is updated.
+  - A disconnect puts the number's old inbound back first. When that fails, the connection stays `removing` and the answer is `502 inbound-restore-failed`; disconnecting again retries, and `DELETE /v1/connections/{connectionId}?skipInboundRestore=true` drops what was kept without putting it back. The flag is ignored for a connection of any other app. Removing a registration with its connections does the same for each number, and keeps the registration while one fails.
+  - A connection gains `lastProvenInboundAt` and `textsThisMonth` (`received`, `sent`, `unanswered`), for a number only.
+  - The CLI: `kindgi connection-apps add texts --provider=telnyx --api-key-ref=<env>/<name> --public-key=<base64>`, `kindgi connections connect texts --for-company --number=<E.164> [--replace-inbound]`, which prints the connection, and `kindgi connections disconnect <connection> --skip-inbound-restore`. The TypeScript client's `connections.disconnect` takes `skipInboundRestore`.
+  - `@kindgi/connections-inmemory` serves the entry with a fake provider: connect, reconnect and removal work, with hooks for the lookup and the restore, and `seed.inbound` and `seed.credentialRefused` set up a number's state. Texts come in only on a Kindgi server.
+- 00afa37: **A run a text started can answer it.** `@kindgi/agents` offers two built-in tools in such a run: `kindgi_reply_to_text`, when the number grants `texts.reply`, and `kindgi_hand_to_person`.
+  - A reply goes to the person who texted, on the same number and channel. The number, channel and sender come from the run, never from the model: the reply takes only its text, up to 1600 characters.
+  - A refusal (`texts-window-closed`, `texts-opted-out`, `texts-with-person`, `texts-not-granted`) comes back to the agent as the tool's output, and nothing is sent.
+  - The hand-over gives the conversation to a person, with a note for them, and no run answers that thread's texts after it. It doesn't wait for a person's yes the way other changes in such a run do; a workspace or agent rule that always asks still asks.
+  - `toolsAllowedUnattended` can list the reply and the hand-over.
+  - A run that waits keeps its thread: `InvokeAgentInput.textThread` is recorded with the run, and a resumed run replies on the thread it started from.
+  - A step that runs again, resumed or retried, replies and hands over once: the host's `TextsToolBinding` gets each call's `idempotencyKey`, and a repeat of a call that went through answers as it did.
+  - A pack tool can't use the `texts` app: `defineTool` refuses it (`BUILT_IN_ONLY_APPS`). A flow's tool node can't name a tool built into Kindgi (the `kindgi_` prefix, `BUILT_IN_TOOL_PREFIX`, now exported by `@kindgi/types` too).
+- Updated dependencies [dfaeea7]
+- Updated dependencies [3621ee2]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [e975c6f]
+- Updated dependencies [524e626]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.7.0
+  - @kindgi/flow@0.7.0
+  - @kindgi/authz@0.7.0
+  - @kindgi/handler@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

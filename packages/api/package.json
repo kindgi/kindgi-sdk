@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/api",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "REST + SSE HTTP surface for Kindgi™. createApp assembles a Hono app serving the /v1/* REST API (bearer or session-token auth; OpenAPI 3.1 document at /v1/openapi.json) and an optional S3-compatible /s3/* surface (SigV4), over caller-plugged bindings for the runtime (runs, agents, flows, HITL, supervisor) and for storage. Route conventions: docs/API-ROUTE-CONVENTIONS.md.",
   "license": "Apache-2.0",
   "repository": {
@@ -25,6 +25,11 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.js",
       "default": "./dist/testing/index.js"
+    },
+    "./run-result": {
+      "types": "./dist/run-result/index.d.ts",
+      "import": "./dist/run-result/index.js",
+      "default": "./dist/run-result/index.js"
     },
     "./openapi.json": "./openapi.json",
     "./package.json": "./package.json"

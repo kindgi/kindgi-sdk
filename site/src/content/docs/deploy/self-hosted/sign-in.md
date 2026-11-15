@@ -16,7 +16,9 @@ People sign in to the console with their email first. The sign-in page then
 offers the ways in that this deployment has. Whatever way someone signs in,
 the runtime lets in **only people already added to a workspace**, by an
 email their provider has proved. Nobody is created by signing in, and roles
-stay Kindgi's. Without [authorization](../../authorization/), everyone signed
+stay Kindgi's. To make someone who signs in a tenant admin, see
+[Someone who signs in](../../people-and-keys/#someone-who-signs-in).
+Without [authorization](../../authorization/), everyone signed
 in works in every project, and the tenant's settings change only with the
 API token or an `admin` key made for the seed user
 ([Without authorization](../../people-and-keys/#without-authorization)).
@@ -40,8 +42,8 @@ API token or an `admin` key made for the seed user
   GitHub and the emailed link still work, and adding or changing a
   workspace's own provider answers `409 identity-providers-need-secrets-store`.
 - **`openssl`,** to make sign-in's own secret.
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Turn it on
@@ -198,7 +200,8 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
   Identity providers: the operator's (KINDGI_AUTH_TENANT_PROVIDERS=off): only this deployment's own token adds, changes or removes them; the ones there keep signing people in
 ```
 
-- **Only the deployment's own token** (`KINDGI_API_TOKEN`) can then add,
+- **Only the deployment's own token** (`KINDGI_API_TOKEN`), or, on a runtime
+  serving one tenant, a key made with `kindgi:system`, can then add,
   change or remove a provider. A tenant admin's change is refused with
   `403 identity-providers-operator-managed`:
 
@@ -212,6 +215,13 @@ KINDGI_AUTH_TENANT_PROVIDERS=off
   providers with **Try** only:
 
   ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, acme-ops listed with a Try icon only, and the Second factor box](../../../../assets/sso/console-providers-operator.png)
+
+- **Who may join by email domain is the operator's too** (runtime 0.8.0
+  or later): allowing a domain, or giving its joiners more, takes the
+  deployment's own token or a key holding `kindgi:system`, and a tenant
+  admin's is refused with `403 join-domains-operator-managed`. A tenant
+  admin may still lower joiners' role or stop allowing a domain
+  ([Let people at your domain join](../../people-and-keys/#let-people-at-your-domain-join)).
 
 `on` is the default. Like the other settings here, it needs sign-in on.
 
@@ -324,6 +334,22 @@ nothing. Access is decided after the provider signs them in:
    until an admin of that workspace sends the invitation again:
 
    ![The console's sign-in page: Your invitation has expired. An invitation is open for 7 days. Ask a tenant admin of this workspace to send it again, then sign in. Detail: invite-expired. Below it, Your email and Continue.](../../../../assets/sso/sign-in-invite-expired.png)
+
+   A workspace's own identity provider can let in more: with `join: domain`,
+   someone it signs in for the first time, with a verified email at one of
+   its domains, is added with the provider's join role, never tenant admin.
+   It needs an authorization store, and someone removed stays out
+   ([Or let your colleagues join](../../../guides/sso/#or-let-your-colleagues-join)).
+   A workspace can also let people at its email domain join (runtime 0.8.0
+   or later): someone who signs in with a mailbox at an allowed domain,
+   proved by a Google Workspace account at it, a Microsoft work account or
+   the emailed link (never GitHub), is offered the workspace and joins with
+   a press, with the domain's join role, never tenant admin. Someone
+   removed stays out
+   ([Let people at your domain join](../../people-and-keys/#let-people-at-your-domain-join)).
+   With `KINDGI_ADMIN_EMAILS`, the listed people are added at start, so
+   they're found here too, as tenant admins
+   ([Tenant admins by email](../../people-and-keys/#tenant-admins-by-email)).
 5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards, with
    `account-mismatch`. So an address that later moves to someone else can't
@@ -443,6 +469,33 @@ machine:
   ⚠ Emailed sign-in link without a captcha on a console others can reach: Turnstile is recommended (KINDGI_AUTH_TURNSTILE_SECRET, KINDGI_AUTH_TURNSTILE_SITE_KEY).
 ```
 
+### The heads-up before a connection's access ends
+
+The runtime sends one more email through this SMTP service. Some apps give
+no way to renew a sign-in, LinkedIn among them
+([LinkedIn](../../../guides/connections/linkedin/#when-linkedin-ends-access)).
+Seven days before such a connection's access ends, the runtime emails
+whoever can reconnect it, once for that end (runtime 0.7.0 or later):
+
+- **A person's own connection:** that person.
+- **The company's:** each workspace admin. Without authorization there are
+  no admins to look up, so no one gets it
+  ([Without authorization](../../people-and-keys/#without-authorization)).
+
+The email links to the connection in the console. It has no setting of its
+own: it goes out whenever the SMTP service is set. Without it, the start
+log says the email is off:
+
+```text
+17:36:46.102 INFO  [connections] the heads-up email before a connection's access ends is off: it needs the emailed sign-in link's server (KINDGI_AUTH_EMAIL_SMTP_URL and KINDGI_AUTH_EMAIL_FROM). The console still shows it on the connection.
+```
+
+With or without the email, the console shows it from those seven days on.
+On **Connections** and on the connection's own page it reads "Ends on
+*date*. Connect it again to keep posting.", with **Reconnect** for whoever
+can reconnect it. A reconnect gives the connection a new end, and a new
+heads-up seven days before that.
+
 ## A second factor
 
 A person can add a second factor to signing in (runtime 0.1.9 or later):
@@ -457,7 +510,7 @@ sign in.
 A tenant admin can require one for the whole workspace:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sign-in settings --require-second-factor=on
+npx --yes @kindgi/cli@0.7 sign-in settings --require-second-factor=on
 ```
 
 - Someone without one sets one up at their next sign-in.
@@ -481,7 +534,7 @@ factor for the rest of that time (`second-factor-locked`). For a lost phone, a t
 theirs, and they're told by email where the deployment sends it:
 
 ```sh
-npx --yes @kindgi/cli@0.6 people reset-second-factor <user-id>
+npx --yes @kindgi/cli@0.7 people reset-second-factor <user-id>
 ```
 
 An admin's own isn't removed this way: they take it off on My access, with a
@@ -518,6 +571,23 @@ the pages link neither. The links show beside kindgi.com and Docs, or on
 a narrow screen under the form, or under what the page says. The pages
 with the console's menus don't show these two; links for every page are
 [your own links](#your-own-links-in-the-console).
+
+## A sign-up link
+
+If you have a sign-up page of your own, the console's sign-in page can
+link to it as "No account yet? Sign up" (runtime 0.7.0 or later):
+
+```sh
+# kindgi.env
+KINDGI_AUTH_SIGN_UP_URL=https://www.acme-live.example/signup
+```
+
+It's an absolute `https` URL, with no username or password in it: with
+anything else, the runtime doesn't start. The link shows under the form
+on the first step, where the email is asked, and not once someone is
+signing in. Unset, the page links no sign-up. The runtime has no
+sign-up of its own: people come in by an invite from the People page, or
+through your identity provider.
 
 ## Your own links in the console
 

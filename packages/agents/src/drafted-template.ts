@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { BlockIssue, PromptBlockContent } from './blocks.js';
+import { isLetter, isSegmentChar, startsWord } from './char-class.js';
 import { templateProblem, tenantLiquid } from './liquid.js';
 
 /**
@@ -24,13 +25,49 @@ export const DRAFTED_TEMPLATE_MAX = 20_000;
 /** Variables any template may read: the turn's clock and identity. */
 const HARMLESS_VARS: ReadonlySet<string> = new Set(['today', 'now', 'agent', 'conversation']);
 
-/** A dotted id (`acme.export`): two or more segments, the first at least two characters. */
-const DOTTED_ID = /\b[a-z][a-z0-9_-]+(?:\.[a-z0-9_-]+)+\b/gi;
+/** A dotted id's segments after its first, from its first `.`, to a word's end. */
+const ID_TAIL = /(?:\.[a-z0-9_-]+)+\b/iy;
 
 function rootsOf(template: string): Array<readonly (string | number)[]> {
   return tenantLiquid()
     .globalVariableSegmentsSync(template)
     .map((s) => s as readonly (string | number)[]);
+}
+
+/**
+ * The dotted ids `text` names (`acme.export`): two or more segments, the
+ * first at least two characters and starting with a letter. These are the
+ * matches of `/\b[a-z][a-z0-9_-]+(?:\.[a-z0-9_-]+)+\b/gi`, found in time in
+ * step with the text's length. That pattern tries an id from every word's
+ * start, and a `-` inside a segment starts a word, so its time grows with the
+ * square of a long run of segment characters.
+ *
+ * From each `.`, the first segment is walked back once, no further than the
+ * last id's end. Every start in that run meets the same `.` and the same
+ * rest, so an id starts at the run's leftmost letter with a word break before
+ * it: the one that leaves the most for the first segment.
+ */
+export function dottedIds(text: string): string[] {
+  const ids: string[] = [];
+  let last = 0;
+  let dot = text.indexOf('.');
+  while (dot !== -1) {
+    let start = dot;
+    while (start > last && isSegmentChar(text.charCodeAt(start - 1))) start--;
+    while (start < dot - 1 && !(isLetter(text.charCodeAt(start)) && startsWord(text, start))) {
+      start++;
+    }
+    ID_TAIL.lastIndex = dot;
+    const tail = start < dot - 1 ? ID_TAIL.exec(text) : null;
+    if (tail === null) {
+      dot = text.indexOf('.', dot + 1);
+      continue;
+    }
+    last = dot + tail[0].length;
+    ids.push(text.slice(start, last));
+    dot = text.indexOf('.', last);
+  }
+  return ids;
 }
 
 /**
@@ -102,8 +139,8 @@ export function checkDraftedTemplate(
     });
   }
 
-  const known = new Set([...context.knownIds, ...(current.match(DOTTED_ID) ?? [])]);
-  const newIds = new Set((candidate.match(DOTTED_ID) ?? []).filter((id) => !known.has(id)));
+  const known = new Set([...context.knownIds, ...dottedIds(current)]);
+  const newIds = new Set(dottedIds(candidate).filter((id) => !known.has(id)));
   for (const id of newIds) {
     issues.push({
       path: '/template',

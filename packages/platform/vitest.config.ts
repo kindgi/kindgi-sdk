@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    clearMocks: true,
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
     environment: 'node',
     // Binding-conformance suite + per-adapter wire-up tests.

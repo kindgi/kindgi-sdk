@@ -25,6 +25,7 @@ const SANDBOX = '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
 const INPUT = {
   packId: 'returns-helper',
   agents: ['returns-helper.agent'],
+  flows: [],
   blocks: [{ id: 'returns-helper.tone', version: '3.0.0' }],
 };
 
@@ -108,6 +109,28 @@ describe('the check against what runs, asked', () => {
       kind: 'passed',
       replaced: [{ blockId: 'returns-helper.tone', from: '4.0.0', to: '3.0.0' }],
       notNeeded: ['returns-helper.rules'],
+    });
+  });
+
+  test("sends the pack's flows too, when it has some, so the runtime can count them against its plan", async () => {
+    const { client, sent } = runtime(() => json(200, { replaced: [], notNeeded: [] }));
+    await checkRuns(client, { ...INPUT, flows: ['returns-helper.returns'] }, {});
+    expect(sent).toEqual([
+      {
+        agents: ['returns-helper.agent'],
+        flows: ['returns-helper.returns'],
+        blocks: [{ id: 'returns-helper.tone', version: '3.0.0' }],
+      },
+    ]);
+  });
+
+  test("a 403 plan-limit-reached refuses the deploy with the runtime's words, unlike a key the check refuses", async () => {
+    const { client } = runtime(() =>
+      wireError(403, 'plan-limit-reached', { projectId: SUPPORT, limit: 'agents', adding: 1 }),
+    );
+    expect(await checkRuns(client, INPUT, {})).toEqual({
+      kind: 'refused',
+      message: 'plan-limit-reached said',
     });
   });
 
@@ -244,11 +267,12 @@ describe('the lines the check prints', () => {
 });
 
 describe('what the check is asked from', () => {
-  test("an index's agents and blocks, at their versions; anything else in it is left out", () => {
+  test("an index's agents, flows and blocks, at their versions; anything else in it is left out", () => {
     expect(
       runsCheckInputOf({
         packId: 'returns-helper',
         agents: [{ id: 'returns-helper.agent', model: {} }, { name: 'no id' }],
+        flows: [{ id: 'returns-helper.returns', steps: [] }, { name: 'no id' }],
         blocks: [
           {
             id: 'returns-helper.tone',
@@ -260,8 +284,13 @@ describe('what the check is asked from', () => {
         ],
         tools: [{ id: 'returns-helper.echo' }],
       }),
-    ).toEqual(INPUT);
-    expect(runsCheckInputOf({})).toEqual({ packId: undefined, agents: [], blocks: [] });
+    ).toEqual({ ...INPUT, flows: ['returns-helper.returns'] });
+    expect(runsCheckInputOf({})).toEqual({
+      packId: undefined,
+      agents: [],
+      flows: [],
+      blocks: [],
+    });
   });
 
   test('--replace needs --reason, and --reason goes with --replace', () => {

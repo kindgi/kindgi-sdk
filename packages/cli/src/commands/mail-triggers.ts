@@ -415,7 +415,8 @@ const create: LeafCommand = {
     ...mailFlags('register'),
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the workspace's default project).",
+      description:
+        "The trigger's project, by id (default: the project the API key or session is limited to, else the workspace's default project).",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),
@@ -532,7 +533,7 @@ const get: LeafCommand = {
       const id = requiredPositional(ctx, 0, 'trigger-id');
       const version = triggerVersionPositional(ctx, 1);
       const client = ctx.client().mailTriggers;
-      return version === undefined ? await client.get(id) : await client.getVersion(id, version);
+      return version === undefined ? await client.get(id) : await client.versions.get(id, version);
     }),
 };
 
@@ -594,7 +595,7 @@ const versions: LeafCommand = {
       async () =>
         await ctx
           .client()
-          .mailTriggers.versions(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
+          .mailTriggers.versions.list(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
       TRIGGER_VERSIONS_TABLE,
     ),
 };

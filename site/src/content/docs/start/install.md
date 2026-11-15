@@ -49,8 +49,8 @@ for `kindgi dev` in `~/.kindgi/license/license-key`, readable only by you, and
 checks that you can pull the image it runs:
 
 ```sh
-npx --yes @kindgi/cli@0.6 auth registry
-# without Node: uvx --from "kindgi-cli>=0.6,<0.7" kindgi auth registry
+npx --yes @kindgi/cli@0.7 auth registry
+# without Node: uvx --from "kindgi-cli>=0.7,<0.8" kindgi auth registry
 ```
 
 ```text
@@ -73,7 +73,7 @@ project, its dependencies, its model key, the runtime and a provider. Each
 check that fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
-npx --yes @kindgi/cli@0.6 doctor
+npx --yes @kindgi/cli@0.7 doctor
 ```
 
 - `npx` downloads `@kindgi/cli` and runs it. It asks before it downloads a
@@ -104,7 +104,7 @@ such as the project's before you make one.
 Without Node, run the CLI from PyPI instead:
 
 ```sh
-uvx --from "kindgi-cli>=0.6,<0.7" kindgi doctor
+uvx --from "kindgi-cli>=0.7,<0.8" kindgi doctor
 ```
 
 - `uvx` runs a command from a PyPI package without installing it.
@@ -139,6 +139,9 @@ run:
 ```
 
 A `!` line is a warning: it doesn't fail, and things work now, but read it.
+
+With a key limited to a project, which doesn't read the workspace's providers,
+the Provider check is skipped and says so.
 
 The Provider check also asks the runtime about each registered provider. A
 registration the runtime can't build a provider from
@@ -175,11 +178,11 @@ devDependency and runs the version it pins, so everyone on the project runs
 the same one. `kindgi init` adds it, with `@kindgi/sdk`:
 
 ```sh
-npx --yes @kindgi/cli@0.6 init my-pack
+npx --yes @kindgi/cli@0.7 init my-pack
 ```
 
 - `init my-pack` makes a new pack in the folder `my-pack`. In an app you
-  already have, run `npx --yes @kindgi/cli@0.6 init` in its folder instead
+  already have, run `npx --yes @kindgi/cli@0.7 init` in its folder instead
   ([Add Kindgi to an existing app](../existing-app/)).
 - `--yes` and the version are as for `doctor` in [Check this machine](#check-this-machine).
 
@@ -225,7 +228,7 @@ The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
 pinned to Kindgi's minor version:
 
 ```sh
-uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.7,<0.8" kindgi init my-pack --template=python
 cd my-pack
 uv sync
 ```
@@ -255,7 +258,7 @@ In an existing app, add both yourself:
 
 ```sh
 uv add kindgi
-uv add --dev "kindgi-cli>=0.6,<0.7"
+uv add --dev "kindgi-cli>=0.7,<0.8"
 ```
 
 The first adds the SDK. The second adds the CLI, and `--dev` puts it in the
@@ -271,17 +274,17 @@ Each prints what it added. The CLI brings its own Node:
  + nodejs-wheel-binaries==24.19.0
 ```
 
-With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.6,<0.7"`.
-With pip: `pip install kindgi "kindgi-cli>=0.6,<0.7"`.
+With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.7,<0.8"`.
+With pip: `pip install kindgi "kindgi-cli>=0.7,<0.8"`.
 
 ## A Java or Scala project
 
 ```sh
-npx --yes @kindgi/cli@0.6 init my-pack --template=java
+npx --yes @kindgi/cli@0.7 init my-pack --template=java
 ```
 
 - `--template=scala` makes a Scala pack. Without Node:
-  `uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-pack --template=java`.
+  `uvx --from "kindgi-cli>=0.7,<0.8" kindgi init my-pack --template=java`.
 - The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`.
   From then on, a Java or Scala project runs it as `./kindgiw <command>`
   (`kindgiw.cmd` on Windows). A page with language tabs shows that in its

@@ -2,12 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A pack tool's files: `POST /v1/tool-files` and
- * `GET /v1/tool-files/{artifactId}`, with the call's token as the bearer
- * and no API key. The store's route passes the name, the declared type and
- * length, and a read of the body under its own limit to the runtime's
- * binding; the read's route sends the bytes the binding answers and gives
- * their room back once they're sent. The token never reaches a log line.
+ * A pack tool's files: `POST /v1/tool-files`,
+ * `GET /v1/tool-files/{artifactId}` and
+ * `POST /v1/tool-files/{fileId}/versions`, with the call's token as the
+ * bearer and no API key. The store's and the update's routes pass the
+ * name, the declared type and length, and a read of the body under its own
+ * limit to the runtime's binding; the read's route sends the bytes the
+ * binding answers and gives their room back once they're sent. The token
+ * never reaches a log line.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -31,6 +33,8 @@ import type {
   ToolFileReadInput,
   ToolFileStoreAnswer,
   ToolFileStoreInput,
+  ToolFileUpdateAnswer,
+  ToolFileUpdateInput,
   ToolFilesBinding,
   ToolFilesRefusal,
 } from '../src/index.js';
@@ -62,6 +66,20 @@ const STORED: ToolFileStoreAnswer = {
 /** A store as the binding saw it, its body read. */
 type Stored = Omit<ToolFileStoreInput, 'body'> & { readonly bytes: Uint8Array | 'too-large' };
 
+/** An update as the binding saw it, its body read. */
+type Updated = Omit<ToolFileUpdateInput, 'body'> & { readonly bytes: Uint8Array | 'too-large' };
+
+const FILE_ID = randomUUID();
+
+const UPDATED: ToolFileUpdateAnswer = {
+  file: {
+    ...STORED.file,
+    artifactId: randomUUID(),
+    fileId: FILE_ID,
+    version: 3,
+  },
+};
+
 interface Options {
   /** `false`: a runtime that stores no files. */
   readonly toolFiles?: false;
@@ -69,6 +87,8 @@ interface Options {
   readonly bodyMax?: number;
   readonly store?: (input: Stored) => Result<ToolFileStoreAnswer, ToolFilesRefusal>;
   readonly read?: (input: ToolFileReadInput) => Result<ToolFileReadAnswer, ToolFilesRefusal>;
+  /** `false`: a runtime whose binding adds no versions (one from before pack protocol 2.13.0). */
+  readonly update?: false | ((input: Updated) => Result<ToolFileUpdateAnswer, ToolFilesRefusal>);
   /** How the deployment tells clients apart and where it counts them (`webhookReceiver`'s). */
   readonly clients?: {
     readonly clientAddress?: (request: Request) => string | undefined;
@@ -79,7 +99,9 @@ interface Options {
 function harness(options: Options = {}) {
   const stored: Stored[] = [];
   const reads: ToolFileReadInput[] = [];
+  const updated: Updated[] = [];
   const lines: string[] = [];
+  const update = options.update;
   const toolFiles: ToolFilesBinding = {
     store: async ({ body, ...input }) => {
       const seen = { ...input, bytes: await body(options.bodyMax ?? TOOL_FILE_MAX_BYTES) };
@@ -90,6 +112,13 @@ function harness(options: Options = {}) {
       reads.push(input);
       return options.read?.(input) ?? { kind: 'ok', value: { bytes: PDF } };
     },
+    ...(update !== false && {
+      update: async ({ body, ...input }: ToolFileUpdateInput) => {
+        const seen = { ...input, bytes: await body(options.bodyMax ?? TOOL_FILE_MAX_BYTES) };
+        updated.push(seen);
+        return update?.(seen) ?? { kind: 'ok', value: UPDATED };
+      },
+    }),
   };
   const app = createApp({
     ...createStubAppBindings(),
@@ -120,7 +149,22 @@ function harness(options: Options = {}) {
     artifactId: string,
     headers: Record<string, string> = { authorization: `Bearer ${TOKEN}` },
   ) => app.request(`/v1/tool-files/${artifactId}`, { headers });
-  return { app, stored, reads, lines, store, read };
+  /** A pack service's update: the token as the bearer, and the version the tool read. */
+  const addVersion = (
+    body: RequestInit['body'] | undefined,
+    headers: Record<string, string> = {
+      authorization: `Bearer ${TOKEN}`,
+      'content-type': 'text/markdown',
+      'kindgi-expected-version': '2',
+    },
+    fileId: string = FILE_ID,
+  ) =>
+    app.request(`/v1/tool-files/${fileId}/versions`, {
+      method: 'POST',
+      headers,
+      ...(body !== undefined && { body }),
+    });
+  return { app, stored, reads, updated, lines, store, read, addVersion };
 }
 
 const PDF = new TextEncoder().encode('%PDF-1.7 acme');
@@ -448,6 +492,171 @@ describe('the read route', () => {
   });
 });
 
+describe('the update route', () => {
+  const as = (extra: Record<string, string>) => ({
+    authorization: `Bearer ${TOKEN}`,
+    'kindgi-expected-version': '2',
+    ...extra,
+  });
+
+  test('adds the bytes with no API key, and answers the new version', async () => {
+    const h = harness();
+    const res = await h.addVersion(bytes('# v3'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(UPDATED);
+    expect(h.updated).toEqual([
+      {
+        token: TOKEN,
+        fileId: FILE_ID,
+        expectedVersion: 2,
+        contentType: 'text/markdown',
+        bytes: bytes('# v3'),
+      },
+    ]);
+    expect(h.stored).toEqual([]);
+  });
+
+  test('answers Latest for the same bytes and for a conflict, and why nothing was added, as the runtime says', async () => {
+    const latest = { ...UPDATED.file, version: 2 };
+    for (const value of [
+      { same: latest },
+      { conflict: latest },
+      ...(['rule', 'denied', 'gone', 'type', 'size', 'storage'] as const).map((notUpdated) => ({
+        notUpdated,
+      })),
+    ] as const) {
+      const h = harness({ update: () => ({ kind: 'ok', value }) });
+      const res = await h.addVersion(bytes('# v3'));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(value);
+    }
+  });
+
+  test("passes on the declared length and a decoded name; no name, or an empty one, keeps Latest's", async () => {
+    const h = harness();
+    await h.addVersion(
+      bytes('# v3'),
+      as({ 'content-length': '4', 'kindgi-file-name': 'Notizen%20M%C3%A4rz.txt' }),
+    );
+    await h.addVersion(bytes('# v3'), as({ 'kindgi-file-name': '' }));
+    await h.addVersion(bytes('# v3'), as({}));
+    expect(h.updated[0]?.declaredBytes).toBe(4);
+    expect(h.updated.map((u) => u.name)).toEqual(['Notizen März.txt', undefined, undefined]);
+    expect(h.updated.map((u) => 'name' in u)).toEqual([true, false, false]);
+    expect(h.updated[2]?.contentType).toBe('');
+  });
+
+  test.each([
+    ['missing', undefined],
+    ['zero', '0'],
+    ['negative', '-1'],
+    ['a fraction', '1.5'],
+    ['a leading zero', '02'],
+    ['past a safe integer', '9007199254740993'],
+    ['a word', 'latest'],
+  ])('an expected version that is %s is 400 bad-input, with nothing added', async (_, version) => {
+    const h = harness();
+    const res = await h.addVersion(bytes('# v3'), {
+      authorization: `Bearer ${TOKEN}`,
+      ...(version !== undefined && { 'kindgi-expected-version': version }),
+    });
+    expect(res.status).toBe(400);
+    expect((await errorOf(res)).code).toBe('bad-input');
+    expect(h.updated).toEqual([]);
+  });
+
+  test('a name that is not percent-encoded UTF-8 is 400 bad-input, with nothing added', async () => {
+    const h = harness();
+    const res = await h.addVersion(bytes('# v3'), as({ 'kindgi-file-name': '%E0%A4%A' }));
+    expect(res.status).toBe(400);
+    expect((await errorOf(res)).code).toBe('bad-input');
+    expect(h.updated).toEqual([]);
+  });
+
+  test('a body past the limit is passed on as too-large, read no further', async () => {
+    const h = harness({ update: () => ({ kind: 'ok', value: { notUpdated: 'size' } }) });
+    const res = await h.addVersion(new Uint8Array(TOOL_FILE_MAX_BYTES + 1));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ notUpdated: 'size' });
+    expect(h.updated[0]?.bytes).toBe('too-large');
+  });
+
+  test("the file's id reaches the runtime as it came, a malformed one included", async () => {
+    const h = harness();
+    await h.addVersion(bytes('# v3'), undefined, 'not-a-uuid');
+    expect(h.updated[0]?.fileId).toBe('not-a-uuid');
+  });
+
+  test("no bearer, an unknown token and a call that doesn't update files get the same 404, never /v1's 401", async () => {
+    // The runtime doesn't tell an unknown token from a store-only call's.
+    const h = harness({
+      update: () => ({ kind: 'err', error: { code: 'tool-file-token-not-found' } }),
+    });
+    const answers = [];
+    for (const authorization of [undefined, 'Bearer kgi_tf_unknown', `Bearer ${TOKEN}`]) {
+      const res = await h.addVersion(bytes('# v3'), {
+        'kindgi-expected-version': '2',
+        ...(authorization !== undefined && { authorization }),
+      });
+      answers.push([res.status, (await errorOf(res)).code]);
+    }
+    expect(answers).toEqual(Array(3).fill([404, 'tool-file-token-not-found']));
+  });
+
+  test.each([
+    [{ code: 'tool-file-token-closed' }, 409, 'tool-file-token-closed', null],
+    [{ code: 'project-suspended' }, 409, 'project-suspended', null],
+    [{ code: 'tenant-frozen', state: 'closing' }, 409, 'tenant-closing', null],
+    [{ code: 'tenant-frozen', state: 'suspended' }, 409, 'tenant-suspended', null],
+    [{ code: 'tenant-frozen', state: 'unreadable' }, 503, 'tenant-state-unavailable', '5'],
+    [
+      { code: 'tool-files-busy' },
+      503,
+      'tool-files-busy',
+      String(TOOL_FILES_BUSY_RETRY_AFTER_SECONDS),
+    ],
+  ] as const)(
+    "the store's refusals answer the same here: %j is %i %s",
+    async (error, status, code, retryAfter) => {
+      const h = harness({ update: () => ({ kind: 'err', error }) });
+      const res = await h.addVersion(bytes('# v3'));
+      expect(res.status).toBe(status);
+      expect(res.headers.get('retry-after')).toBe(retryAfter);
+      expect((await errorOf(res)).code).toBe(code);
+    },
+  );
+
+  test('on a runtime that stores no files, or whose binding adds no versions, every update is 404 tool-file-token-not-found', async () => {
+    for (const options of [{ toolFiles: false }, { update: false }] as const) {
+      const h = harness(options);
+      const res = await h.addVersion(bytes('# v3'));
+      expect(res.status).toBe(404);
+      expect((await errorOf(res)).code).toBe('tool-file-token-not-found');
+    }
+  });
+
+  test("the API's own body limit leaves the route alone: a hosted 2 MiB doesn't cut a 3 MB file", async () => {
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const h = harness();
+      const res = await h.addVersion(new Uint8Array(3_000_000));
+      expect(res.status).toBe(200);
+      expect((h.updated[0]?.bytes as Uint8Array).byteLength).toBe(3_000_000);
+    } finally {
+      restore();
+    }
+  });
+
+  test('the token never reaches a log line or an answer', async () => {
+    const h = harness({
+      update: () => ({ kind: 'err', error: { code: 'tool-file-token-closed' } }),
+    });
+    const res = await h.addVersion(bytes('# v3'));
+    expect(JSON.stringify(await res.json())).not.toContain(TOKEN);
+    expect(h.lines.join('\n')).not.toContain(TOKEN);
+  });
+});
+
 describe("the route's limit per client", () => {
   /** The in-memory store at a limit of `limit`, keeping what each take asked for. */
   function storeAt(limit: number) {
@@ -492,6 +701,18 @@ describe("the route's limit per client", () => {
     const res = await h.read(randomUUID(), from('203.0.113.7'));
     expect(res.status).toBe(429);
     expect(h.reads).toEqual([]);
+  });
+
+  test("a client's updates count with its stores", async () => {
+    const { store } = storeAt(1);
+    const h = harness({ clients: { rateLimitStore: store } });
+    expect((await h.store(bytes('test'), from('203.0.113.7'))).status).toBe(200);
+    const res = await h.addVersion(bytes('# v3'), {
+      ...from('203.0.113.7'),
+      'kindgi-expected-version': '2',
+    });
+    expect(res.status).toBe(429);
+    expect(h.updated).toEqual([]);
   });
 
   test('a rate-limit store that fails lets the request through, and is logged once a minute', async () => {

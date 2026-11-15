@@ -39,7 +39,11 @@
  *
  * Missing config, missing default export, kind mismatch, Zod conversion
  * failure, filesystem write error — each is a distinct typed
- * `IndexerError` variant with the file path attached. No silent skips.
+ * `IndexerError` variant with the file path attached. No silent skips:
+ * the one skip is a stated rule, as in a Python pack. A helper module, a
+ * discovered file whose name starts with `_` (`tools/_shared.ts`), is
+ * skipped when it defines no primitive, and indexed like any other file
+ * when it does.
  *
  * ## Determinism
  *
@@ -359,6 +363,11 @@ export interface IndexedTool {
    */
   readonly readsFiles?: boolean;
   /**
+   * The tool's declared `updatesFiles` (schema-version 1.10.0+): each call
+   * gets tool files, and its handler `files.update`. Absent means `false`.
+   */
+  readonly updatesFiles?: boolean;
+  /**
    * The tool's declared `resultIsOutsideData`: an agent reads each of its
    * results as data, not instructions. Absent means `false`.
    */
@@ -440,6 +449,8 @@ export interface IndexedAgent {
   readonly mcp?: McpExposure;
   /** How the agent uses what it retrieves (`{ instructionTypes? }`). */
   readonly memory?: Readonly<Record<string, unknown>>;
+  /** Which of its run's files the model may change (`{ update?, create? }`). */
+  readonly files?: Readonly<Record<string, unknown>>;
   readonly modulePath: string;
 }
 
@@ -728,9 +739,10 @@ export async function runIndexer(
 
     const defExport = extractDefaultExport(module_);
     if (defExport === undefined) {
+      if (isHelperModule(relPath)) continue;
       fileErrors.push({
         code: 'no-default-export',
-        message: `File ${relPath} has no default export`,
+        message: `File ${relPath} has no default export (${HELPER_RULE})`,
         filePath: relPath,
       });
       continue;
@@ -750,9 +762,10 @@ export async function runIndexer(
     const unwrapped = unwrapResult(defExport);
     const detected = detectKind(unwrapped);
     if (detected === undefined) {
+      if (isHelperModule(relPath)) continue;
       fileErrors.push({
         code: 'ambiguous-kind',
-        message: `File ${relPath} default export does not match any primitive shape (tool / guardrail / agent / flow)`,
+        message: `File ${relPath} default export does not match any primitive shape (tool / guardrail / agent / flow; ${HELPER_RULE})`,
         filePath: relPath,
       });
       continue;
@@ -1353,6 +1366,13 @@ async function readJsonConfig(
   return { kind: 'ok', value: document as Record<string, unknown> };
 }
 
+/**
+ * `pack.version`: MAJOR.MINOR.PATCH, a tool's own version rule. A Java,
+ * Scala or Python tool that sets no version takes the pack's, and a deploy
+ * holds a tool's version to it.
+ */
+const PACK_VERSION_RE = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+
 /** The checks every config passes, whatever file it came from. */
 function checkConfig(
   record: Record<string, unknown>,
@@ -1377,6 +1397,12 @@ function checkConfig(
     return parseFailed(
       filePath,
       `Config file ${filePath}: 'pack.version' is missing or not a non-empty string`,
+    );
+  }
+  if (!PACK_VERSION_RE.test(packRec.version)) {
+    return parseFailed(
+      filePath,
+      `Config file ${filePath}: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '${packRec.version}'`,
     );
   }
   if (format === 'json') {
@@ -1452,6 +1478,18 @@ function kindPatterns(
     { kind: 'agent', pattern: discovery.agents },
     { kind: 'flow', pattern: discovery.flows },
   ];
+}
+
+/** What the indexer's errors for a file that defines no primitive say, as a Python pack's do. */
+const HELPER_RULE = "a helper module's name starts with `_`";
+
+/**
+ * A helper module: a discovered file whose name starts with `_`
+ * (`tools/_shared.ts`, `tools/echo/_format.ts`). One that defines no
+ * primitive is skipped, as in a Python pack; one that does is indexed.
+ */
+function isHelperModule(relPath: string): boolean {
+  return path.posix.basename(relPath).startsWith('_');
 }
 
 /** Record `rel`, matched by `kind`'s pattern, unless it's a test file or already seen. */
@@ -1669,16 +1707,21 @@ function toolFlagsOf(
 }
 
 /**
- * The tool's `pauses`, `storesFiles` and `readsFiles`, as the index
- * carries them. Only the pack service's own run of a handler can answer
- * `pause`, store a file or read one: the runtime runs a declarative spec
- * itself, and an MCP server can't do any of them.
+ * The tool's `pauses`, `storesFiles`, `readsFiles` and `updatesFiles`, as
+ * the index carries them. Only the pack service's own run of a handler can
+ * answer `pause`, or store, read or update a file: the runtime runs a
+ * declarative spec itself, and an MCP server can't do any of them.
  */
 function handlerFlagsOf(
   rec: Readonly<Record<string, unknown>>,
   relPath: string,
 ): Result<
-  { readonly pauses?: true; readonly storesFiles?: true; readonly readsFiles?: true },
+  {
+    readonly pauses?: true;
+    readonly storesFiles?: true;
+    readonly readsFiles?: true;
+    readonly updatesFiles?: true;
+  },
   IndexerError
 > {
   const flag = HANDLER_FLAGS.find((f) => rec[f] === true);
@@ -1694,16 +1737,18 @@ function handlerFlagsOf(
       ...(rec.pauses === true && { pauses: true }),
       ...(rec.storesFiles === true && { storesFiles: true }),
       ...(rec.readsFiles === true && { readsFiles: true }),
+      ...(rec.updatesFiles === true && { updatesFiles: true }),
     },
   };
 }
 
-const HANDLER_FLAGS = ['pauses', 'storesFiles', 'readsFiles'] as const;
+const HANDLER_FLAGS = ['pauses', 'storesFiles', 'readsFiles', 'updatesFiles'] as const;
 
 const HANDLER_FLAG_DOES = {
   pauses: 'pause',
   storesFiles: 'store files',
   readsFiles: 'read files',
+  updatesFiles: 'update files',
 } as const;
 
 /**
@@ -2067,6 +2112,7 @@ function optionalAgentFields(rec: Record<string, unknown>): Partial<IndexedAgent
     'toolErrors',
     'modelSettings',
     'memory',
+    'files',
     'mcp',
   ] as const) {
     if (isObject(rec[key])) out[key] = rec[key];
@@ -2189,24 +2235,6 @@ function resolveSchema(
     return { kind: 'ok', value: converted.value };
   }
   const wireValue = rec[wireField];
-  // `wireValue` may itself be a Zod schema (author-time authored with Zod
-  // but not yet run through defineTool). Convert lazily in that case.
-  if (isZodSchema(wireValue)) {
-    const converted = toJSONSchemaSync(wireValue as AnySchema, converter, side);
-    if (converted.kind === 'err') {
-      return {
-        kind: 'err',
-        error: {
-          code: 'zod-conversion-failed',
-          message: `${relPath}: Zod conversion for '${wireField}' failed: ${converted.error.message}`,
-          filePath: relPath,
-          field: wireField,
-          cause: converted.error.cause,
-        },
-      };
-    }
-    return { kind: 'ok', value: converted.value };
-  }
   if (!isObject(wireValue)) {
     return {
       kind: 'err',
@@ -2218,7 +2246,23 @@ function resolveSchema(
       },
     };
   }
-  return { kind: 'ok', value: wireValue as Readonly<Record<string, unknown>> };
+  // `wireValue` may itself be a Zod schema (author-time authored with Zod
+  // but not yet run through defineTool). Convert lazily in that case. A JSON
+  // Schema object comes back as is, and a zod 3 schema is refused by name.
+  const converted = toJSONSchemaSync(wireValue as AnySchema, converter, side);
+  if (converted.kind === 'err') {
+    return {
+      kind: 'err',
+      error: {
+        code: 'zod-conversion-failed',
+        message: `${relPath}: Zod conversion for '${wireField}' failed: ${converted.error.message}`,
+        filePath: relPath,
+        field: wireField,
+        cause: converted.error.cause,
+      },
+    };
+  }
+  return { kind: 'ok', value: converted.value };
 }
 
 // -----------------------------------------------------------------------

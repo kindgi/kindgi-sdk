@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""A model's id passes straight back into the client (T309).
+"""A model's id passes straight back into the client.
 
 Not a test pytest runs: pyright type-checks it (strict, `pyproject.toml`'s
 `include`), so a method that took only `str` for an id the models carry

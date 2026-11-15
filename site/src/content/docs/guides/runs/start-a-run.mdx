@@ -148,10 +148,13 @@ gets `` `projectId` must be a project id (a UUID) ``.
 
 Create a client. With no arguments it reads the API's URL and a token from
 `KINDGI_API_URL` and `KINDGI_API_TOKEN`, which you set in your env file
-(`.env` / `.env.local`). In development, when they aren't set, it uses the
+(`.env` / `.env.local`). In development, when neither is set, it uses the
 running `kindgi dev`, which writes both to `.kindgirc.json`, and warns once
-that you should set them. In production (`NODE_ENV` or `KINDGI_ENV` set to
-`production`) it never does, so set them there.
+that you should set them. Set both, or neither: with only one set, it
+throws, naming the file and what to set
+([Call Kindgi from your app](../../../start/call-from-your-app/)). In
+production (`NODE_ENV` or `KINDGI_ENV` set to `production`) it never reads
+`.kindgirc.json`, so set them there.
 
 Ask your coding agent: "I want my app to start runs on Kindgi." For
 reference, the client it creates looks like this:
@@ -307,8 +310,10 @@ completed {status=held, orderId=A-200}
 </Tabs>
 
 `start` returns when the run completes, fails or waits for something (a
-person's approval, for example: `status` is then `suspended`). Use it when the
-run is short and the caller needs the answer.
+person's approval, for example: `status` is then `suspended`). When a read
+fails part-way, it returns with the run still `running` and no `output`: the
+run goes on at a later resume, so [follow it](../follow-a-run/). Use it when
+the run is short and the caller needs the answer.
 
 Each client waits for an answer up to its timeout: 30 seconds in TypeScript
 (`timeoutMs`, on `createClient` or on one call to `start`), 60 seconds in
@@ -336,23 +341,19 @@ The run didn't end within 60 s, the client's timeout (timeout). A waited start a
 </TabItem>
 <TabItem label="Java">
 
-A `ConflictException`, just after 60 seconds. The client sends a start again
-after a timeout, with the same idempotency key, and the server answers that
-the first one is still running:
+A `NetworkException`, after 60 seconds:
 
 ```text
-com.kindgi.client.ConflictException: A request with this Idempotency-Key is still running. Retry after it answers (Retry-After), and you'll get its answer.
+The run didn't end within 60 s, the client's timeout (timeout). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `wait_(false)` in its options: the answer carries its id at once. Then follow it with `runs().follow(runId)` or `runs().get(runId)`. Or raise `timeout`.
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
-The Java client's `ConflictException`, just after 60 seconds. The client sends
-a start again after a timeout, with the same idempotency key, and the server
-answers that the first one is still running:
+The Java client's `NetworkException`, after 60 seconds:
 
 ```text
-com.kindgi.client.ConflictException: A request with this Idempotency-Key is still running. Retry after it answers (Retry-After), and you'll get its answer.
+The run didn't end within 60 s, the client's timeout (timeout). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with `wait_(false)` in its options: the answer carries its id at once. Then follow it with `runs().follow(runId)` or `runs().get(runId)`. Or raise `timeout`.
 ```
 
 </TabItem>
@@ -519,7 +520,7 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | `id` | The run's id: for `get`, `cancel`, the journal and the event stream. |
 | `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
-| `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
+| `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; a tool that failed the call on purpose, `tool-failed`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
 | `flowId`, `flowVersion` | The flow and the version the run runs, kept for the whole run. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
 | `flowVersionVia` | How a flow's version was chosen: named by the start (`explicit`), [pinned](../../flows/pin-a-flow-version/) for the run's project (`pinned`, with the pin in `flowPinnedScope`), or the newest the project reaches (`latest`). |
 | `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none. |
@@ -563,7 +564,7 @@ try {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+tool-failed No order Z-9
 not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
@@ -587,7 +588,7 @@ except NotFoundError as err:
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
+tool-failed No order Z-9
 No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
@@ -629,7 +630,7 @@ public final class StartFailures {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.lang.IllegalArgumentException: No order Z-9
+tool-failed No order Z-9
 flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
@@ -669,12 +670,22 @@ object StartFailures {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.util.NoSuchElementException: No order Z-9
+tool-failed No order Z-9
 flow-not-found No flow "acme.no-such-flow" is registered in this workspace.
 ```
 
 </TabItem>
 </Tabs>
+
+Here the flow's tool failed the call on purpose
+([Fail a call on purpose](../../tools/write-a-tool/#fail-a-call-on-purpose)):
+the failure's `reason` is the tool's own code, `order-not-found`, and its
+`details` the tool's facts. A tool that just throws is a crash instead,
+`run-failed`, with the tool's words after its lead-in:
+
+```text
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+```
 
 A request that times out on your side may have started the run anyway.
 [Retry a start safely](../retry-a-start-safely/) shows how to retry without

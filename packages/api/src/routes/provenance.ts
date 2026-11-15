@@ -15,8 +15,9 @@ import type { ConversationId, FlowId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import { beforeHandler, databaseBusyAnswer } from '../middleware/error-mapper.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -73,7 +74,7 @@ export interface ProvenanceRouterOptions {
    * DAGs. Absent = the export omits messages (empty array).
    */
   readonly conversationBinding?: ConversationBinding;
-  /** Where a run's project is read, for the per-run checks (T243 A). */
+  /** Where a run's project is read, for the per-run checks. */
   readonly runBinding?: RunBinding;
 }
 
@@ -87,7 +88,7 @@ export function provenanceRouter(
   binding: ProvenanceBinding,
   options: ProvenanceRouterOptions = {},
   /**
-   * With one (T243 A): a run's provenance (and its export) needs `read`
+   * With one: a run's provenance (and its export) needs `read`
    * on the run's project, or, for a run of the caller's own (`isOwnRun`),
    * `run` there; the list holds only records whose project the caller may
    * read (the tenant, for one with no project).
@@ -120,6 +121,23 @@ export function provenanceRouter(
       isReadMethod(c.req.method) ? onRunProject(c, next) : next(),
     );
     r.use('/:runId/export', onRunProject);
+  } else {
+    // Without one, a project-limited key's or session's export of another
+    // project's run is held there, as a store refuses it.
+    r.use('/:runId/export', async (c, next) => {
+      const runId = c.req.param('runId') ?? '';
+      if (c.get('tokenProjectId') === undefined || !UUID_RE.test(runId)) return next();
+      // Before the handler (`beforeHandler`), so a database too busy to
+      // read the run answers 503.
+      const held = await beforeHandler(c, async () => {
+        const run = await options.runBinding?.getRun(c.get('tenantId') as TenantId, runId as RunId);
+        const project = run?.projectId as unknown as string | undefined;
+        return project === undefined
+          ? undefined
+          : limitedCallerRefusal(c, 'read', ref('project', project), 'the run');
+      });
+      return held ?? next();
+    });
   }
   const exportSigning = options.exportSigning;
 
@@ -191,10 +209,12 @@ export function provenanceRouter(
     const visible =
       authorizer === undefined
         ? records
-        : await authorizer.filterByCan(c, 'read', records, (rec) =>
+        : // A record with no project is the whole workspace's, which a key
+          // limited to a project doesn't read.
+          await authorizer.filterByCan(c, 'read', records, (rec) =>
             rec.projectId !== undefined
               ? ref('project', rec.projectId as unknown as string)
-              : ref('tenant', tenantId as unknown as string),
+              : tenantWide(tenantId as unknown as string),
           );
     return c.json({
       data: visible.map(serializeRecordMetadata),

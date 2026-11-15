@@ -55,6 +55,15 @@ export interface IdentityProviderBinding {
    * Absent → `PATCH /v1/auth/providers/:providerId` isn't mounted.
    */
   readonly update?: (input: IdentityProviderUpdateInput) => Promise<IdentityProviderUpdateOutcome>;
+  /**
+   * Whether this deployment lets people join by domain: it needs an
+   * authorization store, so a joiner holds only their `joinRole`.
+   * Absent or `false` → a registration or change that sets `join: domain`
+   * or `joinRole` answers 409 `domain-join-needs-authorization`. A provider
+   * already stored with them keeps them, and a change that leaves them
+   * alone goes through.
+   */
+  readonly joinsByDomain?: boolean;
 }
 
 export interface IdentityProviderSignInUrlsInput {
@@ -116,6 +125,9 @@ export type IdentityProviderKind = 'oidc' | 'saml';
  */
 export type ProviderConfig = OidcProviderConfig | SamlProviderConfig;
 
+/** What a provider's domain join gives a new person (`joinRole`). */
+export type ProviderJoinRole = 'viewer' | 'runner' | 'none';
+
 /** What every kind of identity provider has. */
 export interface ProviderConfigBase {
   /** Stable string chosen by the tenant (e.g. `acme-sso`, `globex-oidc`). */
@@ -130,10 +142,20 @@ export interface ProviderConfigBase {
   readonly domains?: readonly string[];
   /**
    * Who may sign in the first time: `invite` (default) lets in only people
-   * a tenant admin added. `domain` is saved, but sign-in doesn't use it,
-   * so it lets in the same people as `invite`.
+   * a tenant admin added. `domain` also lets in anyone this provider says
+   * has a verified email at one of `domains`, when the deployment routes
+   * that domain to this tenant: they become a person holding `joinRole`.
+   * Someone removed from the tenant stays out. It needs an authorization
+   * store (`joinsByDomain`).
    */
   readonly join?: 'invite' | 'domain';
+  /**
+   * What someone who joins by domain gets: `viewer` (default) or `runner`
+   * (who also runs its agents and flows) on the tenant's default project,
+   * or `none`, a tenant member with no project. Never tenant admin. It's
+   * kept while `join` is `invite`.
+   */
+  readonly joinRole?: ProviderJoinRole;
   /**
    * What to give the identity provider so it can send people back: set
    * by the deployment on what it returns; ignored on registration.
@@ -192,6 +214,20 @@ export interface SamlProviderConfig extends ProviderConfigBase {
   readonly spSigningKeyRef?: string;
   /** Opaque pointer to the key that decrypts encrypted assertions. Never a plaintext key. */
   readonly spDecryptionKeyRef?: string;
+  /**
+   * The certificates (PEM) of `spSigningKeyRef`'s key, published in the
+   * service provider's metadata, so an IdP that imports it can check signed
+   * AuthnRequests. Several during a rollover: publish the new key's beside
+   * the old one, then change `spSigningKeyRef`. Needs `spSigningKeyRef`.
+   */
+  readonly spSigningCertificates?: readonly string[];
+  /**
+   * The certificates (PEM) of `spDecryptionKeyRef`'s key, published in the
+   * service provider's metadata, so an IdP that imports it can encrypt
+   * assertions. The IdP may encrypt to any of them, so each is of that one
+   * key (a renewed certificate beside the old). Needs `spDecryptionKeyRef`.
+   */
+  readonly spDecryptionCertificates?: readonly string[];
   /** Require signed assertions. Default `true`. */
   readonly wantAssertionsSigned?: boolean;
   /** Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`. */

@@ -1,5 +1,90 @@
 # @kindgi/connections
 
+## 0.7.0
+
+### Patch Changes
+
+- f2baded: **Tools for Google Drive.** `googleDriveFilesList`, `googleDriveFileGet` and `googleDriveFileCreate`, from `@kindgi/connections/google/tools`, find, read and add files in the Drive of the Google account the run acts as, or the company's with `as: 'company'`.
+  
+  - **The list** gives the files others share with the account too, never what's in the trash: the newest first, or, with `text`, the best matches first. It narrows by words in a file's name or content, words in its name, a folder, a kind or a time. Each file comes with its `id`, `name`, `kind`, `contentType`, `size`, `modified`, `link`, `folderId`, and `owner` when that's someone else, and `next` gives the next page.
+  - **The get** stores one file as a file of the run, as an attachment tool does. A Google Doc is read as Markdown, a Sheet as CSV, Slides as text and a Drawing as a PNG, or each as a PDF with `format: 'pdf'`. Other files are read as they are when they're a JPEG, PNG or WebP image, a PDF, or a text, Markdown or CSV file, within its type's size limit. Else the answer says why the file isn't shown (`notShown`). The answer also gives the file as the list does (`listed`).
+  - **The create** adds a file at the top of the Drive from `text` or from a file of the run. With `convert: true`, text or Markdown becomes a Google Doc and CSV a Google Sheet. In a run no person started, it waits for a yes. It runs once per call: run again, it gives the first call's answer, and it finds a file the call added before rather than adding a second.
+  - **Permissions.** The Google entry adds `drive.readonly`, with review `restricted`, for the list and the get, and `drive.file`, with review `none`, for the create: it reaches only the files the app added. A connection made before lacks them until the person allows it. Turn on the Google Drive API in your OAuth client and add them to its Data access.
+  - **Pacing.** A new rate limit paces each connection's Drive calls at 325,000 of Drive's quota units a minute, at Drive's cost for each call. Drive calls don't count in Gmail's or the calendar's units, and a Gmail attachment's download no longer counts in the calendar's. Outlook's send, reply and event writes are now named in its sends limit, at the 1 they cost before.
+  - **Your own calls.** `appFetch`'s `body` takes bytes as well as text, and sends them as they are.
+  - **Versions.** The three tools start at 1.0.0, as person and as company.
+  - **Docs.** A new Files guide shows the tools, the Google setup guide adds the Drive API and the two permissions, the connections overview and Use a connection list the tools, and the tools authoring skill names them.
+- 2d81e64: **LinkedIn posts carry images and a link card, and a post can be deleted.** `linkedinPost`, from `@kindgi/connections/linkedin/tools`, takes `images`: 1 to 20 of the run's files, in order, each with its `altText`. One is the post's image, and two or more make a multi-image post. It takes `link` too: a card with its `url`, the `title` it shows (LinkedIn makes no card from a link itself) and a `description`, with one image at most as its thumbnail. `linkedinDeletePost` deletes a post the person made, by the `postId` that posting it gave.
+  
+  - **Images.** Each is a JPEG, GIF or PNG of fewer than 36,152,320 pixels, LinkedIn's limits. Every image is read and checked before any is uploaded, and a file the run can't read fails the call in words, before anything is posted. The tool declares `readsFiles`, and its network adds `www.linkedin.com`, LinkedIn's upload host: an upload address on any other host is refused. On a runtime that gives a tool no file reads, a post with images fails in words, and a text post works as before.
+  - **Once per call.** The uploads happen in the recorded step with the post, so a step run again uploads and posts nothing more.
+  - **Calls.** Each image takes two of the person's 150 LinkedIn calls a day: one to start its upload, and one for its bytes.
+  - **Deleting.** A post already deleted counts as deleted, and a server error says deleting again is safe. It asks the same `posts.write` permission, and in a run no person started it waits for the person's yes, as a post does.
+  - **`appFetch`** takes bytes as a `body`, for an upload.
+  - **Versions.** `linkedinPost` moves to 1.1.0. `linkedinDeletePost` starts at 1.0.0.
+  - **Docs.** The connections guide, the LinkedIn guide's limits, the package README and the tools authoring skill name the new fields and the delete tool.
+- 7745812: **`mailTurn` sets in every line of a mail's text that would read as one of the turn's own, not only a `---` line.** A line that starts with `[the rest of this mail is cut]` or `(no text)`, or with `To:`, `Cc:`, `Reply-To:` or `Attachments:` in any case, with or without a space after the colon, after any characters that don't show, now starts with one space, as a line starting `---` already did. Before, the agent could take a new mail's first line `To: …` for its recipients when it had none, a last line `Attachments: …` for attachments, a last line `[the rest of this mail is cut]` for a cut, and a text of only `(no text)` for none.
+  
+  - **Each mail a mail turn's read gives, its `mail` and every mail of its `thread`, sets in a line of its `body` that starts as `[earlier mail left out]`,** the mark a Gmail quote cut leaves, on Gmail and Outlook alike, so only the cut's own mark reads as one. A flow started from new mail gets those mails as `input.mail` and `input.thread`. A read tool's text is as before.
+  - Otherwise `input` and `covered` are as before.
+  - The WordPress plugin reads those lines as the mail's text and shows them without the space. An earlier plugin shows them with it, and no longer takes them for the mail's own.
+  - **Docs.** Start runs from new mail says which lines are set in, and that a flow's `mail` sets in the mark.
+- 1dd8f20: **Tools for OneDrive and SharePoint.** `oneDriveFilesList`, `oneDriveSharedFilesList`, `sharePointLibrariesList` and `oneDriveFileCreate`, from `@kindgi/connections/microsoft/tools`, find and add files in the OneDrive of the Microsoft account the run acts as, or the company's with `as: 'company'`, and find the files others share with it and its organization's SharePoint libraries.
+  
+  - **The own list** reads the account's OneDrive: with `text`, the files whose name, details or content match, across the drive; with `folderId`, what's in that folder; with neither, its top level. Each file comes with the same fields as a Google Drive list's, and `next` gives the next page. A folder's `contentType` is `inode/directory`.
+  - **The shared list** searches, with `text`, what the account can open, those others share with it too, or lists a drive by its `driveId`: its top level, a folder in it, or what matches in it. A file in another drive gives its `driveId`, and its `owner` when Microsoft names one.
+  - **The libraries list** finds the SharePoint sites that match `text`, at most `top` (5 when it's left out, 10 at most), and gives each one's document libraries with their `driveId`, for the shared list.
+  - **The create** adds a file at the top of the OneDrive or in a folder by its `folderId`, from `text` or from a file of the run. It never replaces a file: when one of that name is already there, it fails, saying so, unless that file has the same size, which it answers as the file it added. In a run no person started, it waits for a yes. It runs once per call: run again, it gives the first call's answer.
+  - **Permissions.** The Microsoft entry adds `Files.Read` for the own list, `Files.ReadWrite` for the create, `Files.Read.All` for the shared list and `Sites.Read.All` for the libraries list. On Microsoft's default for new tenants, the last two need an admin's consent once. A connection made before lacks them until the person allows it.
+  - **Pacing.** A new rate limit paces each connection's OneDrive and SharePoint calls at 3,000 in 5 minutes. File calls don't count in the mailbox's limits, and Outlook's calls don't count in the new one. The mailbox's 10,000 in 10 minutes now names each Outlook call, at the 1 it cost before.
+  - **`FileListed`** gains `driveId`, given only by OneDrive's lists.
+  - **Versions.** The four tools start at 1.0.0, as person and as company.
+  - **Docs.** The Files guide adds OneDrive and SharePoint, the Microsoft setup guide adds the Files and Sites permissions and the admin-consent default, the calendar guide's consent sentence is corrected, and the connections overview, Use a connection, the README and the tools authoring skill name the new tools.
+- 768e1b3: **A run can start from a text message.** `RunStartedBy` gains `text`, for a run a text trigger fired. Such a run is one no person is watching, with the rules a mail-started run has:
+  - The text is read as outside data, in an `<event>` block, never as the person's own message.
+  - Every tool that changes something (any tool that isn't `mutating: false`) waits for a person's yes, with the new reason `text-change` (`UnattendedWaitReason`), unless the trigger lists it in `toolsAllowedUnattended`. A read-only tool runs.
+  - A tool that declares `needsApprovalWhenUnattended`, or uses a person's connection, waits as in any run no person started, unless the trigger lists it.
+  - A run's `startedBy` in the API can be `text`, and such a run acts for the trigger's owner.
+  
+  **Text triggers.** A text trigger starts a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as the run's input. `TRIGGER_KINDS` gains `text`.
+  - The API has `/v1/text-triggers`: register, list, get, update, pause, resume, unregister, its fires, its versions, and take ownership. The CLI has `kindgi text-triggers`, and the TypeScript client has `textTriggers`.
+  - Its `config` names the number, `connectionId`: one of the project's company connections of app `texts`. `runsPerHour` (1-600, default 60) and `perSenderPerHour` (1-60, default 10) limit how many runs it starts.
+  - One live text trigger answers a number. Registering another on it, or moving one onto it, is refused with `409 trigger-connection-taken`, whose `heldBy` names the trigger that answers it, which can be in another project of the workspace. A paused trigger keeps its number; unregistering it frees the number.
+  - The number is the company's, so registering a text trigger and every change to one take a project admin. Pausing, resuming and unregistering follow the rules other triggers have.
+  - `toolsAllowedUnattended` never lists `kindgi_send_text`: a text that isn't a reply always waits for a person's yes.
+  
+  **Texts come in at `/v1/texts-inbound/{tenantId}/{appId}`.** It's where a texting provider delivers to a texts registration: `POST` for texts and delivery statuses, `GET` for a provider's handshake.
+  - No sign-in: the server checks the provider's own signature over the URL it called and the body's exact bytes, before anything is written. A bearer token, a cookie or a `Proxy-Authorization` header, if sent, is never read nor passed on.
+  - A request that doesn't prove its sender is `401 texts-inbound-refused`, the same answer whatever the reason, a body over the cap included, at any size, and a client past its refusals this minute gets `429`. The server's own trouble is `503 texts-inbound-unavailable`, and the provider sends the texts again.
+  - `ConnectionBinding` gains an optional `receiveTexts`, and the route is mounted only where a binding has it.
+  
+  **The texts connection: a business number, connected without a browser.** `@kindgi/connections` gains the `texts` entry (`@kindgi/connections/texts`), for the company: a number at a texting provider (Telnyx for now), with the permissions `texts.reply` and `texts.send`.
+  - `SignIn` gains `token`, an account's credential kept on the registration by reference, with the providers it serves. `AccountLookup` gains `number`, and `AppRemoval.revoke` gains `restore-inbound`. `defineApp` checks that the three go together, and that each permission of a `token` sign-in grants its own key.
+  - A texts registration takes `token`: the provider, its API key by reference (`apiKey`) and the account's Ed25519 public key (`publicKey`, base64 of 32 bytes), on `POST` and `PATCH /v1/connection-apps`. The key reaches the whole provider account, so a secret a tool, MCP endpoint, webhook endpoint, webhook trigger or destination uses is refused with `409 connection-key-in-use`, and nothing is stored.
+  - Only its registration names that key. A tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a model provider or another connection app registration that names it is refused with `400 connection-key-refused` (`details.secret`, `details.appId`), and nothing is stored; a texts registration whose key another registration names in any of its secrets is `409 connection-key-in-use`, with that registration in `usedBy` (kind `connection-app`). Both ask for a new API key from the provider, stored under its own name, since a copy of the account key under another name reaches the same account; the 409 also says to rotate a shared key at the provider. A removed registration frees its key, and one kept while its numbers' inbound can't be put back still holds it. `@kindgi/api` exports `connectionKeysOf` (its `ConnectionKeys` maps each key to every live registration holding it) and `connectionKeyRefusal`, and the TypeScript and Python clients read the new code as an invalid request.
+  - `POST /v1/connections` takes `number` (E.164) and `replaceInbound`. A texts connect comes back `connected` at once, with its `connectionId`; it keeps `connectUrl`, whose page only shows it connected, and `expiresAt`, which ends only a `pending` request. A number whose texts go somewhere else today is refused with `409 inbound-in-use`, naming the webhook's host or the messaging profile, until the connect says `replaceInbound: true`. A number live in another environment, or under another texts registration, is `409 number-in-use`. A reconnect names the same number, and is how a connection whose key the provider refused (`credential-refused`) works again once the registration's secret is updated.
+  - A disconnect puts the number's old inbound back first. When that fails, the connection stays `removing` and the answer is `502 inbound-restore-failed`; disconnecting again retries, and `DELETE /v1/connections/{connectionId}?skipInboundRestore=true` drops what was kept without putting it back. The flag is ignored for a connection of any other app. Removing a registration with its connections does the same for each number, and keeps the registration while one fails.
+  - A connection gains `lastProvenInboundAt` and `textsThisMonth` (`received`, `sent`, `unanswered`), for a number only.
+  - The CLI: `kindgi connection-apps add texts --provider=telnyx --api-key-ref=<env>/<name> --public-key=<base64>`, `kindgi connections connect texts --for-company --number=<E.164> [--replace-inbound]`, which prints the connection, and `kindgi connections disconnect <connection> --skip-inbound-restore`. The TypeScript client's `connections.disconnect` takes `skipInboundRestore`.
+  - `@kindgi/connections-inmemory` serves the entry with a fake provider: connect, reconnect and removal work, with hooks for the lookup and the restore, and `seed.inbound` and `seed.credentialRefused` set up a number's state. Texts come in only on a Kindgi server.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [c7b560c]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [f7264e7]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [a478edf]
+- Updated dependencies [7f9d20f]
+- Updated dependencies [cdf511b]
+- Updated dependencies [25d902a]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/tools@0.7.0
+  - @kindgi/capabilities@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

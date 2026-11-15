@@ -9,7 +9,8 @@ sidebar:
 When you finish this page, people in your workspace can connect their own
 LinkedIn profile. A tool, such as the ready-made
 [`linkedinPost`](../use-a-connection/#ready-made-tools), can then post on
-LinkedIn as them, after they approve it. They connect through a LinkedIn
+LinkedIn as them, and `linkedinDeletePost` can delete those posts, after
+they approve it. They connect through a LinkedIn
 app your company creates, which you register with Kindgi once.
 
 The app uses two LinkedIn products anyone can add, with no review by
@@ -26,7 +27,7 @@ reviews first, and isn't covered here.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)).
-  Kindgi 0.6's CLI runs from any folder as `npx --yes @kindgi/cli@0.6`
+  Kindgi 0.7's CLI runs from any folder as `npx --yes @kindgi/cli@0.7`
   ([Install](../../../start/install/)).
 
 ## 1. Create the app at LinkedIn
@@ -74,12 +75,15 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.7 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_LINKEDIN_CONNECT_SECRET` is the secret's name. The registration
   keeps only this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
@@ -91,7 +95,7 @@ In the console, open your workspace's **App registrations** page, choose
 
 - **Client id:** the Client ID.
 - **Client secret: its name in Kindgi's secrets:** the environment and name
-  you stored it under, `production/ACME_LINKEDIN_CONNECT_SECRET`.
+  you stored it under, `prod/ACME_LINKEDIN_CONNECT_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows the **Redirect URI** you entered in
@@ -100,7 +104,7 @@ step 1.
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=production/ACME_LINKEDIN_CONNECT_SECRET
+npx --yes @kindgi/cli@0.7 connection-apps add linkedin --client-id=<client-id> --client-secret-ref=prod/ACME_LINKEDIN_CONNECT_SECRET
 ```
 
 The command prints the registration as JSON: its `redirectUrl` is the
@@ -123,6 +127,16 @@ So when the 60 days end, the connection needs reconnecting: connect again
 from **Connections**, or from a run that's waiting for you. If LinkedIn
 gives your app refresh tokens, as it does for partners it approves, Kindgi
 renews the access as it does for other apps.
+
+Seven days before the access ends, the connection says so (runtime 0.7.0 or
+later): "Ends on *date*. Connect it again to keep posting." It shows on
+**Connections** and on the connection's own page, with **Reconnect** for
+whoever can reconnect it. Where the deployment sends mail, they also get one
+email
+([The heads-up before a connection's access ends](../../../deploy/self-hosted/sign-in/#the-heads-up-before-a-connections-access-ends)).
+Reconnecting before the access ends, while you're signed in at LinkedIn,
+skips LinkedIn's consent page
+([LinkedIn: Authorization Code Flow](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow)).
 
 If you turn it down on LinkedIn's page, the connect is declined. If a
 tool's call asked you to connect, that call fails with
@@ -167,7 +181,7 @@ To change the client secret, for example when someone who knew it leaves:
 2. **Store the new one as a new version** under the same name:
 
    ```sh
-   npx --yes @kindgi/cli@0.6 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=production --scope=tenant --write-mode=add-version
+   npx --yes @kindgi/cli@0.7 secrets set ACME_LINKEDIN_CONNECT_SECRET --env=prod --scope=tenant --write-mode=add-version
    ```
 
    Connections keep working: Kindgi uses the new secret from the next
@@ -184,7 +198,9 @@ Kindgi paces each connection's calls at LinkedIn's limit for one member:
   minutes for each call.
 
 A call through [`appFetch`](../use-a-connection/#read-the-token) takes 1
-unit, so your own tool's calls to LinkedIn count too.
+unit, so your own tool's calls to LinkedIn count too. A `linkedinPost`
+with images takes two more for each image, one to start its upload and one
+for its bytes: a post of 20 images takes 41.
 
 LinkedIn also limits your app to 100,000 calls a day across all its
 members, and refuses calls over that until its limits reset at midnight

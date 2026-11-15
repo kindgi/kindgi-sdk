@@ -71,6 +71,8 @@ function ctxAt(a: Agent, steps: number): TurnContext {
     appended: [],
     usage: { steps, promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
     abortReason: undefined,
+    // The person's 'go' (`iteration`): what the turn's loop adds comes after it.
+    initialMessageCount: 1,
   };
 }
 
@@ -147,7 +149,7 @@ describe('a maxSteps above the loop is held to it', () => {
     const typed = agent({ budget: { maxSteps: 64 }, output: ORDER });
     const out = await check(typed, 31, iteration(31, 'not json', false));
     expect(out.finishedTurn).toBe(false);
-    expect(repairsSoFar(out.nextMessages)).toBe(1);
+    expect(repairsSoFar(ctxAt(typed, 31), out.nextMessages)).toBe(1);
   });
 
   test('a typed answer that does not fit on the last iteration: no repair, the turn fails', async () => {

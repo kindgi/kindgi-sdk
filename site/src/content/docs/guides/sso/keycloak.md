@@ -17,8 +17,8 @@ OpenID Connect and with SAML (signed requests).
 - **Admin access to your Keycloak realm,** on Keycloak 26.4 or a release
   whose admin console has the same fields.
 - **For SAML, `openssl`,** to make Kindgi's signing key and certificate.
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## OpenID Connect
@@ -28,7 +28,7 @@ OpenID Connect and with SAML (signed requests).
 `start` gives you the redirect URI to enter in Keycloak:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers start acme-kc --idp=keycloak
+npx --yes @kindgi/cli@0.7 sso providers start acme-kc --idp=keycloak
 ```
 
 - `acme-kc` is the provider's id in your workspace.
@@ -82,12 +82,15 @@ Store the secret in Kindgi's secret store, by name, so it never travels by
 email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_KC_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.7 secrets set ACME_KC_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_KC_SECRET` is the secret's name. The registration keeps only this
   name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
 
 The command asks for the value twice, and doesn't show what you type.
@@ -102,11 +105,11 @@ Re-enter to confirm:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_KC_SECRET at tenant in production.
+  Set ACME_KC_SECRET at tenant in prod.
 ```
 
 ### 4. Register it
@@ -114,7 +117,7 @@ Re-enter to confirm:
 `finish` registers the client, and offers it to people at your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers finish acme-kc --kind=oidc --issuer=https://<keycloak-host>/realms/<realm> \
+npx --yes @kindgi/cli@0.7 sso providers finish acme-kc --kind=oidc --issuer=https://<keycloak-host>/realms/<realm> \
   --client-id=<client id> --client-secret-ref=ACME_KC_SECRET --domains=<your domain>
 ```
 
@@ -138,7 +141,7 @@ Keycloak SAML client needs a signing key and certificate for Kindgi.
 `start` with `--kind=saml` gives you the URLs a SAML client asks for:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers start acme-saml --kind=saml
+npx --yes @kindgi/cli@0.7 sso providers start acme-saml --kind=saml
 ```
 
 - `acme-saml` is the provider's id in your workspace.
@@ -173,7 +176,7 @@ by name:
 
 ```sh
 openssl req -x509 -newkey rsa:2048 -nodes -keyout acme-sp-key.pem -out acme-sp-cert.pem -days 730 -subj "/CN=Kindgi SAML (acme.test)"
-npx --yes @kindgi/cli@0.6 secrets set ACME_SAML_SIGNING_KEY --env=production --scope=tenant --from-stdin < acme-sp-key.pem
+npx --yes @kindgi/cli@0.7 secrets set ACME_SAML_SIGNING_KEY --env=prod --scope=tenant --from-stdin < acme-sp-key.pem
 ```
 
 - `req -x509` makes a self-signed certificate, and `-newkey rsa:2048` a new
@@ -197,11 +200,11 @@ it stored:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_SAML_SIGNING_KEY at tenant in production.
+  Set ACME_SAML_SIGNING_KEY at tenant in prod.
 ```
 
 Give the certificate, `acme-sp-cert.pem`, to whoever runs Keycloak. The key
@@ -248,7 +251,7 @@ curl -fsS -o acme-idp-metadata.xml https://<keycloak-host>/realms/<realm>/protoc
 `finish` registers the client with its metadata and the signing key's name:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers finish acme-saml --kind=saml --idp-metadata=@acme-idp-metadata.xml \
+npx --yes @kindgi/cli@0.7 sso providers finish acme-saml --kind=saml --idp-metadata=@acme-idp-metadata.xml \
   --domains=acme.test --sp-signing-key-ref=ACME_SAML_SIGNING_KEY --name="Acme SAML"
 ```
 

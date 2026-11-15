@@ -17,12 +17,12 @@ address for a license key, then log in once with `kindgi auth registry`.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.6 init my-pack --template=sample
+npx --yes @kindgi/cli@0.7 init my-pack --template=sample
 cd my-pack
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.6` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.7` runs the Kindgi CLI these docs describe,
   without installing it
   ([Check this machine](../install/#check-this-machine) says how). The
   version is optional: `npx --yes @kindgi/cli init my-pack --template=sample`
@@ -53,9 +53,9 @@ my-pack/
 ├── tools/echo/index.ts                 # a tool: echoes a message
 ├── tools/greet/index.ts                # a tool: greets a name
 ├── tools/fetch-httpbin/index.ts        # a tool that calls an HTTP API
-├── agents/echo-agent/index.ts          # an agent that calls the tools
+├── agents/greeter/index.ts             # an agent that calls the tools
 ├── guardrails/response-not-empty/      # a check on the agent's answers
-├── flows/echo-flow/index.ts            # a flow: a tool step, then the agent
+├── flows/greet-person/index.ts         # a flow: a tool step, then the agent
 ├── .claude/skills/                     # skills for your coding agent
 └── .agents/skills/                     # the same, where Codex and Gemini CLI look
 ```
@@ -101,10 +101,10 @@ page, click **Sign in as seeded user**.
 In a second terminal, in `my-pack`:
 
 ```sh tutorial=run
-pnpm exec kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"hi"}'
+pnpm exec kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"hi"}'
 ```
 
-- `--agent=my-pack.echo-agent` names the agent to run, by its id.
+- `--agent=my-pack.greeter` names the agent to run, by its id.
 - `--input` is the run's input, as JSON. An agent takes the person's message
   as `userMessage`.
 
@@ -132,10 +132,10 @@ of your own.
 ## 4. Run the flow
 
 ```sh tutorial=run
-pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}'
+pnpm exec kindgi runs start --flow=my-pack.greet-person --input='{"name":"Ada"}'
 ```
 
-- `--flow=my-pack.echo-flow` names the flow to run, by its id.
+- `--flow=my-pack.greet-person` names the flow to run, by its id.
 - `--input` is the flow's input, as JSON.
 
 ```text tutorial=expect

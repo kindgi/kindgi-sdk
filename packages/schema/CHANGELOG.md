@@ -1,5 +1,26 @@
 # @kindgi/schema
 
+## 0.7.0
+
+### Patch Changes
+
+- afba79e: **On the hosted bounds, strict mode names a schema's first problem as it does self-hosted.** On RE2, `uniqueItems` checks an array with code that runs in linear time. It was removed from Ajv and added again, so Ajv walked it after every other keyword: a schema with `uniqueItems` and `properties` and no `type` was refused for `properties` on the hosted bounds and for `uniqueItems` self-hosted, and an array's `uniqueItems` error came after those of `unevaluatedItems`. The keyword now keeps the place Ajv's own has, and a test replays the strict-schemas test vectors on both bounds.
+- 39c4e12: **An app on zod 3 is shown the way to JSON Schema.**
+  
+  - **A schema from zod 3 is refused by name**, from the zod 3.x package or from zod 4's `zod/v3`. That's a tool's `input` or `output`, an agent's `output.schema` or a check's `configSchema`, and a tool's raw `input` or `output` when the build reads a tool not made with `defineTool`. The message says Kindgi takes zod 4 schemas, and shows the JSON Schema object to write instead. Before, such a schema was read as JSON Schema and failed to compile with a message that never said zod.
+  - **An older zod is named.** A zod 4 schema, such as `zod/v4` from zod 3.25, used with a `zod` older than zod 4 installed, now says the installed `zod` is older than zod 4, not that it isn't installed. When loading `zod` throws, the error keeps what it threw as its cause.
+  - **`kindgi init`'s warning names both ways** for an app on zod 3: move the app to zod 4, or write Kindgi's schemas as JSON Schema objects, with an example.
+  - **The `kindgi-authoring-tools` skill** says the same.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [524e626]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.7.0
+  - @kindgi/bounds@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

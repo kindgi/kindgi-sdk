@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.14"
+version: "0.1.17"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -72,7 +72,7 @@ class Brief(BaseModel):
 brief_writer = Agent(
     id="acme.brief-writer",
     version="0.1.0",
-    name="Brief Writer",
+    name="Brief writer",
     description="Drafts appellate briefs from a case file; cites precedents.",
     instructions=(
         "You are drafting a brief in {{ jurisdiction }}. The user provides the case "
@@ -97,15 +97,35 @@ brief_writer = Agent(
 - A file may define several agents; each must be assigned at module
   level (an agent built inside a function is invisible to the indexer).
 - `Agent(...)` checks the id (non-empty) and the version (an exact
-  semver) where it is written. Everything else is checked when Kindgi
-  reads the pack: `uv run python -m kindgi.pack index --pack-dir .`
-  shows what it sees, and `kindgi dev` reports a problem with its file.
+  semver with no build metadata) where it is written. Everything else
+  is checked when Kindgi reads the pack:
+  `uv run python -m kindgi.pack index --pack-dir .` shows what it sees,
+  and `kindgi dev` reports a problem with its file.
+
+## Naming
+
+1. **An agent is named for its role:** a noun for who does the work, as
+   you'd name a colleague. `brief-writer`, `order-desk`.
+2. **A flow is named for its job:** the verb first, then the object.
+   `review-order`, never `order-review`.
+3. **The pack id names the app or the business, once.** Names inside the
+   pack don't repeat it.
+4. **No placeholder words** (`agent`, `flow`, `echo`, `assistant`,
+   `helper`, `main`, `demo`), unless the word is the job itself.
+5. **One word per thing.** An agent and a flow about one object use the
+   same noun: `triage-ticket` runs `ticket-classifier`.
+6. **The display name is the id in words, in sentence case,** adding only
+   a, an or the: `review-order` is "Review an order".
+7. **An id is `<pack-id>.<name>`:** the pack's own id, a dot, and a
+   kebab-case name with no dot. `kindgi dev` and `kindgi build` warn about
+   any other shape. An id is hard to change once something calls it, so
+   settle it while it's new.
 
 ## Field by field
 
-- **`id`** — `<pack-id>.<agent-name>`, kebab-case, dot-namespaced.
-- **`version`** — exact semver. Conversations pin the version they
-  started on.
+- **`id`** — `<pack-id>.<name>`; see Naming above.
+- **`version`** — exact semver with no build metadata (`1.2.3`,
+  `1.2.3-rc.1`). Conversations pin the version they started on.
 - **`name`**, **`description`**, **`tags`** — for people and listings.
 - **`instructions`** — a LiquidJS template. `{{ variable }}` comes from
   `parameters` or the runtime's own variables (`today`, `now`,
@@ -141,6 +161,12 @@ brief_writer = Agent(
   `version` is a semver **range**; the highest active matching version
   is picked at turn start. A bare string is rejected. Empty = a
   chat-only agent.
+  - **Dates:** a model doesn't know the date. When the agent reasons about
+    dates ("this month's invoices", "due in 14 days", "was this delivered
+    within the window"), give it a date and time tool. The
+    kindgi-python-authoring-tools skill has one ("A date and time tool", under `ToolContext`);
+    it answers in the workspace's time zone. `{{ today }}` in the
+    instructions is in UTC.
 - **`guardrails`** — `Guardrail` objects or ids. They check the final
   answer, before it is stored; one whose action is `retry` sends the
   answer back to the model for a new one, up to `retry.maxAttempts`
@@ -178,8 +204,11 @@ brief_writer = Agent(
 - **`tool_errors`** — `{"maxRetries": 1, "retryOn": [...]}`: a failed
   tool call goes back to the model as the call's result so it can fix
   the call. Default kinds are `invalid-arguments` and `unknown-tool`
-  (nothing ran); add `tool-error` only when retrying the tool is safe.
-  Each retry costs a step.
+  (nothing ran); add `tool-error` only when retrying the tool is safe,
+  and `tool-failed` to send back a tool's failure on purpose
+  (`ToolFailure`) with its code and words. The list replaces the
+  default, so keep `invalid-arguments` and `unknown-tool` in it. Each
+  retry costs a step.
 - **`parallel_tool_calls`** — default on: when a model step asks for several
   calls at once, calls to read-only tools (`mutating=False`, no changing
   effect) that come one after another run at the same time, up to 8 of them,
@@ -216,7 +245,7 @@ brief_writer = Agent(
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
   instruction. "Give an agent memory" has the rest:
-  https://docs.kindgi.com/v0.6/guides/agents/give-an-agent-memory/
+  https://docs.kindgi.com/v0.7/guides/agents/give-an-agent-memory/
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not

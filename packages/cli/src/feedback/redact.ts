@@ -43,6 +43,14 @@ import { join } from 'node:path';
 
 import { REDACTED, isSecretKey, scrubText } from '@kindgi/log';
 
+import {
+  isBase64UrlChar,
+  isKeyChar,
+  isLetter,
+  isSchemeChar,
+  isWordChar,
+  startsWord,
+} from '../char-class.js';
 import { parseEnvFile } from '../env/parser.js';
 
 /** What a redacted path, and a redacted email, read as. */
@@ -125,7 +133,7 @@ export function redactForSending(text: string, ctx: RedactionContext): Redacted 
   step('private-keys', (s) => s.replace(PRIVATE_KEY_BLOCK, REDACTED));
   step('env-values', (s) => redactEnvValues(s, ctx.envEntries));
   step('tokens', redactTokens);
-  step('urls', (s) => s.replace(URL_IN_TEXT, redactUrl));
+  step('urls', (s) => replaceUrlsInText(s, redactUrl));
   step('emails', (s) => s.replace(EMAIL, REDACTED_EMAIL));
   step('paths', (s) => redactPaths(s, ctx));
   return { text: out, applied };
@@ -173,50 +181,185 @@ const PROVIDER_KEYS: readonly RegExp[] = [
   /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g,
   // Hugging Face tokens.
   /\bhf_[A-Za-z0-9]{30,}\b/g,
-  // A JWT: three base64url parts, the first two JSON objects.
-  /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
 ];
+
+/** A JWT's last two parts, from just after its first `.`. */
+const JWT_REST = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/y;
+
+/**
+ * `text` with each JWT (three base64url parts, the first two JSON objects)
+ * redacted: the matches of
+ * `/\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g`, found
+ * in time in step with the text's length. That pattern tries a token from
+ * every `eyJ` after a `-`, so its time grows with the square of a long run
+ * of base64url characters.
+ *
+ * From each `.`, the first part is walked back once, no further than the
+ * last match's end. Every start in that run meets the same `.` and the same
+ * rest, so a token starts at the run's leftmost `eyJ` with a word break
+ * before it: the one that leaves the most for the first part.
+ */
+export function maskJwts(text: string): string {
+  let out = '';
+  let last = 0;
+  let dot = text.indexOf('.');
+  while (dot !== -1) {
+    let start = dot;
+    while (start > last && isBase64UrlChar(text.charCodeAt(start - 1))) start--;
+    while (start + 11 <= dot && !(text.startsWith('eyJ', start) && startsWord(text, start))) {
+      start++;
+    }
+    JWT_REST.lastIndex = dot + 1;
+    const rest = start + 11 <= dot ? JWT_REST.exec(text) : null;
+    if (rest === null) {
+      dot = text.indexOf('.', dot + 1);
+      continue;
+    }
+    out += text.slice(last, start) + REDACTED;
+    last = dot + 1 + rest[0].length;
+    dot = text.indexOf('.', last);
+  }
+  return out + text.slice(last);
+}
 
 /** `"key": "value"`, in JSON. */
 const JSON_PAIR = /"([^"\\\n]{1,100})"(\s*:\s*)"((?:[^"\\\n]|\\.)*)"/g;
-/** `KEY=value`, `--key=value`, `key = "value"`. */
-const ASSIGNMENT =
-  /(?<![\w.])([A-Za-z_][\w.-]*)(\s*=\s*)(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'`,;&]+))/g;
+/** An assignment's value, from its `=`: the spaces after it, then a quoted or a bare value. */
+const ASSIGNED_VALUE = /=(\s*)(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'`,;&]+))/y;
+const SPACE = /\s/;
 /** `Key: value` starting a line, as in YAML or an HTTP header: the rest of the line. */
 const LINE_PAIR = /^([ \t]*)([A-Za-z_][\w.-]*)([ \t]*:[ \t]+)(\S.*)$/gm;
 /** An Azure connection string's key. */
 const AZURE_KEY = /\b(AccountKey|SharedAccessKey)=[^;\s"']+/g;
 
+/**
+ * `text` with each assignment (`KEY=value`, `--key=value`, `key = "value"`)
+ * given to `replace`: the matches of
+ * ``/(?<![\w.])([A-Za-z_][\w.-]*)(\s*=\s*)(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'`,;&]+))/g``,
+ * found in time in step with the text's length. `replace` gets the match and
+ * its five groups, the ones that took no part as `undefined`, and no more:
+ * not `String.prototype.replace`'s offset or whole text. That pattern tries a
+ * key from every letter after a `-`, so its time grows with the square of a
+ * long run of key characters.
+ *
+ * From each `=`, the spaces and then the key are walked back once, no
+ * further than the last match's end. Every start in that run meets the same
+ * `=` and the same value, so a key starts at the run's leftmost letter or `_`
+ * with neither a word character nor a `.` before it.
+ */
+export function replaceAssignments(
+  text: string,
+  replace: (
+    match: string,
+    key: string,
+    eq: string,
+    dq: string | undefined,
+    sq: string | undefined,
+    bare: string | undefined,
+  ) => string,
+): string {
+  let out = '';
+  let last = 0;
+  let at = text.indexOf('=');
+  while (at !== -1) {
+    let keyEnd = at;
+    while (keyEnd > last && SPACE.test(text.charAt(keyEnd - 1))) keyEnd--;
+    let start = keyEnd;
+    while (start > last && isKeyChar(text.charCodeAt(start - 1))) start--;
+    while (start < keyEnd && !startsKey(text, start)) start++;
+    ASSIGNED_VALUE.lastIndex = at;
+    const value = start < keyEnd ? ASSIGNED_VALUE.exec(text) : null;
+    if (value === null) {
+      at = text.indexOf('=', at + 1);
+      continue;
+    }
+    const end = at + value[0].length;
+    const eq = `${text.slice(keyEnd, at)}=${value[1]}`;
+    out += text.slice(last, start);
+    out += replace(
+      text.slice(start, end),
+      text.slice(start, keyEnd),
+      eq,
+      value[2],
+      value[3],
+      value[4],
+    );
+    last = end;
+    at = text.indexOf('=', last);
+  }
+  return out + text.slice(last);
+}
+
+/** Whether a key starts at `at`: `[A-Za-z_]`, with neither `\w` nor `.` before it. */
+function startsKey(text: string, at: number): boolean {
+  const c = text.charCodeAt(at);
+  if (!(isLetter(c) || c === 95)) return false;
+  if (at === 0) return true;
+  const before = text.charCodeAt(at - 1);
+  return !(isWordChar(before) || before === 46);
+}
+
 function redactTokens(text: string): string {
   let out = scrubText(text);
   for (const shape of PROVIDER_KEYS) out = out.replace(shape, REDACTED);
+  out = maskJwts(out);
   out = out.replace(AZURE_KEY, `$1=${REDACTED}`);
   out = out.replace(JSON_PAIR, (m, key: string, colon: string, value: string) =>
     isSecretKey(key) && !isPlaceholder(value) ? `"${key}"${colon}"${REDACTED}"` : m,
   );
-  out = out.replace(
-    ASSIGNMENT,
-    (
-      m,
-      key: string,
-      eq: string,
-      dq: string | undefined,
-      sq: string | undefined,
-      bare: string | undefined,
-    ) => {
-      const value = dq ?? sq ?? bare ?? '';
-      if (!isSecretKey(key) || isPlaceholder(value)) return m;
-      const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : '';
-      return `${key}${eq}${quote}${REDACTED}${quote}`;
-    },
-  );
+  out = replaceAssignments(out, (m, key, eq, dq, sq, bare) => {
+    const value = dq ?? sq ?? bare ?? '';
+    if (!isSecretKey(key) || isPlaceholder(value)) return m;
+    const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : '';
+    return `${key}${eq}${quote}${REDACTED}${quote}`;
+  });
   out = out.replace(LINE_PAIR, (m, indent: string, key: string, colon: string, value: string) =>
     isSecretKey(key) && !isPlaceholder(value) ? `${indent}${key}${colon}${REDACTED}` : m,
   );
   return out;
 }
 
-const URL_IN_TEXT = /\b([a-z][a-z0-9+.-]*:\/\/)([^\s"'<>`]+)/gi;
+/** A URL's rest, from just after `://`. */
+const URL_REST = /[^\s"'<>`]+/y;
+
+/**
+ * `text` with each URL in it given to `replace`: the matches of
+ * ``/\b([a-z][a-z0-9+.-]*:\/\/)([^\s"'<>`]+)/gi``, found in time in step with
+ * the text's length. `replace` gets the match and its two groups, the scheme
+ * and the rest, and no more: not `String.prototype.replace`'s offset or whole
+ * text. That pattern tries a scheme from every word's start, so its time
+ * grows with the square of a long run of scheme characters.
+ *
+ * From each `://`, the scheme is walked back once, no further than the last
+ * match's end. A match's scheme starts at the run's leftmost letter with a
+ * word break before it. A rest may hold another `://` (`?next=https://…`):
+ * the search goes on after the rest, as the pattern's does.
+ */
+export function replaceUrlsInText(
+  text: string,
+  replace: (match: string, scheme: string, rest: string) => string,
+): string {
+  let out = '';
+  let last = 0;
+  let at = text.indexOf('://');
+  while (at !== -1) {
+    let start = at;
+    while (start > last && isSchemeChar(text.charCodeAt(start - 1))) start--;
+    while (start < at && !(isLetter(text.charCodeAt(start)) && startsWord(text, start))) start++;
+    URL_REST.lastIndex = at + 3;
+    const rest = start < at ? URL_REST.exec(text) : null;
+    if (rest === null) {
+      at = text.indexOf('://', at + 1);
+      continue;
+    }
+    const end = at + 3 + rest[0].length;
+    out += text.slice(last, start);
+    out += replace(text.slice(start, end), text.slice(start, at + 3), rest[0]);
+    last = end;
+    at = text.indexOf('://', last);
+  }
+  return out + text.slice(last);
+}
 
 /** A URL with its user info and each query value redacted. */
 function redactUrl(_m: string, scheme: string, rest: string): string {

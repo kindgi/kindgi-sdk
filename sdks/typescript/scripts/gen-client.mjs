@@ -41,6 +41,10 @@ const result = spawnSync(
     OUT_FILE,
     '--jsdoc',
     '--include-descriptions',
+    // A deprecated operation is still served until the release that
+    // removes it, so its endpoint stays in the wire types too.
+    '--include-deprecated',
+    'endpoints,schemas,properties',
     '--format',
     // Unreferenced by any operation (`TestRun.result` is kind-specific, so
     // open, and an error's `details` is open too), but the clients read a

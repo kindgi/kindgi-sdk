@@ -19,6 +19,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -77,7 +78,10 @@ import { UUID_RE } from './uuid-param.js';
 
 export interface MailTriggersRouterOptions {
   readonly authorizer?: Authorizer;
-  /** The tenant's default project: where a mail trigger that names no project goes. */
+  /**
+   * The tenant's default project: where a mail trigger that names no project
+   * goes when the caller's key or session is limited to none.
+   */
   readonly projects?: Pick<ProjectBinding, 'getDefault'>;
   /** Where an owner's name is read (`owner.displayName`). */
   readonly names?: TriggerOwnerNames;
@@ -265,19 +269,40 @@ export function mailTriggersRouter(
     return denied(c, 'execute', ref(item.kind, item.id));
   }
 
-  /** The mail trigger, if it is one (another kind's id is not found here), and the caller may `action` its project. */
+  /**
+   * The mail trigger, if it is one (another kind's id is not found here),
+   * and the caller may `action` its project. A removed one only for a read
+   * that asks for it (`includeUnregistered`), under the same `read` on the
+   * project it was in.
+   */
   async function mailTriggerFor(
     c: Context<AppEnv>,
     action: Action,
+    { includeUnregistered = false }: { readonly includeUnregistered?: boolean } = {},
   ): Promise<{ kind: 'ok'; value: MailTriggerRecord } | { kind: 'err'; response: Response }> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
-    const rec = UUID_RE.test(triggerId) ? await binding.get({ tenantId, triggerId }) : null;
+    const rec = UUID_RE.test(triggerId)
+      ? await binding.get({
+          tenantId,
+          triggerId,
+          ...(includeUnregistered && { includeUnregistered }),
+        })
+      : null;
     if (rec === null || rec.kind !== 'mail') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
-    const refusedRead = await denied(c, action, ref('project', rec.projectId as unknown as string));
+    const projectId = rec.projectId as unknown as string;
+    // Without a store, a key or session limited to another project changes
+    // none of its triggers. It still reads them. The hold asks `write`,
+    // whatever `action` this loader asks for the project.
+    const held =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'write', ref('project', projectId), 'the trigger')
+        : undefined;
+    if (held !== undefined) return { kind: 'err', response: held };
+    const refusedRead = await denied(c, action, ref('project', projectId));
     if (refusedRead !== undefined) return { kind: 'err', response: refusedRead };
     return { kind: 'ok', value: rec };
   }
@@ -410,11 +435,13 @@ export function mailTriggersRouter(
     if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
     }
-    // A trigger that names no project goes in the tenant's default project:
+    // A trigger that names no project goes in the project the caller's key
+    // or session is limited to, else in the tenant's default project:
     // checked and stored as that project. With no default to find, the
     // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
+      c.get('tokenProjectId') ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const ownerRequest = ownerRequestOf(body, project);
     if (typeof ownerRequest === 'string') return bad(c, requestId, ownerRequest);
@@ -449,6 +476,7 @@ export function mailTriggersRouter(
         triggerScope(tenantId, project),
         target.value,
         tools.value,
+        'mail',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -552,6 +580,7 @@ export function mailTriggersRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(status !== undefined && { status }),
       ...(projectId !== undefined && { projectId }),
+      ...(c.req.query('includeUnregistered') === 'true' && { includeUnregistered: true }),
     });
     // The binding narrows to the project; this keeps a page right from one that doesn't.
     const rows = (page.data as MailTriggerRecord[]).filter(
@@ -578,7 +607,9 @@ export function mailTriggersRouter(
 
   // ---------- GET /:triggerId (get) ----------
   r.get('/:triggerId', async (c) => {
-    const found = await mailTriggerFor(c, 'read');
+    const found = await mailTriggerFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
     return mailTriggerJson(c, found.value);
   });
@@ -703,6 +734,7 @@ export function mailTriggersRouter(
         triggerScope(tenantId, project),
         nextTarget,
         tools.value,
+        'mail',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -823,13 +855,16 @@ export function mailTriggersRouter(
   // ---------- GET /:triggerId/fires ----------
   r.get('/:triggerId/fires', async (c) => {
     const requestId = c.get('requestId');
-    const found = await mailTriggerFor(c, 'read');
+    const found = await mailTriggerFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
     if (binding.listFires === undefined) return unsupported(c, requestId, 'fire history');
     const cursorRaw = c.req.query('cursor');
     const page = await binding.listFires({
       tenantId: found.value.tenantId,
       triggerId: found.value.triggerId,
+      ...(found.value.unregisteredAt !== undefined && { includeUnregistered: true }),
       limit: clampLimit(c.req.query('limit')),
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
     });
@@ -855,16 +890,21 @@ export function mailTriggersRouter(
 
   // ---------- GET /:triggerId/versions (newest first) ----------
   r.get('/:triggerId/versions', async (c) => {
-    const found = await mailTriggerFor(c, 'read');
+    const found = await mailTriggerFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
-    return versionsPage(c, binding, found.value.triggerId, 'mail', (v) => versionsJson(c, v));
+    return versionsPage(c, binding, found.value, 'mail', (v) => versionsJson(c, v));
   });
 
   // ---------- GET /:triggerId/versions/:version ----------
+  // A removed trigger's too, with no flag: a run keeps the version it
+  // started from (`trigger.version`), and reading it needs no more than
+  // reading the trigger did.
   r.get('/:triggerId/versions/:version', async (c) => {
-    const found = await mailTriggerFor(c, 'read');
+    const found = await mailTriggerFor(c, 'read', { includeUnregistered: true });
     if (found.kind === 'err') return found.response;
-    return versionOne(c, binding, found.value.triggerId, 'mail', (v) => versionsJson(c, v));
+    return versionOne(c, binding, found.value, 'mail', (v) => versionsJson(c, v));
   });
 
   // ---------- POST /:triggerId/owner (take ownership) ----------
@@ -1225,6 +1265,7 @@ function serializeMailTrigger(
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    ...(r.unregisteredAt !== undefined && { unregisteredAt: r.unregisteredAt }),
   };
 }
 

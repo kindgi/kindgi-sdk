@@ -15,8 +15,8 @@ that directory only.
   with the `kindgi` CLI set up as [Set up SSO](../#before-you-start) says.
 - **Someone who can register apps in your Entra ID directory,** and assign
   people to them.
-- **For `kindgi` commands:** Kindgi 0.6's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.6` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## 1. Get the redirect URI
@@ -25,7 +25,7 @@ that directory only.
 send whoever runs your directory:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers start acme-entra --idp=entra
+npx --yes @kindgi/cli@0.7 sso providers start acme-entra --idp=entra
 ```
 
 - `acme-entra` is the provider's id in your workspace.
@@ -90,13 +90,23 @@ Store the secret's **Value** in Kindgi's secret store, by name, so it never
 travels by email or chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_ENTRA_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.7 secrets set ACME_ENTRA_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_ENTRA_SECRET` is the secret's name. The registration keeps only
   this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
+
+This secret is sign-in's only: a tool, an endpoint or a connection that
+names it is refused with `identity-provider-key-refused`. While one already
+names it, registering the provider is refused with
+`identity-provider-key-in-use`, which lists what uses it. If the same app
+registration also serves a Microsoft connection, give the connection a
+second client secret, stored under its own name.
 
 The command asks for the value twice, and doesn't show what you type.
 Then it prints what it stored:
@@ -110,18 +120,18 @@ Re-enter to confirm:
     "kind": "tenant",
     "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
   },
-  "envName": "production",
+  "envName": "prod",
   "versionId": 1
 }
 
-  Set ACME_ENTRA_SECRET at tenant in production.
+  Set ACME_ENTRA_SECRET at tenant in prod.
 ```
 
 Before the secret expires, add a new client secret in Entra ID, and store it
 under the same name as a new version:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_ENTRA_SECRET --env=production --scope=tenant --write-mode=add-version
+npx --yes @kindgi/cli@0.7 secrets set ACME_ENTRA_SECRET --env=prod --scope=tenant --write-mode=add-version
 ```
 
 `--write-mode=add-version` adds a version to a secret that exists. It
@@ -143,7 +153,7 @@ only after that.
 `finish` registers the app, and offers it to people at your domains:
 
 ```sh
-npx --yes @kindgi/cli@0.6 sso providers finish acme-entra --kind=oidc \
+npx --yes @kindgi/cli@0.7 sso providers finish acme-entra --kind=oidc \
   --issuer=https://login.microsoftonline.com/<directory tenant id>/v2.0 \
   --client-id=<application client id> --client-secret-ref=ACME_ENTRA_SECRET --domains=<your domain>
 ```

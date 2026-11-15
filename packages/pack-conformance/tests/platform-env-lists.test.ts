@@ -5,14 +5,19 @@
  * The names a pack service keeps although its pack doesn't declare them
  * are one list in every language: the TypeScript pack service's
  * (`@kindgi/handler-runtime`), Python's (`kindgi.pack.env_filter`) and
- * Java's (`PackEnv`; `PackEnvTest` holds the launcher to it). The suite
- * checks a name of each kind black-box; this checks every name.
+ * Java's (`PackEnv`; `PackEnvTest` holds the launcher to it). So are the
+ * ones it drops without naming them. The suite checks a name of each kind
+ * black-box; this checks every name.
  */
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { PLATFORM_ENV_NAMES, PLATFORM_ENV_PREFIXES } from '@kindgi/handler-runtime';
+import {
+  PLATFORM_ENV_NAMES,
+  PLATFORM_ENV_PREFIXES,
+  QUIETLY_DROPPED_ENV_NAMES,
+} from '@kindgi/handler-runtime';
 import { describe, expect, test } from 'vitest';
 
 function source(path: string): string {
@@ -42,6 +47,8 @@ describe('the platform names a pack service keeps', () => {
     expect(quoted(between(python, 'PLATFORM_ENV_PREFIXES: tuple[str, ...] = (', ')'))).toEqual([
       ...PLATFORM_ENV_PREFIXES,
     ]);
+    const quiet = between(python, 'QUIETLY_DROPPED_ENV_NAMES: frozenset[str] = frozenset(', ')');
+    expect(new Set(quoted(quiet))).toEqual(new Set(QUIETLY_DROPPED_ENV_NAMES));
   });
 
   test('Java', () => {
@@ -52,5 +59,8 @@ describe('the platform names a pack service keeps', () => {
     expect(quoted(between(java, 'PLATFORM_ENV_PREFIXES = List.of(', ');'))).toEqual([
       ...PLATFORM_ENV_PREFIXES,
     ]);
+    expect(new Set(quoted(between(java, 'QUIETLY_DROPPED_ENV_NAMES = Set.of(', ');')))).toEqual(
+      new Set(QUIETLY_DROPPED_ENV_NAMES),
+    );
   });
 });

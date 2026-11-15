@@ -36,6 +36,23 @@ From your app, in TypeScript, it's `memory.facts.write`, `read`, `list`,
 `memory.write_fact`, `get_fact`, `list_facts`, `supersede_fact`,
 `delete_fact`, `verify_fact` and `list_fact_revisions`.
 
+### The `time-zone` fact
+
+One type means something to the runtime: `time-zone`, the workspace's time
+zone. Its content is `{ "timeZone": "America/Toronto" }`, an IANA name, and
+its scope is the workspace alone. A tenant admin sets it on the console's
+**Time zone** page, or an app writes it as it writes any workspace-wide fact.
+
+- An agent turn that offers tools reads it once, and hands the zone to each
+  tool call as `ctx.timeZone`
+  ([Answer in the workspace's time zone](../../tools/write-a-tool/#answer-in-the-workspaces-time-zone)).
+- The newest one a person or a service wrote counts. One an agent wrote, and
+  one scoped narrower than the workspace, don't.
+- The zone is `UTC` when there's none, when the read fails, and when the
+  fact's `timeZone` isn't a zone name.
+- Change it by superseding it, and clear it by deleting it, so the workspace
+  keeps one.
+
 ## How memory reaches the model
 
 Retrieved facts go in one message right before the user's, as data, in this
@@ -151,8 +168,18 @@ On `/v1/memory`, a tenant admin reads every fact. Anyone else reads:
 - the facts of every end user and conversation in the projects they may
   write: an app's own key, acting for its users.
 
+Every member of the workspace may read a workspace-wide fact, and so may
+every key, a [key limited to a project](../../../deploy/people-and-keys/#api-keys)
+too, so give a fact meant for one project that project's `projectId`.
+
+Beyond workspace-wide facts, a key limited to a project reads the above for
+its project and that project's org only. It also reads its person's own
+facts that name no other project or org: what the runs it starts there may
+recall for that person.
+
 A write is checked against the scope it names, and answers
-`403 permission-denied` otherwise.
+`403 permission-denied` otherwise. A key limited to a project writes,
+changes, verifies and deletes its person's facts only in that project.
 
 A key or session limited to a project writes only in that project or one of
 its conversations. A fact in any other scope, its person's own included, is

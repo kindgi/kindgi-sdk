@@ -4,11 +4,13 @@
 /**
  * `/v1/artifacts` over an in-memory blob store: every artifact belongs to
  * a project (its owner run's, else the upload's `projectId`, else the
- * default project), reads need `read` there and writes `write`, and an
- * upload over the cap is `413 artifact-too-large`.
+ * default project), reads need `read` there and writes `write`, an
+ * upload over the cap is `413 artifact-too-large`, and one on `run` alone
+ * is counted against the deployment's limit.
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
@@ -17,11 +19,25 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { BlobMeta, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ArtifactId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  ArtifactId,
+  FileId,
+  ProjectId,
+  RunId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  RunHandlerBinding,
+  RunUploadCheck,
+  RunUploadCheckInput,
+  RunUploadLimiter,
+  TokenResolver,
+} from '../src/index.js';
 import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000a1' as TenantId;
@@ -41,26 +57,40 @@ const RUNS: Readonly<Record<string, { readonly projectId: string; readonly actsF
   [ACCOUNTS_RUN]: { projectId: P3, actsFor: 'service_account:sa-1' },
 };
 
-/** Alice reads and writes P1 and reads P2; Bob has nothing; Carol may only run P3. */
+/**
+ * Alice reads and writes P1 and reads P2; Bob has nothing; Carol may only run P3;
+ * Erin reads the tenant and P1.
+ */
 const GRANTS: Readonly<Record<string, readonly string[]>> = {
   alice: [`read:project:${P1}`, `write:project:${P1}`, `read:project:${P2}`],
   bob: [],
   carol: [`run:project:${P3}`],
+  erin: [`read:tenant:${tenantId}`, `read:project:${P1}`],
 };
 
-/** `alice-key-p1` is alice with an API key limited to project P1. */
+/** `alice-key-p1` and `erin-key-p1` are alice and erin with an API key limited to project P1. */
 const resolveToken: TokenResolver = async (token) =>
-  token === 'alice' || token === 'bob' || token === 'carol'
+  token === 'alice' || token === 'bob' || token === 'carol' || token === 'erin'
     ? { tenantId, userId: token as UserId, scopes: [], capabilities: [] }
-    : token === 'alice-key-p1'
-      ? { tenantId, userId: 'alice' as UserId, scopes: [], capabilities: [], tokenProjectId: P1 }
+    : token === 'alice-key-p1' || token === 'erin-key-p1'
+      ? {
+          tenantId,
+          userId: token.slice(0, -'-key-p1'.length) as UserId,
+          scopes: [],
+          capabilities: [],
+          tokenProjectId: P1,
+        }
       : null;
 
 /**
  * With `s3Address`, each upload gets an S3-compatible address, as a store
- * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key.
+ * serving `/s3` gives it: bucket `artifacts`, the `blobId` as its key. A
+ * `forRun` upload expires a day after it's made. With `storageMiB`, every
+ * put is refused as past a full storage limit.
  */
-function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding & {
+function memoryBlobs(
+  options: { s3Address?: boolean; storageMiB?: number } = {},
+): BlobStorageBinding & {
   readonly rows: Map<string, BlobMeta>;
   readonly bytes: Map<string, Uint8Array>;
   /** Each blob `get` opened, by id. */
@@ -75,6 +105,20 @@ function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding 
     async put(_t, input) {
       const blobId = randomUUID() as ArtifactId;
       const body = await read(input.bytes);
+      if (options.storageMiB !== undefined) {
+        const usedBytes = options.storageMiB * 1024 * 1024;
+        return {
+          kind: 'err',
+          error: {
+            code: 'storage-limit-reached',
+            message: 'full',
+            limit: 'storage',
+            storageMiB: options.storageMiB,
+            usedBytes,
+            neededBytes: body.byteLength,
+          },
+        };
+      }
       const meta: BlobMeta = {
         blobId,
         tenantId,
@@ -87,6 +131,7 @@ function memoryBlobs(options: { s3Address?: boolean } = {}): BlobStorageBinding 
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         ...(input.createdBy !== undefined && { createdBy: input.createdBy }),
         createdAt: '2026-10-07T00:00:00.000Z' as Timestamp,
+        ...(input.forRun === true && { expiresAt: '2026-10-08T00:00:00.000Z' as Timestamp }),
         ...(options.s3Address === true && { bucket: 'artifacts', key: blobId }),
       };
       rows.set(blobId, meta);
@@ -134,10 +179,15 @@ function harness(
     maxBytes?: number;
     defaultProject?: string;
     s3Address?: boolean;
+    limiter?: RunUploadLimiter;
+    storageMiB?: number;
   } = {},
 ) {
   const stubs = createStubAppBindings();
-  const blobs = memoryBlobs({ s3Address: options.s3Address === true });
+  const blobs = memoryBlobs({
+    s3Address: options.s3Address === true,
+    ...(options.storageMiB !== undefined && { storageMiB: options.storageMiB }),
+  });
   const run = {
     ...stubs.kernelBinding.run,
     getRun: async (_t: TenantId, id: RunId) => {
@@ -155,6 +205,7 @@ function harness(
     runHandler: {} as RunHandlerBinding,
     blobStorage: blobs,
     ...(options.maxBytes !== undefined && { artifactMaxBytes: options.maxBytes }),
+    ...(options.limiter !== undefined && { runUploadLimiter: options.limiter }),
     ...(options.authz !== false && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -175,17 +226,23 @@ function harness(
       headers: { authorization: `Bearer ${as}` },
       body: form,
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    return {
+      status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: (await res.json()) as Record<string, any>,
+    };
   };
   const call = async (
     as: string,
     method: string,
     path: string,
     headers: Record<string, string> = {},
+    body?: string,
   ) => {
     const res = await app.request(path, {
       method,
       headers: { authorization: `Bearer ${as}`, ...headers },
+      ...(body !== undefined && { body }),
     });
     const text = await res.text();
     return {
@@ -271,6 +328,17 @@ describe("an artifact answer carries only BlobMeta's properties", () => {
     expect(validateAgainst('BlobMeta', up.body)).toEqual([]);
     const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
     expect(list.data).toEqual([up.body]);
+    expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
+  });
+
+  test("a blob that is a file's version is listed with its file and version", async () => {
+    const h = harness();
+    const up = await h.upload('alice');
+    const fileId = randomUUID() as FileId;
+    const row = h.blobs.rows.get(up.body.blobId)!;
+    h.blobs.rows.set(up.body.blobId, { ...row, fileId, version: 2 });
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data).toEqual([{ ...up.body, fileId, version: 2 }]);
     expect(validateAgainst('ArtifactCollectionPage', list)).toEqual([]);
   });
 });
@@ -429,6 +497,153 @@ describe('someone who may only run the project reaches their own files', () => {
     }
     expect(h.blobs.rows.size).toBe(5);
   });
+
+  test("their upload is always for a run, even one whose form says it isn't", async () => {
+    const h = harness();
+    for (const fields of [{}, { forRun: 'false' }, { forRun: 'true' }]) {
+      const input = await h.upload('carol', { projectId: P3, ...fields });
+      expect(input.status, JSON.stringify(input.body)).toBe(201);
+      expect(input.body.expiresAt).toBe('2026-10-08T00:00:00.000Z');
+    }
+  });
+});
+
+describe('an upload for a run that has not started', () => {
+  test('`forRun=true` gives it an expiry; without it, or `false`, there is none', async () => {
+    const h = harness();
+    const forRun = await h.upload('alice', { forRun: 'true' });
+    expect(forRun.status, JSON.stringify(forRun.body)).toBe(201);
+    expect(forRun.body.expiresAt).toBe('2026-10-08T00:00:00.000Z');
+    expect(validateAgainst('BlobMeta', forRun.body)).toEqual([]);
+    for (const fields of [{}, { forRun: 'false' }, { forRun: '' }]) {
+      const kept = await h.upload('alice', fields);
+      expect(kept.status, JSON.stringify(kept.body)).toBe(201);
+      expect(kept.body).not.toHaveProperty('expiresAt');
+    }
+    const list = (await h.call('alice', 'GET', '/v1/artifacts')).json();
+    expect(list.data.filter((m: BlobMeta) => m.expiresAt !== undefined)).toEqual([forRun.body]);
+  });
+
+  test('a `forRun` other than `true` or `false`, or with `ownerRunId`, is bad input, and nothing is stored', async () => {
+    const h = harness();
+    const other = await h.upload('alice', { forRun: 'yes' });
+    expect([other.status, other.body.error.code]).toEqual([400, 'bad-input']);
+    expect(other.body.error.message).toBe('Field `forRun` must be `true` or `false`');
+    const withRun = await h.upload('alice', { forRun: 'true', ownerRunId: RUN_IN_P2 });
+    expect([withRun.status, withRun.body.error.code]).toEqual([400, 'bad-input']);
+    expect(withRun.body.error.message).toMatch(/^Field `forRun` is for a run that hasn't started/);
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
+describe('the storage limit', () => {
+  test("a put it has no room for is 403 storage-limit-reached, with the store's numbers", async () => {
+    const h = harness({ storageMiB: 1 });
+    const up = await h.upload('alice', {}, 'ten bytes!');
+    expect(up.status).toBe(403);
+    expect(up.body.error).toMatchObject({
+      code: 'storage-limit-reached',
+      details: { limit: 'storage', storageMiB: 1, usedBytes: 1024 * 1024, neededBytes: 10 },
+    });
+    expect(h.blobs.rows.size).toBe(0);
+  });
+});
+
+describe("the deployment's limit on what one person uploads on `run` alone", () => {
+  /** A limiter that answers `answer` and keeps what it was asked. */
+  function limiter(answer: RunUploadCheck = { kind: 'ok' }) {
+    const asked: RunUploadCheckInput[] = [];
+    const check = async (input: RunUploadCheckInput) => {
+      asked.push(input);
+      return answer;
+    };
+    return { asked, check } satisfies RunUploadLimiter & { asked: RunUploadCheckInput[] };
+  }
+
+  const OVER = {
+    kind: 'over',
+    maxBytes: 1073741824,
+    maxFiles: 1000,
+    usedBytes: 1073741000,
+    usedFiles: 12,
+    windowMs: 24 * 60 * 60 * 1000,
+    retryAfterMs: 90_500,
+  } as const satisfies RunUploadCheck;
+
+  test('an input Carol uploads on `run` alone is checked, with her workspace, her and its size', async () => {
+    const l = limiter();
+    const h = harness({ limiter: l });
+    const r = await h.upload('carol', { projectId: P3 }, 'hello');
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(l.asked).toEqual([{ tenantId, createdBy: 'user:carol', size: 5 }]);
+  });
+
+  test("past it, 429 upload-limit-reached names the limit, what's used and when it fits, and nothing is stored", async () => {
+    const h = harness({ limiter: limiter(OVER) });
+    const before = Date.now();
+    const r = await h.upload('carol', { projectId: P3 });
+    const after = Date.now();
+    expect([r.status, r.body.error.code, r.headers['retry-after']]).toEqual([
+      429,
+      'upload-limit-reached',
+      '91',
+    ]);
+    const { retryAt } = r.body.error.details;
+    expect(r.body.error.details).toEqual({
+      maxBytes: 1073741824,
+      maxFiles: 1000,
+      usedBytes: 1073741000,
+      usedFiles: 12,
+      windowSeconds: 86400,
+      retryAt,
+    });
+    expect(Date.parse(retryAt)).toBeGreaterThanOrEqual(before + 90_500);
+    expect(Date.parse(retryAt)).toBeLessThanOrEqual(after + 90_500);
+    expect(r.body.error.message).toBe(
+      `Uploads for your own runs, without \`write\` on the project, are limited to 1073741824 bytes and 1000 files per person in 24 hours in this workspace; you've uploaded 1073741000 bytes in 12 files, and this one fits from ${retryAt}`,
+    );
+    expect(h.blobs.rows.size).toBe(0);
+  });
+
+  test('a limit on files alone names only files, and one on bytes alone only bytes', async () => {
+    const { maxBytes: _b, ...filesOnly } = OVER;
+    const files = await harness({ limiter: limiter(filesOnly) }).upload('carol', { projectId: P3 });
+    expect(files.body.error.details).not.toHaveProperty('maxBytes');
+    expect(files.body.error.message).toMatch(/ are limited to 1000 files per person in 24 hours /);
+    const { maxFiles: _f, ...bytesOnly } = { ...OVER, usedFiles: 1 };
+    const bytes = await harness({ limiter: limiter(bytesOnly) }).upload('carol', { projectId: P3 });
+    expect(bytes.body.error.details).not.toHaveProperty('maxFiles');
+    expect(bytes.body.error.message).toMatch(
+      / are limited to 1073741824 bytes per person in 24 hours .* in 1 file, /,
+    );
+  });
+
+  test("another deployment's window is named in hours, or else in seconds, one or more", async () => {
+    for (const [windowMs, words] of [
+      [60 * 60 * 1000, 'in 1 hour'],
+      [2 * 60 * 60 * 1000, 'in 2 hours'],
+      [1000, 'in 1 second'],
+      [90_500, 'in 91 seconds'],
+    ] as const) {
+      const r = await harness({ limiter: limiter({ ...OVER, windowMs }) }).upload('carol', {
+        projectId: P3,
+      });
+      expect(r.body.error.message).toContain(` per person ${words} in this workspace;`);
+    }
+  });
+
+  test('an upload that passes on `write`, one refused first, and one with no authorization are never checked', async () => {
+    const l = limiter(OVER);
+    const h = harness({ limiter: l });
+    expect((await h.upload('alice', { projectId: P1 })).status).toBe(201);
+    // Naming a run takes `write`; the default project is one she may not run.
+    expect((await h.upload('carol', { ownerRunId: CAROLS_RUN })).status).toBe(403);
+    expect((await h.upload('carol')).status).toBe(403);
+    expect((await h.upload('bob', { projectId: P3 })).status).toBe(403);
+    const open = harness({ authz: false, limiter: l });
+    expect((await open.upload('carol', { projectId: P3 })).status).toBe(201);
+    expect(l.asked).toEqual([]);
+  });
 });
 
 describe('a download is saved as a file, never opened as a page of this origin', () => {
@@ -515,6 +730,30 @@ describe('a key limited to a project', () => {
     const r = await h.upload('alice-key-p1');
     expect(r.status).toBe(201);
     expect(r.body).toMatchObject({ projectId: P1, createdBy: 'user:alice' });
+  });
+
+  test("an artifact with no project is the whole workspace's: the key's person reads it, the key gets 404 and no list row", async () => {
+    const h = harness();
+    const own = (await h.upload('alice', { projectId: P1 })).body.blobId as string;
+    const old = (await h.upload('alice', { projectId: P1 })).body.blobId as string;
+    // Stored before projects were recorded.
+    const { projectId: _, ...noProject } = h.blobs.rows.get(old) as BlobMeta;
+    h.blobs.rows.set(old, noProject as BlobMeta);
+
+    expect((await h.call('erin', 'HEAD', `/v1/artifacts/${old}`)).status).toBe(200);
+    const key = await h.call('erin-key-p1', 'GET', `/v1/artifacts/${old}`);
+    expect([key.status, key.json().error.code]).toEqual([404, 'blob-not-found']);
+    expect((await h.call('erin-key-p1', 'HEAD', `/v1/artifacts/${old}`)).status).toBe(404);
+    expect((await h.call('erin-key-p1', 'HEAD', `/v1/artifacts/${own}`)).status).toBe(200);
+
+    const ids = async (as: string) =>
+      (await h.call(as, 'GET', '/v1/artifacts'))
+        .json()
+        .data.map((m: BlobMeta) => m.blobId)
+        .sort();
+    expect(await ids('erin')).toEqual([own, old].sort());
+    expect(await ids('erin-key-p1')).toEqual([own]);
+    expect(h.blobs.opened).toEqual([]);
   });
 
   test('its own project is fine; another, named or through an owner run, is refused', async () => {
@@ -629,5 +868,58 @@ describe('the upload cap', () => {
     const r = await h.upload('bob', { projectId: P2 });
     expect(r.status).toBe(201);
     expect((await h.call('bob', 'GET', `/v1/artifacts/${r.body.blobId}`)).text).toBe('hello');
+  });
+});
+
+describe('the artifacts routes go in 0.8.0', () => {
+  test('every answer links to what replaces them, an error too; other routes have no link', async () => {
+    const h = harness();
+    // On the release line's docs, @kindgi/sdk's version's, which a version change moves.
+    const sdk = new URL('../../sdk/package.json', import.meta.url);
+    const [major, minor] = (
+      JSON.parse(readFileSync(sdk, 'utf8')) as { version: string }
+    ).version.split('.');
+    const link = `<https://docs.kindgi.com/v${major}.${minor}/concepts/files-and-versions/#what-080-removes>; rel="deprecation"`;
+    const made = await h.upload('alice');
+    expect([made.status, made.headers.link]).toEqual([201, link]);
+    const blobId = made.body.blobId as string;
+    const answers = [
+      ['alice', 'GET', '/v1/artifacts', 200],
+      ['alice', 'GET', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'HEAD', `/v1/artifacts/${blobId}`, 200],
+      ['alice', 'GET', `/v1/artifacts/${randomUUID()}`, 404],
+      ['nobody', 'GET', '/v1/artifacts', 401],
+      ['alice', 'DELETE', `/v1/artifacts/${blobId}`, 200],
+    ] as const;
+    for (const [as, method, path, status] of answers) {
+      const r = await h.call(as, method, path);
+      expect([method, path, r.status, r.headers.link]).toEqual([method, path, status, link]);
+    }
+    // Refused by the upload cap, before the route reads the body.
+    const tooBig = await harness({ maxBytes: 1024 }).upload('alice', {}, 'x'.repeat(2000));
+    expect([tooBig.status, tooBig.headers.link]).toEqual([413, link]);
+    // Refused by the API's own body limit, before any route: a body on a
+    // delete, over hosted's 2 MiB.
+    const restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    try {
+      const over = ' '.repeat(2 * 1024 * 1024 + 1);
+      const r = await harness().call(
+        'alice',
+        'DELETE',
+        `/v1/artifacts/${randomUUID()}`,
+        { 'content-length': String(over.length) },
+        over,
+      );
+      expect([r.status, r.json().error.code, r.headers.link]).toEqual([
+        413,
+        'request-too-large',
+        link,
+      ]);
+    } finally {
+      restore();
+    }
+    // `/v1/files` isn't served here: its 404 is no artifacts answer.
+    const other = await h.call('alice', 'GET', '/v1/files');
+    expect([other.status, other.headers.link]).toEqual([404, undefined]);
   });
 });

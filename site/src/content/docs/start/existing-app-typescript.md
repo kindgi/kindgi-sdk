@@ -11,7 +11,7 @@ lives beside your code: its tools import your app's modules.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Node 22.12 or later, Docker, and access to the runtime image. In the app's
-folder, `npx --yes @kindgi/cli@0.6 doctor` checks all three, and says how to
+folder, `npx --yes @kindgi/cli@0.7 doctor` checks all three, and says how to
 fix what's missing.
 
 :::tip[Your coding agent can do most of this]
@@ -26,11 +26,11 @@ Kindgi](../coding-agents/).
 In the app's root (where its `package.json` is), with no pack name:
 
 ```sh
-npx --yes @kindgi/cli@0.6 init
+npx --yes @kindgi/cli@0.7 init
 pnpm install
 ```
 
-- `npx --yes @kindgi/cli@0.6` runs the Kindgi CLI these docs describe,
+- `npx --yes @kindgi/cli@0.7` runs the Kindgi CLI these docs describe,
   without installing it ([Check this machine](../install/#check-this-machine)
   says how).
 - `init` with no pack name adds Kindgi to the app in this folder. The
@@ -219,15 +219,15 @@ Ask your coding agent: "Add an agent that reads a support request and sets
 its priority." For reference, the agent looks like this:
 
 ```ts
-// kindgi/agents/triage/index.ts
+// kindgi/agents/ticket-classifier/index.ts
 import { defineAgent } from '@kindgi/sdk/define';
 import type { AgentId, Semver } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
 const defined = defineAgent({
-  id: 'acme-support.triage' as AgentId,
+  id: 'acme-support.ticket-classifier' as AgentId,
   version: '0.1.0' as Semver,
-  name: 'Triage',
+  name: 'Ticket classifier',
   description: 'Reads a support request and sets its priority.',
   instructions:
     'The user names a support request id. Look it up with the get-request tool, ' +
@@ -279,7 +279,7 @@ Register a model first, with your AI model provider's API key:
 ```sh
 pnpm exec kindgi secrets set <KEY_NAME> --env=local --scope=tenant   # prompts for the key; it isn't echoed
 pnpm exec kindgi providers register --preset=<preset>
-pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":"Triage REQ-1002"}'
+pnpm exec kindgi runs start --agent=acme-support.ticket-classifier --input='{"userMessage":"Triage REQ-1002"}'
 ```
 
 With Anthropic's key, for example, the three commands print:

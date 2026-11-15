@@ -22,7 +22,7 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
   - `invalid-request`, including a request the library refuses before sending it;
   - `network`: no response at all (`fetch failed`, a connection reset or refused, DNS, a socket timeout). A host refused before any connection (a system-style code that isn't a dropped connection's, such as the runtime's egress refusal `EKINDGIEGRESS`) is `network` too, never retried.
   - A redirect the request won't follow (an adapter's credential goes to its endpoint only) is `unavailable`, never retried.
-  It also has the HTTP `status`. Its message is the vendor's own words after the status (`401 {"message":"…"}`), as other adapters' failed calls read.
+  It also has the HTTP `status`. Its message is the vendor's own words after the status (`401 {"message":"…"}`), as other adapters' failed calls read. With no response, it's the library's words and what their causes add, masked as a tool error's are (`fetch failed; caused by ConnectTimeoutError [UND_ERR_CONNECT_TIMEOUT]: …`): `withCauses` says it, for any adapter built on this package.
   - An adapter's own `ModelProviderError` (its sign-in failed, say) ends the call as it is, never retried, even when the library re-wrapped it as a connection failure.
   - Anything else (a bug, ours or the library's) propagates as it is, not retried and not dressed as the vendor's answer.
 - **A stop the library has no unified reason for** is `error`, except running out of context (Bedrock's `model_context_window_exceeded`), which is `length`.

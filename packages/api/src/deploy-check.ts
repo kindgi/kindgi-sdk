@@ -22,6 +22,7 @@
 import { highestVersion } from '@kindgi/tools';
 import type { ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
+import { aFewAtOnce } from './a-few-at-once.js';
 import type { AgentPinBindings, AgentPinnedVersion, PinActor } from './agent-pin-binding.js';
 import type { BlockUseBinding } from './block-binding.js';
 import type { LatestAnswer } from './latest-binding.js';
@@ -129,6 +130,23 @@ interface Running {
   readonly latest?: LatestAnswer;
 }
 
+/** One block's part of the check. */
+type BlockAnswer =
+  /** Nothing newer runs: the block can go. */
+  | { readonly kind: 'passes' }
+  /** Something newer runs, and the deploy puts the block back on purpose. */
+  | { readonly kind: 'replaced'; readonly replaced: ReplacedBlock }
+  /** Something newer runs, and the block stops the deploy. */
+  | { readonly kind: 'stop'; readonly stop: DeployCheckStop };
+
+/**
+ * How many agents the check reads at once, and then how many blocks. An
+ * agent's read has at most two reads in flight (`whatRunsByProject`'s), and
+ * so has a stopping block's (who made it run there, beside its pull
+ * request), so the check has at most four.
+ */
+const CHECK_AT_ONCE = 2;
+
 /**
  * Checks the pack's blocks against what runs. For each block, the newest
  * version that runs in a project of a pack agent (the project's own
@@ -136,6 +154,10 @@ interface Running {
  * prerelease is older than its release. When it's newer than the files',
  * the block stops the deploy, unless `replace` names it. Equal passes, a
  * newer one in the files passes, and a block that runs nowhere passes.
+ *
+ * It reads the agents a few at a time, then the blocks a few at a time
+ * (`CHECK_AT_ONCE`). The answer keeps the agents' and the blocks' order
+ * whichever read ends first, and a failure is the earliest one's.
  */
 export async function checkAgainstRuns(
   deps: DeployCheckDeps,
@@ -144,29 +166,22 @@ export async function checkAgainstRuns(
   const { agentPins, blockUse } = deps;
   if (agentPins === undefined || blockUse === undefined) return { kind: 'skipped' };
   const { tenantId } = input;
-  const agents = new Set(input.agents);
-  const rowsOf = new Map<string, Awaited<ReturnType<typeof whatRunsByProject>>>();
-  for (const agentId of agents) {
-    const projects =
-      input.inProject !== undefined ? [input.inProject] : await deps.projectsOf(tenantId, agentId);
-    rowsOf.set(agentId, await whatRunsByProject(agentPins, { tenantId, agentId }, projects));
-  }
+  const rowsOf = new Map(
+    await aFewAtOnce([...new Set(input.agents)], CHECK_AT_ONCE, async (agentId) => {
+      const projects =
+        input.inProject !== undefined
+          ? [input.inProject]
+          : await deps.projectsOf(tenantId, agentId);
+      const rows = await whatRunsByProject(agentPins, { tenantId, agentId }, projects);
+      return [agentId, rows] as const;
+    }),
+  );
   const replacing = new Map((input.replace ?? []).map((r) => [r.blockId, r.reason]));
-  const stops: DeployCheckStop[] = [];
-  const replaced: ReplacedBlock[] = [];
-  for (const block of input.blocks) {
-    const uses = await blockUse.pinningBlock({ tenantId, blockId: block.id });
-    const running = runningVersions(rowsOf, uses);
-    const newest = highestVersion([block.version, ...running.map((r) => r.blockVersion)]);
-    if (newest === undefined || !isNewer(newest, block.version)) continue;
-    const reason = replacing.get(block.id);
-    if (reason !== undefined) {
-      replaced.push({ blockId: block.id, from: newest, to: block.version, reason });
-      continue;
-    }
-    const where = running.filter((r) => r.blockVersion === newest);
-    stops.push(await stopFor({ ...deps, agentPins }, tenantId, block, newest, where));
-  }
+  const answers = await aFewAtOnce(input.blocks, CHECK_AT_ONCE, (block) =>
+    checkBlock({ ...deps, agentPins, blockUse }, tenantId, rowsOf, replacing, block),
+  );
+  const stops = answers.flatMap((a) => (a.kind === 'stop' ? [a.stop] : []));
+  const replaced = answers.flatMap((a) => (a.kind === 'replaced' ? [a.replaced] : []));
   const counted = new Set(replaced.map((r) => r.blockId));
   return {
     kind: 'checked',
@@ -174,6 +189,33 @@ export async function checkAgainstRuns(
     replaced,
     notNeeded: [...replacing.keys()].filter((id) => !counted.has(id)),
   };
+}
+
+/**
+ * One block against what the pack's agents run (`rowsOf`): the newest
+ * version that runs, then whether `replace` names the block (`replacing`:
+ * a block to its reason), then the stop.
+ */
+async function checkBlock(
+  deps: DeployCheckDeps & { readonly agentPins: CheckPins; readonly blockUse: BlockUseBinding },
+  tenantId: TenantId,
+  rowsOf: ReadonlyMap<string, Awaited<ReturnType<typeof whatRunsByProject>>>,
+  replacing: ReadonlyMap<string, string>,
+  block: { readonly id: string; readonly version: string },
+): Promise<BlockAnswer> {
+  const uses = await deps.blockUse.pinningBlock({ tenantId, blockId: block.id });
+  const running = runningVersions(rowsOf, uses);
+  const newest = highestVersion([block.version, ...running.map((r) => r.blockVersion)]);
+  if (newest === undefined || !isNewer(newest, block.version)) return { kind: 'passes' };
+  const reason = replacing.get(block.id);
+  if (reason !== undefined) {
+    return {
+      kind: 'replaced',
+      replaced: { blockId: block.id, from: newest, to: block.version, reason },
+    };
+  }
+  const where = running.filter((r) => r.blockVersion === newest);
+  return { kind: 'stop', stop: await stopFor(deps, tenantId, block, newest, where) };
 }
 
 /**
@@ -373,14 +415,17 @@ export interface DeployCheckBody {
   /** The project the deploy goes into: admin there is the right it needs. Absent: admin on the tenant. */
   readonly projectId?: string;
   readonly agents: readonly string[];
+  /** The pack's flows by id, for the plan limits. Absent: none. */
+  readonly flows?: readonly string[];
   readonly blocks: readonly { readonly id: string; readonly version: string }[];
   readonly replace?: readonly ReplaceBlock[];
 }
 
 /**
- * `POST /v1/deployments/check`'s body: the pack's agents by id, its blocks
- * each `{ id, version }` (a block named once, a valid version), and
- * `replace` as a deploy's. Each problem is pushed onto `issues`.
+ * `POST /v1/deployments/check`'s body: the pack's agents by id, its flows
+ * by id (optional), its blocks each `{ id, version }` (a block named once,
+ * a valid version), and `replace` as a deploy's. Each problem is pushed
+ * onto `issues`.
  */
 export function parseCheckBody(
   raw: unknown,
@@ -395,17 +440,8 @@ export function parseCheckBody(
   if (b.projectId !== undefined && (typeof b.projectId !== 'string' || b.projectId.length === 0)) {
     issues.push({ path: 'projectId', message: 'projectId must be a project id' });
   }
-  const agents = Array.isArray(b.agents) ? b.agents : undefined;
-  if (
-    agents === undefined ||
-    agents.length > CHECK_LIST_MAX ||
-    agents.some((a) => typeof a !== 'string' || a.length === 0)
-  ) {
-    issues.push({
-      path: 'agents',
-      message: `agents must be a list of up to ${CHECK_LIST_MAX} agent ids`,
-    });
-  }
+  const agents = parseIds(b.agents, 'agents', 'agent', issues);
+  const flows = b.flows === undefined ? undefined : parseIds(b.flows, 'flows', 'flow', issues);
   const blocks: { id: string; version: string }[] = [];
   if (!Array.isArray(b.blocks) || b.blocks.length > CHECK_LIST_MAX) {
     issues.push({
@@ -423,10 +459,29 @@ export function parseCheckBody(
   if (issues.length > before) return undefined;
   return {
     ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
-    agents: [...new Set(agents as string[])],
+    agents: agents ?? [],
+    ...(flows !== undefined && { flows }),
     blocks,
     ...(replace !== undefined && { replace }),
   };
+}
+
+/** Up to `CHECK_LIST_MAX` ids, each named once; an issue at `path` when it isn't such a list. */
+function parseIds(
+  raw: unknown,
+  path: string,
+  noun: string,
+  issues: { path: string; message: string }[],
+): string[] | undefined {
+  if (
+    !Array.isArray(raw) ||
+    raw.length > CHECK_LIST_MAX ||
+    raw.some((id) => typeof id !== 'string' || id.length === 0)
+  ) {
+    issues.push({ path, message: `${path} must be a list of up to ${CHECK_LIST_MAX} ${noun} ids` });
+    return undefined;
+  }
+  return [...new Set(raw as string[])];
 }
 
 /** One of the check body's `blocks`: `{ id, version }`, a block named once (`named`), a valid version. */

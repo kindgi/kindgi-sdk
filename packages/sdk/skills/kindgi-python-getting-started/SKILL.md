@@ -16,7 +16,7 @@ description: >
   models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.20"
+version: "0.1.21"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -56,7 +56,7 @@ primitive; `test_*.py`, `*_test.py` and `conftest.py` are skipped.
 ## Scaffold a new pack
 
 ```sh
-uvx --from "kindgi-cli>=0.6,<0.7" kindgi init my-pack --template=python
+uvx --from "kindgi-cli>=0.7,<0.8" kindgi init my-pack --template=python
 cd my-pack
 uv sync            # .venv with the kindgi package and the kindgi CLI
 uv run pytest
@@ -94,7 +94,7 @@ to one worktree, and so does an env file git doesn't track, such as
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.6,<0.7"   # the CLI (Poetry: poetry add --group dev …)
+uv add --dev "kindgi-cli>=0.7,<0.8"   # the CLI (Poetry: poetry add --group dev …)
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry / pip
 uv run kindgi dev
@@ -128,8 +128,8 @@ my-pack/
 ├── pyproject.toml                     # [tool.kindgi] — id, version, (discovery, dev, environments)
 ├── tools/echo.py, tools/greet.py      # @tool
 ├── guardrails/response_not_empty.py   # @guardrail
-├── agents/echo_agent.py               # Agent(...)
-├── flows/echo_flow.py                 # Flow(...)
+├── agents/greeter.py                  # Agent(...)
+├── flows/greet_person.py              # Flow(...)
 ├── tests/test_tools.py                # the tools and the check, called directly
 ├── README.md
 ├── .claude/skills/                    # these skills (`kindgi skills sync` refreshes them)
@@ -144,7 +144,7 @@ The `[tool.kindgi]` keys are the ones `kindgi.config.ts` takes —
 With `kindgi dev` running, from another terminal in the pack directory:
 
 ```sh
-uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada"}'
+uv run kindgi runs start --agent=my-pack.greeter --input='{"userMessage":"Ada"}'
 ```
 
 The answer comes from `dev-echo`, a **fallback** provider a new pack
@@ -191,7 +191,7 @@ from kindgi import Flow
 from ..tools.ledger import record_expense
 
 record = Flow(
-    id="acme.ledger.record-flow",
+    id="acme.ledger.book-expense",
     version="0.1.0",
     nodes=[{"id": "record", "kind": "tool", "ref": record_expense}],
     edges=[
@@ -216,7 +216,7 @@ branches, loops and agent steps → `kindgi-python-authoring-flows`.
 from kindgi.client import Kindgi
 
 client = Kindgi()  # KINDGI_API_URL + KINDGI_API_TOKEN, or Kindgi(url, token=…)
-run = client.runs.start(agent="my-pack.echo-agent", input={"userMessage": "Ada"})
+run = client.runs.start(agent="my-pack.greeter", input={"userMessage": "Ada"})
 print(run.status, run.output["response"]["content"])
 for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
@@ -276,7 +276,7 @@ month = client.cost.aggregate(
 # month.total_usd; month.groups[i].key ({"month": "2026-10"}), .total_usd, .tokens
 ```
 
-Docs: https://docs.kindgi.com/v0.6/guides/observability/cost-per-run/
+Docs: https://docs.kindgi.com/v0.7/guides/observability/cost-per-run/
 
 Show it in the app's own UI. **Never:**
 
@@ -288,7 +288,7 @@ Show it in the app's own UI. **Never:**
 - **link users to Kindgi's console** or any Kindgi UI for this data.
 
 To keep a copy (reporting, search), pull it through the API into the app's
-own tables. Docs: https://docs.kindgi.com/v0.6/guides/runs/show-runs-in-your-app/
+own tables. Docs: https://docs.kindgi.com/v0.7/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -341,19 +341,21 @@ running the older version on it.
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.6/deploy/self-hosted/cloud-run/#upgrade-by-hand
+  https://docs.kindgi.com/v0.7/deploy/self-hosted/cloud-run/#upgrade-by-hand
 - **On Azure Container Apps:** the "Operate it" section of its page:
-  https://docs.kindgi.com/v0.6/deploy/self-hosted/azure-container-apps/#operate-it
+  https://docs.kindgi.com/v0.7/deploy/self-hosted/azure-container-apps/#operate-it
 - **Otherwise:** the operate page's upgrade steps:
-  https://docs.kindgi.com/v0.6/deploy/self-hosted/operate/#upgrade-the-runtime
+  https://docs.kindgi.com/v0.7/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).
 
 ## Two things need the human
 
-- **The pack id and version** in `[tool.kindgi.pack]`. The id prefixes
-  every primitive (`<pack-id>.<name>`); pick it once.
+- **The pack id and version** in `[tool.kindgi.pack]`. The id names
+  the app or the business, once, and prefixes every primitive
+  (`<pack-id>.<name>`). Names inside the pack don't repeat it, and an
+  agent's or a flow's name has no dot of its own. Pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
 ## Commands for the person's own terminal

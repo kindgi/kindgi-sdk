@@ -1,5 +1,160 @@
 # @kindgi/agents
 
+## 0.7.0
+
+### Minor Changes
+
+- 7f9d20f: **A tool can fail a call on purpose, with its own code and words for a person.** `` throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } }) `` (`@kindgi/sdk/define`; `ToolFailure` in Python, `ToolFailureException` in Java and Scala) fails the call with `tool-failed`, a new code beside the crash's.
+  
+  - **The call's error.** `invokeTool` answers `ToolFailedError`: `{ code: 'tool-failed', message, toolId, reason, details? }`. The tool's code is `reason`, its words are the message as written, with no lead-in and no cause, and `details` are its facts. The message and every string in the details are masked as a thrown message is.
+  - **The rules.** The code is kebab case, a letter first, at most 64 characters: a fixed word, since runs are grouped by it. The message isn't empty and is cut at 1,000 characters. The details are a JSON object of at most 4 KiB as JSON. A value the class refuses throws a `TypeError`, so the call is a crash that says why, and so is a `ToolFailure` changed after it was made. `isToolFailure` tells one by its brand, so another copy of the package agrees.
+  - **Pack protocol 2.12.0.** The error answer's codes gain `tool-failed`, with `reason` and `details`; `v` stays 2. The TypeScript, Python and Java pack services answer it, and the conformance suite has a fixture tool for it, `conformance.fails-on-purpose`, in each language.
+  - **In an agent.** `tool-failed` is a `toolErrors` kind of its own, out of the default and not covered by `tool-error`. With it in `retryOn`, the call goes back to the model with the tool's code, words and details, and an instruction to tell the person or try another way. Otherwise, or past the retries, the turn fails with `ToolFailedTurnError`, `tool-failed` at the top: `{ code, message, toolId, reason, details?, toolRetries? }`. The `tool.failed` stream event says `tool-failed` and the tool's code as `reason`, without the details.
+  - **A run's failure.** `Run.failure` for it has the tool's code as `reason`, its details whole in `details`, and the tool as `cause`: `{ toolId }`. The API answers the turn's error with `422`. The OpenAPI document says so, and an agent's `toolErrors.retryOn` takes `tool-failed`, in the agent schema and the clients too.
+  
+  A check that throws a `ToolFailure` fails as any throw does.
+  
+  Release-decision: 0.7.0, the maintainers, 2026-11-06T22:04:22Z
+
+### Patch Changes
+
+- 3621ee2: **The templates' agents and flows are named for what they do.** A new pack from `kindgi init` gets these ids. Packs already made keep theirs, and the template names are unchanged.
+  
+  | Template | Before | Now |
+  |---|---|---|
+  | `sample`, `python`, `java`, `scala` | agent `<pack>.echo-agent`, flow `<pack>.echo-flow` | agent `<pack>.greeter` ("Greeter"), flow `<pack>.greet-person` ("Greet a person") |
+  | `woocommerce` | agent `<pack>.store-agent`, flow `<pack>.order-review`, block `<pack>.store-agent-prompt` | `<pack>.order-desk`, `<pack>.review-order`, `<pack>.order-desk-prompt` |
+  | `drupal` | agents `<pack>.content-agent` and `<pack>.content-reviewer`, flow `<pack>.content-review` | `<pack>.style-checker`, `<pack>.article-reviewer`, `<pack>.review-article` |
+  | `follow-up` | agent `<pack>.follow-up` | `<pack>.follow-up-writer` |
+  | `returns-helper` | agent `<pack>.returns-helper` | `<pack>.returns-desk` |
+  
+  Their folders, files and classes follow: `agents/greeter/`, `Greeter.java`, `greeter.py`.
+  
+  **The agents, flows and getting-started skills give naming rules, in all four languages.**
+  - An agent is named for its role, and a flow for its job, verb first.
+  - The pack id names the app or the business once.
+  - No placeholder words such as `agent`, `flow` or `helper`.
+  - One word per thing.
+  - The display name is the id in words, in sentence case.
+  - An id is the pack's own id, a dot, and a kebab-case name with no dot.
+  
+  The examples follow the rules (`acme.ledger.book-expense`, "Brief writer", "Triage a ticket"). So do the `Agent.id` and `Flow.id` comments, and the Python and Java SDKs' examples.
+- 95494bb: An agent that lists a guardrail more than once now runs its check once a step, so an llm-judge check is called, and billed, once. An unknown id listed twice is named once in `unresolved-guardrail`. A retried step whose guardrail checks came to none now records that, so the outcome counts hold only the last attempt's checks; a first attempt with none still writes nothing. A `GuardrailOutcomeSink` of your own gets that record with empty `checks`, and should leave the step with no outcomes, as recording a step again replaces what it recorded. Each step of a turn now removes the listener it adds to its run's abort signal when it settles, so a turn of more than ten steps no longer logs `MaxListenersExceededWarning`.
+- 5903a0b: An agent turn's provenance now names the agent on every node of its own acts, as `agent:<id>@<version>`, the form a `memory-write` node already had: its model calls, the tool calls they make, its answer (`model-output`), and the `wait` of an approval it waits for, on a tool call or for the session. Before, a model call, a tool call and the answer had no `actor`, and an approval's wait named the agent as `agent:<id>`, without its version. A session approval's `resume` names who decided, as a tool call's does. When the decision doesn't say, or the wait was cancelled, it names no one, where it named the agent as `agent:<id>` before. A `tool-result` still has no `actor`. Records written before keep what they have.
+- c7b560c: **The docs say what `ask_on_first_use` does: each call to the tool waits for an approval, as with `always_ask`.** They said an approved call ran without asking when it was made again with the same arguments in the conversation, but nothing remembers an approval, and every call has always asked. The mode's doc is now on `ToolHitlMode`, where an editor shows it, and `Tool.mutating`'s description (in the tool schema and the API reference), the approvals guide and the authoring skills say the same. How a call is gated doesn't change.
+- 2d279a5: **Tools and agents that change files.** A tool can declare `updatesFiles: true` (tool schema 1.5.0, pack index 1.10.0): it adds versions to files its run has. Only a tool with a handler can, so `defineTool` and the pack indexer refuse it on a declarative or MCP tool, as they refuse `storesFiles`. It's part of the tool's definition, so changing it takes a new version.
+  
+  An agent can declare `files: { update?, create? }` (agent schema 1.9.0). `update: true` offers its model the built-in `kindgi_update_file`, and `create: true` offers `kindgi_create_file`. An agent can't list either one in `tools`. The pack index and the API's agent schemas carry the declaration, and `@kindgi/agents` exports `UPDATE_FILE_TOOL_ID`, `CREATE_FILE_TOOL_ID` and the `AgentFilesPolicy` type.
+  
+  A handler of a tool that declares `updatesFiles` gets `ctx.files.update({ fileId, expectedVersion, name?, contentType, bytes })` on a call with an `idempotencyKey`. It answers `{ file }`, the new version; `{ same }`, Latest, when the bytes are Latest's; `{ conflict }`, Latest, when Latest isn't the version the tool read; or `{ notUpdated }`, with a reason from `FILE_NOT_UPDATED_REASONS` (`@kindgi/types`): `rule`, `denied`, `gone`, `type`, `size` or `storage`. A re-run of the call answers the version its first run made. The new version keeps Latest's tags, and Latest's name unless the call gives one.
+  
+  The runtime takes an update through the call's tool files link (pack protocol 2.13.0). It says a call may update with `toolFiles.updates: true`. Without it, as from a runtime before 2.13.0, a handler gets no `files.update`. The tool's update posts its bytes to `<url>/<fileId>/versions`, with `Kindgi-Expected-Version` set to the version it read, and `Kindgi-File-Name` when it names the new version. An update over 10 MB (`MAX_STORED_FILE_BYTES`) answers `size`, and nothing is sent. `@kindgi/api` serves the route as `toolFiles.update` (`POST /v1/tool-files/{fileId}/versions`) for a `ToolFilesBinding` that has `update`, and answers a `ToolFileUpdateAnswer`. Without `update`, it answers 404, as it does for an unknown token. In `@kindgi/agents`, a `FileBinding` gains `update`, keyed by the call, and `create`, which answers a `FileCreateAnswer`: the new file, or why there's none (`FILE_NOT_CREATED_REASONS`: `denied`, `type`, `size` or `storage`). `@kindgi/pack-conformance` gains the `file-updates` feature and the fixture tool `conformance.update`.
+  
+  **The model's file tools.** On a turn whose file binding can, `kindgi_update_file` takes `{ fileId, expectedVersion, content }`: the whole new text of a version the turn was given (in its messages, a tool's result or the history its model reads), up to 1 MB of UTF-8 (`FILE_LIMITS.textBytes`, a text file's limit). It changes only a version of at most 100,000 bytes: a model reads a text file's first 100,000 characters (`FILE_LIMITS.textChars`), so a longer version may have been read cut, and the tool answers `too-large` without sending anything. It adds a version through `FileBinding.update` under the call's key, keeping that version's type, and answers `{ status, files?, reason? }`: `updated`, `same` or `conflict`, each with the file in `files`, so the next call shows it (Latest, for `same` and `conflict`); or `not-text`, `too-large`, `gone`, `not-in-run`, `not-allowed` or `not-stored`, each with a reason. `kindgi_create_file` takes `{ name, content, contentType? }` (`text/plain` by default) and answers `created`, with the new file, or `not-text`, `too-large`, `not-allowed` or `not-stored`. Both are mutating, write `files`, and are asked of `authorizeToolCall` as built-ins are. Only text changes this way: `isTextFileType` (`@kindgi/types`) says which types are text, any `text/*`, JSON, XML and YAML, and their `+json`, `+xml` and `+yaml` types. `@kindgi/agents` exports `FILE_TOOLS_VERSION` and the `UpdateFileToolOutput` and `CreateFileToolOutput` types.
+  
+  A file a model call is shown, when its value has a `fileId` and `version`, comes after the line `file <fileId> v<version>` (`@kindgi/capabilities`' `fileParts`), so the model can name that version; a value from before file versions shows as before. A model now reads as text every type `isTextFileType` takes, not only `text/plain`, `text/markdown` and `text/csv`, so it can read a JSON, XML or YAML file it was given or made; a text block shows the type without its parameters. A kept file value keeps its `fileId` and `version` in a model message. Publishing an agent that declares `files.update` or `files.create` to an API with no file store (no `fileVersions`) answers the warning `files-unavailable`.
+  
+  **A file version's node.** `@kindgi/provenance` exports `FileVersionAttributes`, the keys an `artifact` node of a file version carries in its `attributes`: `fileId`, `fileVersion`, `fileName`, and `filePreviousVersion` on an update's node, with the version's sha256 as the node's `contentHash`. `fileVersionOf(node)` reads them, and answers `undefined` for a node from before file versions. `FileBinding.admit`'s doc says that a value naming a `fileId` and `version` is admitted only when the runtime's record says they're its `artifactId`'s bytes, and carries them from that record. A value that names only one of `fileId` and `version` isn't admitted, and a deleted version is `notShown: 'gone'`, as a deleted file is.
+  
+  **A record's file versions.** `@kindgi/provenance` exports `ProvenanceFileVersion`, a file version a run took or made as a runtime gives it (`how`: `input`, `made` or `given`), and `fileVersionNodes`, which makes their nodes, at most `MAX_FILE_VERSION_NODES` (1000) with one node counting the rest. `FlowProvenanceRun` takes them as an optional `files`, each with the step it came from or went to, and an optional `outputFile`; `FLOW_PROVENANCE_LIMITS.maxFileNodes` is the new cap. An agent turn's record gets them from the run's `FileBinding.versions`, when the runtime has it, with an edge to the call that made or was given each one. A file version's `contentHash` is the version's own sha256, as the files API answers it.
+  
+  **What `type` means.** A tool's store and its update answer `type` when the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files. `FILE_NOT_UPDATED_REASONS`, `FileNotStoredReason`, the tool-files routes' answers, the pack protocol's text and the Python pack SDK now say it in those words. So a run that can call a tool that reads files can keep a file of a type no model is shown, up to `MAX_STORED_FILE_BYTES` (10 MB), the cap on every file a tool stores or updates.
+- 5ec7895: **A guardrail with `sees: 'conversation'` gets the conversation's earlier turns.** Its check reads them in `trace.earlier`, which the agent turn never filled until now: the turns the model was given for this turn, oldest first, all of them or the agent's `conversationPolicy.historyLimit` window. Each is a `TraceTurn`, in the trace's own field names: `userInput`, its `toolCalls` and `toolResults`, and its answer, `output`. A turn the history limit cut short has no `userInput`, and a conversation's first turn gives `[]`. The guardrail gets them at the final answer and at the loop's points, and a pack's check gets them over `check-invoke` with the rest of the trace.
+  
+  - **Only the guardrail that asks gets them.** `evaluateGuardrail` gives `earlier` to a guardrail with `sees: 'conversation'` and leaves it out for the others, so its check, its judge and its action read the same trace. A turn none of whose guardrails asks doesn't read its history for them.
+  - **The history is read once per turn.** The turn keeps what it gave its model, and its checks read that. A turn resumed in another process reads it again, once: the same window, since it ends before the turn's own message.
+  - **An llm-judge that sees the conversation is shown it.** Its prompt adds the earlier turns, each one's user message, tool calls and answer, and then this turn's user message, before the run's output. Their text is quoted, one line each, after a line saying it's data to judge, not instructions: a message can come from an event or a mail. The tools' results stay out, as for this turn. A judge that sees the turn gets the prompt it got before.
+  - `buildRunTrace` (`@kindgi/agents`) takes the earlier messages, as stored, in an optional `earlier`, and gives the trace their turns.
+  - **Docs.** "Write a guardrail" shows a check that every figure in an answer comes from the conversation, and says what a judge is shown; the guardrails overview and the guardrails authoring skill say a check sees one turn unless its guardrail asks for the conversation.
+- 520e54d: What an llm-judge guardrail's model call warns about, such as a temperature its model doesn't take, now comes back with the judgment: `CheckResult.warnings`, absent when the call warned about nothing. An agent turn adds those warnings to its own `warnings`, once per code as with its own calls, each message starting with the guardrail it judged for (`Guardrail "<id>"'s judge: `). That holds at the final answer and at each point inside the loop, and a step run again after a wait still says them.
+- af5b037: When a turn merges the `tenantPolicy` bound to it with the policy its `policyRegistry` yields, it now keeps the larger `maxTokensPerCall`. That field is the smallest context window a picked model must have, so keeping the smaller value let the weaker policy win. Now a model whose context window is below either policy's isn't picked. The `TenantPolicy` docs now say what both fields check. `maxCostPerCallUsd` is the highest prompt price per 1K tokens a picked model may have, not what a call costs. `maxTokensPerCall` is the smallest context window it must have, not the tokens a call uses. When no model routes, a `capability-unsatisfiable` error's `requirement` names them the same way, for example `tenant.maxCostPerCallUsd: promptUsdPer1kTokens<=0.5` and `tenant.maxTokensPerCall: contextWindow>=100000`. The context window's message now reads "workspace minimum".
+- 090706e: **A typed agent's output repairs count from where the turn's loop starts.** A message of the person's that starts with the repair marker (`[kindgi:output-repair]`), this turn's or one in the conversation's history, no longer uses up the turn's repairs (`output.maxRepairs`). Before, each one counted as a repair, so a typed agent's turn could fail with `output-schema-violation` before the model was asked to fix its answer. Now only the repair messages the turn's loop added count, as the turn's tool retries and `retry` guardrail notes already do.
+- d5e05dc: A tool call whose approval a reviewer rejected now says so in the result the model reads: `{ "status": "rejected", "by": "reviewer", "rationale": "…" }`, with `rationale` only when the reviewer gave one. Before, the result was `status` and `rationale` alone, and a model could tell the person that the tool, or the site it acts on, had refused. An answer that isn't a decision still blocks the call as before, with no `by`: no one decided it, and its `rationale` says why it counts as a rejection.
+- c09130a: `resumeAgentTurn` takes an optional `abortSignal`, as `invokeAgent` does: it aborts the resumed turn, and the agent's `maxWallMs` still applies, whichever comes first. A flow's agent step that resumes its turn can now pass its own signal, so the step's timeout stops the turn instead of leaving it to run on. A turn now also removes the listener it adds to the caller's signal when it returns, and a turn aborted both ways keeps the first abort's reason: a caller's abort that the wall-clock budget overtakes before the turn returns still reads `external`, not `timeout`.
+- de3a30f: **A turn resumed after its worker was lost keeps its instructions.** A turn whose worker was lost after its instructions were rendered, and before its first messages were built, failed on resume with `model-invocation-failed` ("build-initial-messages invoked before render-prompt completed"). It now builds them on the instructions it rendered when it started, as its run recorded them, not on a fresh render.
+- fd2d147: Finding a link in a remembered fact or the ids a drafted template names, and masking URLs, tokens and `key=value` secrets in a feedback report or a tool's error line, take time in step with the text's length.
+- 768e1b3: **A run can start from a text message.** `RunStartedBy` gains `text`, for a run a text trigger fired. Such a run is one no person is watching, with the rules a mail-started run has:
+  - The text is read as outside data, in an `<event>` block, never as the person's own message.
+  - Every tool that changes something (any tool that isn't `mutating: false`) waits for a person's yes, with the new reason `text-change` (`UnattendedWaitReason`), unless the trigger lists it in `toolsAllowedUnattended`. A read-only tool runs.
+  - A tool that declares `needsApprovalWhenUnattended`, or uses a person's connection, waits as in any run no person started, unless the trigger lists it.
+  - A run's `startedBy` in the API can be `text`, and such a run acts for the trigger's owner.
+  
+  **Text triggers.** A text trigger starts a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as the run's input. `TRIGGER_KINDS` gains `text`.
+  - The API has `/v1/text-triggers`: register, list, get, update, pause, resume, unregister, its fires, its versions, and take ownership. The CLI has `kindgi text-triggers`, and the TypeScript client has `textTriggers`.
+  - Its `config` names the number, `connectionId`: one of the project's company connections of app `texts`. `runsPerHour` (1-600, default 60) and `perSenderPerHour` (1-60, default 10) limit how many runs it starts.
+  - One live text trigger answers a number. Registering another on it, or moving one onto it, is refused with `409 trigger-connection-taken`, whose `heldBy` names the trigger that answers it, which can be in another project of the workspace. A paused trigger keeps its number; unregistering it frees the number.
+  - The number is the company's, so registering a text trigger and every change to one take a project admin. Pausing, resuming and unregistering follow the rules other triggers have.
+  - `toolsAllowedUnattended` never lists `kindgi_send_text`: a text that isn't a reply always waits for a person's yes.
+  
+  **Texts come in at `/v1/texts-inbound/{tenantId}/{appId}`.** It's where a texting provider delivers to a texts registration: `POST` for texts and delivery statuses, `GET` for a provider's handshake.
+  - No sign-in: the server checks the provider's own signature over the URL it called and the body's exact bytes, before anything is written. A bearer token, a cookie or a `Proxy-Authorization` header, if sent, is never read nor passed on.
+  - A request that doesn't prove its sender is `401 texts-inbound-refused`, the same answer whatever the reason, a body over the cap included, at any size, and a client past its refusals this minute gets `429`. The server's own trouble is `503 texts-inbound-unavailable`, and the provider sends the texts again.
+  - `ConnectionBinding` gains an optional `receiveTexts`, and the route is mounted only where a binding has it.
+  
+  **The texts connection: a business number, connected without a browser.** `@kindgi/connections` gains the `texts` entry (`@kindgi/connections/texts`), for the company: a number at a texting provider (Telnyx for now), with the permissions `texts.reply` and `texts.send`.
+  - `SignIn` gains `token`, an account's credential kept on the registration by reference, with the providers it serves. `AccountLookup` gains `number`, and `AppRemoval.revoke` gains `restore-inbound`. `defineApp` checks that the three go together, and that each permission of a `token` sign-in grants its own key.
+  - A texts registration takes `token`: the provider, its API key by reference (`apiKey`) and the account's Ed25519 public key (`publicKey`, base64 of 32 bytes), on `POST` and `PATCH /v1/connection-apps`. The key reaches the whole provider account, so a secret a tool, MCP endpoint, webhook endpoint, webhook trigger or destination uses is refused with `409 connection-key-in-use`, and nothing is stored.
+  - Only its registration names that key. A tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a model provider or another connection app registration that names it is refused with `400 connection-key-refused` (`details.secret`, `details.appId`), and nothing is stored; a texts registration whose key another registration names in any of its secrets is `409 connection-key-in-use`, with that registration in `usedBy` (kind `connection-app`). Both ask for a new API key from the provider, stored under its own name, since a copy of the account key under another name reaches the same account; the 409 also says to rotate a shared key at the provider. A removed registration frees its key, and one kept while its numbers' inbound can't be put back still holds it. `@kindgi/api` exports `connectionKeysOf` (its `ConnectionKeys` maps each key to every live registration holding it) and `connectionKeyRefusal`, and the TypeScript and Python clients read the new code as an invalid request.
+  - `POST /v1/connections` takes `number` (E.164) and `replaceInbound`. A texts connect comes back `connected` at once, with its `connectionId`; it keeps `connectUrl`, whose page only shows it connected, and `expiresAt`, which ends only a `pending` request. A number whose texts go somewhere else today is refused with `409 inbound-in-use`, naming the webhook's host or the messaging profile, until the connect says `replaceInbound: true`. A number live in another environment, or under another texts registration, is `409 number-in-use`. A reconnect names the same number, and is how a connection whose key the provider refused (`credential-refused`) works again once the registration's secret is updated.
+  - A disconnect puts the number's old inbound back first. When that fails, the connection stays `removing` and the answer is `502 inbound-restore-failed`; disconnecting again retries, and `DELETE /v1/connections/{connectionId}?skipInboundRestore=true` drops what was kept without putting it back. The flag is ignored for a connection of any other app. Removing a registration with its connections does the same for each number, and keeps the registration while one fails.
+  - A connection gains `lastProvenInboundAt` and `textsThisMonth` (`received`, `sent`, `unanswered`), for a number only.
+  - The CLI: `kindgi connection-apps add texts --provider=telnyx --api-key-ref=<env>/<name> --public-key=<base64>`, `kindgi connections connect texts --for-company --number=<E.164> [--replace-inbound]`, which prints the connection, and `kindgi connections disconnect <connection> --skip-inbound-restore`. The TypeScript client's `connections.disconnect` takes `skipInboundRestore`.
+  - `@kindgi/connections-inmemory` serves the entry with a fake provider: connect, reconnect and removal work, with hooks for the lookup and the restore, and `seed.inbound` and `seed.credentialRefused` set up a number's state. Texts come in only on a Kindgi server.
+- 00afa37: **A run a text started can answer it.** `@kindgi/agents` offers two built-in tools in such a run: `kindgi_reply_to_text`, when the number grants `texts.reply`, and `kindgi_hand_to_person`.
+  - A reply goes to the person who texted, on the same number and channel. The number, channel and sender come from the run, never from the model: the reply takes only its text, up to 1600 characters.
+  - A refusal (`texts-window-closed`, `texts-opted-out`, `texts-with-person`, `texts-not-granted`) comes back to the agent as the tool's output, and nothing is sent.
+  - The hand-over gives the conversation to a person, with a note for them, and no run answers that thread's texts after it. It doesn't wait for a person's yes the way other changes in such a run do; a workspace or agent rule that always asks still asks.
+  - `toolsAllowedUnattended` can list the reply and the hand-over.
+  - A run that waits keeps its thread: `InvokeAgentInput.textThread` is recorded with the run, and a resumed run replies on the thread it started from.
+  - A step that runs again, resumed or retried, replies and hands over once: the host's `TextsToolBinding` gets each call's `idempotencyKey`, and a repeat of a call that went through answers as it did.
+  - A pack tool can't use the `texts` app: `defineTool` refuses it (`BUILT_IN_ONLY_APPS`). A flow's tool node can't name a tool built into Kindgi (the `kindgi_` prefix, `BUILT_IN_TOOL_PREFIX`, now exported by `@kindgi/types` too).
+- d3f48a7: **An agent turn hands its tools the workspace's time zone.** A turn that offers tools reads the workspace's `time-zone` fact once, in `setup`, and every call it makes gets the zone as `ToolContext.timeZone`. The fact's content is `{ timeZone: 'America/Toronto' }`, scoped to the workspace alone, and the newest one a person or a service wrote counts; an agent's own fact doesn't. The zone is `UTC` when there's none, when the read fails, and when the name isn't one `Intl` knows; the turn goes on either way, except that a tenant budget's refusal is the turn's, as it is elsewhere. `setup` journals the zone, so a turn resumed after an approval keeps it, and a turn that offers no tool doesn't read it.
+- 39c4e12: **An app on zod 3 is shown the way to JSON Schema.**
+  
+  - **A schema from zod 3 is refused by name**, from the zod 3.x package or from zod 4's `zod/v3`. That's a tool's `input` or `output`, an agent's `output.schema` or a check's `configSchema`, and a tool's raw `input` or `output` when the build reads a tool not made with `defineTool`. The message says Kindgi takes zod 4 schemas, and shows the JSON Schema object to write instead. Before, such a schema was read as JSON Schema and failed to compile with a message that never said zod.
+  - **An older zod is named.** A zod 4 schema, such as `zod/v4` from zod 3.25, used with a `zod` older than zod 4 installed, now says the installed `zod` is older than zod 4, not that it isn't installed. When loading `zod` throws, the error keeps what it threw as its cause.
+  - **`kindgi init`'s warning names both ways** for an app on zod 3: move the app to zod 4, or write Kindgi's schemas as JSON Schema objects, with an example.
+  - **The `kindgi-authoring-tools` skill** says the same.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [3621ee2]
+- Updated dependencies [95494bb]
+- Updated dependencies [c7b560c]
+- Updated dependencies [f8a4191]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [e975c6f]
+- Updated dependencies [5ec7895]
+- Updated dependencies [520e54d]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [f7264e7]
+- Updated dependencies [e2cddae]
+- Updated dependencies [e2c3e1a]
+- Updated dependencies [afba79e]
+- Updated dependencies [439bffc]
+- Updated dependencies [768e1b3]
+- Updated dependencies [00afa37]
+- Updated dependencies [a478edf]
+- Updated dependencies [7f9d20f]
+- Updated dependencies [cdf511b]
+- Updated dependencies [25d902a]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/flow@0.7.0
+  - @kindgi/guardrails@0.7.0
+  - @kindgi/policy-contract@0.7.0
+  - @kindgi/tools@0.7.0
+  - @kindgi/compliance@0.7.0
+  - @kindgi/capabilities@0.7.0
+  - @kindgi/provenance@0.7.0
+  - @kindgi/runtime@0.7.0
+  - @kindgi/schema@0.7.0
+  - @kindgi/authz@0.7.0
+  - @kindgi/embedding@0.7.0
+  - @kindgi/handler@0.7.0
+  - @kindgi/memory@0.7.0
+  - @kindgi/bounds@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

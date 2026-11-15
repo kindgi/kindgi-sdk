@@ -21,9 +21,10 @@ import {
 } from '../cost-binding.js';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { Authorizer } from '../middleware/authorize.js';
+import { type Authorizer, tenantWide } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
+import { includeListOf } from './include-list.js';
 import { clampLimit } from './pagination.js';
 import { projectIdsCallerMay } from './readable-projects.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
@@ -49,8 +50,9 @@ import { parseTimeInput } from './time-input.js';
 export function costRouter(
   binding: CostBinding,
   /**
-   * With one: a record needs `read` on its project (the tenant, for one
-   * with no project); an aggregate, `read` on the scope it's asked for,
+   * With one: a record needs `read` on its project (the whole workspace,
+   * `tenantWide`, for one with no project: a key limited to a project
+   * doesn't read it); an aggregate, `read` on the scope it's asked for,
    * and across projects (no scope, or an org) it counts only the projects
    * the caller may read, unless the caller is a tenant admin.
    */
@@ -62,7 +64,7 @@ export function costRouter(
   const recordRef = (tenantId: TenantId, rec: { readonly projectId?: unknown }): ResourceRef =>
     rec.projectId !== undefined && rec.projectId !== null
       ? ref('project', rec.projectId as string)
-      : ref('tenant', tenantId as unknown as string);
+      : tenantWide(tenantId as unknown as string);
 
   const DEFAULT_AGGREGATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -78,7 +80,7 @@ export function costRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: filter.error }, requestId));
     }
-    const include = parseInclude(c.req.query('include'));
+    const include = parseInclude(c.req.queries('include'));
     if (include.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: include.error }, requestId));
@@ -120,7 +122,7 @@ export function costRouter(
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const recordId = c.req.param('recordId');
-    const include = parseInclude(c.req.query('include'));
+    const include = parseInclude(c.req.queries('include'));
     if (include.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: include.error }, requestId));
@@ -304,7 +306,10 @@ export function costRouter(
       ...(Object.keys(filter.value).length > 0 && { filter: filter.value }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
-      ...(reach.kind === 'projects' && { readableProjectIds: reach.ids }),
+      ...(reach.kind === 'projects' && {
+        readableProjectIds: reach.ids,
+        ...(!reach.tenantRecords && { includeTenantRecords: false }),
+      }),
       limit,
     });
 
@@ -337,7 +342,9 @@ export function costRouter(
  * What an aggregate may count for this caller. Across projects (no scope,
  * the tenant, or an org), `read` on the scope lets a member ask, not see
  * every project's spend: only the projects they may read count, applied in
- * the binding's query (`readableProjectIds`). A tenant admin's, a project
+ * the binding's query (`readableProjectIds`), and the tenant's own records
+ * only for a caller who reads the whole workspace's rows (`tenantWide`; a
+ * key limited to a project doesn't). A tenant admin's, a project
  * scope's (already checked) and one without authorization count everything
  * the scope holds. When the readable projects can't be worked out, or the
  * binding can't apply them, the aggregate is refused rather than
@@ -354,7 +361,11 @@ async function aggregateReach(
   },
 ): Promise<
   | { readonly kind: 'all' }
-  | { readonly kind: 'projects'; readonly ids: readonly string[] }
+  | {
+      readonly kind: 'projects';
+      readonly ids: readonly string[];
+      readonly tenantRecords: boolean;
+    }
   | { readonly kind: 'refused'; readonly response: Response }
 > {
   const { binding, tenantId, authorizer, projects, scope } = args;
@@ -364,7 +375,12 @@ async function aggregateReach(
   }
   const ids = await projectIdsCallerMay(c, authorizer, projects, 'read');
   if (ids !== undefined && binding.aggregatesReadableProjects === true) {
-    return { kind: 'projects', ids };
+    const tenantRecords = await authorizer.can(
+      c,
+      'read',
+      tenantWide(tenantId as unknown as string),
+    );
+    return { kind: 'projects', ids, tenantRecords };
   }
   const deny = denyPayload(
     'read',
@@ -448,20 +464,13 @@ function parseRecordFilter(
   return { kind: 'ok', value: out };
 }
 
-/** The `include` query: optional extra fields, comma-separated. Only `rawUsage` today. */
+/** The `include` query: optional extra fields. Only `rawUsage` today. */
 function parseInclude(
-  raw: string | undefined,
+  raw: readonly string[] | undefined,
 ): { kind: 'ok'; rawUsage: boolean } | { kind: 'err'; error: string } {
-  const fields = (raw ?? '')
-    .split(',')
-    .map((f) => f.trim())
-    .filter((f) => f.length > 0);
-  for (const field of fields) {
-    if (field !== 'rawUsage') {
-      return { kind: 'err', error: `\`include\` value "${field}" is not known (one of: rawUsage)` };
-    }
-  }
-  return { kind: 'ok', rawUsage: fields.includes('rawUsage') };
+  const includes = includeListOf(raw, ['rawUsage']);
+  if (includes.kind === 'err') return { kind: 'err', error: includes.message };
+  return { kind: 'ok', rawUsage: includes.value.has('rawUsage') };
 }
 
 function serializeRecord(rec: CostRecord): Record<string, unknown> {

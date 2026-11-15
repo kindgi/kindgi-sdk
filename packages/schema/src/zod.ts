@@ -53,7 +53,8 @@ export type AnySchema = JSONSchemaObject | ZodLikeSchema;
  * even when zod is not installed at all.
  *
  * The check is deliberately narrow — a JSON Schema object never has a
- * `_zod` property, so the two authoring surfaces cannot collide.
+ * `_zod` property, so the two authoring surfaces cannot collide. A schema
+ * from zod 3 has no `_zod` either; `isOlderZodSchema` tells it apart.
  */
 export function isZodSchema(value: unknown): value is ZodLikeSchema {
   if (value === null || typeof value !== 'object') return false;
@@ -62,13 +63,44 @@ export function isZodSchema(value: unknown): value is ZodLikeSchema {
 }
 
 /**
+ * Structural detection of a schema from zod 3: the zod 3.x package's `zod`
+ * (not its `zod/v4`), or zod 4's `zod/v3`. It has `_def` and `safeParse`,
+ * and no `_zod`. Kindgi converts zod 4 schemas only; read as a JSON Schema
+ * object, such a schema fails to compile with a message that never says
+ * zod. A JSON Schema object holds no function, so the two can't collide.
+ */
+function isOlderZodSchema(value: unknown): boolean {
+  if (value === null || typeof value !== 'object') return false;
+  const rec = value as Record<string, unknown>;
+  return (
+    !('_zod' in rec) &&
+    typeof rec._def === 'object' &&
+    rec._def !== null &&
+    typeof rec.safeParse === 'function'
+  );
+}
+
+/** What a schema from zod 3 gets, wherever it's passed. */
+function olderZodSchemaError(): InvalidZodConversionError {
+  return {
+    code: 'invalid-zod-conversion',
+    message:
+      'The schema is from zod 3 (the zod 3.x package, or `zod/v3`), and Kindgi takes zod 4 schemas: ' +
+      "write it as a JSON Schema object, e.g. `{ type: 'object', additionalProperties: false, required: ['orderId'], properties: { orderId: { type: 'string' } } }`, " +
+      'or import `z` from `zod` 4 (>=4.0.0).',
+    cause: new Error('zod 3 schema'),
+  };
+}
+
+/**
  * Structural detection for a JSON Schema object. Cheap heuristic — accepts
- * any object that isn't a Zod schema. JSON Schema validity (Draft 2020-12
- * compilability) is checked separately by each consumer via Ajv.
+ * any object that isn't a Zod schema, of zod 4 or of zod 3. JSON Schema
+ * validity (Draft 2020-12 compilability) is checked separately by each
+ * consumer via Ajv.
  */
 export function isJsonSchemaObject(value: unknown): value is JSONSchemaObject {
   if (value === null || typeof value !== 'object') return false;
-  if (isZodSchema(value)) return false;
+  if (isZodSchema(value) || isOlderZodSchema(value)) return false;
   return true;
 }
 
@@ -80,7 +112,12 @@ export function isJsonSchemaObject(value: unknown): value is JSONSchemaObject {
  */
 export type SchemaKind = 'zod' | 'json-schema';
 
-/** Return `'zod'` for Zod schemas, `'json-schema'` for JSON Schema objects. */
+/**
+ * Return `'zod'` for Zod schemas, `'json-schema'` for JSON Schema objects.
+ * A schema from zod 3 answers `'json-schema'` too, so the union keeps its
+ * two kinds: `isJsonSchemaObject` tells the two apart, and both converters
+ * refuse it.
+ */
 export function schemaKindOf(value: AnySchema): SchemaKind {
   return isZodSchema(value) ? 'zod' : 'json-schema';
 }
@@ -103,6 +140,7 @@ export type SchemaIo = 'input' | 'output';
  *
  * - Zod schema → calls `z.toJSONSchema(schema, { io })` (Zod v4 native —
  *   no third-party `zod-to-json-schema` dependency).
+ * - A schema from zod 3 → `err`, naming zod 3 and the JSON Schema way.
  * - JSON Schema object → returned as-is.
  * - Anything else → `err`.
  *
@@ -121,7 +159,9 @@ export async function toJSONSchema(
   io: SchemaIo,
 ): Promise<Result<JSONSchemaObject, InvalidZodConversionError>> {
   if (!isZodSchema(schema)) {
-    return { kind: 'ok', value: schema };
+    return isOlderZodSchema(schema)
+      ? { kind: 'err', error: olderZodSchemaError() }
+      : { kind: 'ok', value: schema };
   }
   const converterResult = await loadZodToJSONSchema();
   if (converterResult.kind === 'err') return converterResult;
@@ -143,9 +183,10 @@ export async function toJSONSchema(
 /**
  * Synchronous variant — for defineTool / validateGuardrail sites that must
  * stay sync. Requires the caller to have already resolved the converter
- * (via `loadZodConverter()`) at package init. When Zod is not installed
- * but a Zod schema is passed, returns `err` with `peer-dep-missing`
- * distinguishable by its `cause`.
+ * (via `loadZodConverter()`) at package init. When there's no converter
+ * but a Zod schema is passed, returns `err` saying why, as the load found
+ * it: the `zod` peer dependency isn't installed, or it's older than zod 4.
+ * A schema from zod 3 gets `err` too, naming zod 3.
  */
 export function toJSONSchemaSync(
   schema: AnySchema,
@@ -153,19 +194,12 @@ export function toJSONSchemaSync(
   io: SchemaIo,
 ): Result<JSONSchemaObject, InvalidZodConversionError> {
   if (!isZodSchema(schema)) {
-    return { kind: 'ok', value: schema };
+    return isOlderZodSchema(schema)
+      ? { kind: 'err', error: olderZodSchemaError() }
+      : { kind: 'ok', value: schema };
   }
   if (converter === undefined) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'invalid-zod-conversion',
-        message:
-          'Zod schema passed but the `zod` peer dependency is not installed. ' +
-          'Install `zod` (>=4.0.0) or author with a JSON Schema object.',
-        cause: new Error('zod peer dep not installed'),
-      },
-    };
+    return { kind: 'err', error: missingConverterError() };
   }
   try {
     const converted = converter(schema, { io });
@@ -232,9 +266,36 @@ export async function parseWithSchema(
 let cachedConverter: ZodConverter | undefined | null = null;
 
 /**
+ * Why the load found no converter: `'older'` when the installed `zod` is
+ * older than zod 4 (no `toJSONSchema`), else what loading it threw.
+ */
+let missingWhy: 'older' | { readonly thrown: unknown } | undefined;
+
+/**
+ * What a load of `zod` comes to, the same for both loaders: the module's
+ * `toJSONSchema`, or no converter, keeping why for the error a Zod schema
+ * then gets. The loaders differ only in how they load.
+ */
+function settleConverter(
+  loaded: { readonly module: { readonly toJSONSchema?: unknown } } | { readonly thrown: unknown },
+): ZodConverter | undefined {
+  if ('thrown' in loaded) {
+    missingWhy = { thrown: loaded.thrown };
+  } else if (typeof loaded.module.toJSONSchema !== 'function') {
+    missingWhy = 'older';
+  } else {
+    cachedConverter = loaded.module.toJSONSchema as ZodConverter;
+    return cachedConverter;
+  }
+  cachedConverter = undefined;
+  return undefined;
+}
+
+/**
  * Load `z.toJSONSchema` from the `zod` peer dependency. Returns
- * `undefined` when zod is not installed — callers decide whether that's
- * an error or a silent no-op (JSON-Schema-only workspaces are legitimate).
+ * `undefined` when zod is not installed, or is older than zod 4 —
+ * callers decide whether that's an error or a silent no-op
+ * (JSON-Schema-only workspaces are legitimate).
  *
  * The result is cached — repeat calls resolve synchronously after the
  * first.
@@ -242,16 +303,9 @@ let cachedConverter: ZodConverter | undefined | null = null;
 export async function loadZodConverter(): Promise<ZodConverter | undefined> {
   if (cachedConverter !== null) return cachedConverter;
   try {
-    const zod = (await import('zod')) as { toJSONSchema?: unknown };
-    if (typeof zod.toJSONSchema !== 'function') {
-      cachedConverter = undefined;
-      return undefined;
-    }
-    cachedConverter = zod.toJSONSchema as ZodConverter;
-    return cachedConverter;
-  } catch {
-    cachedConverter = undefined;
-    return undefined;
+    return settleConverter({ module: (await import('zod')) as { toJSONSchema?: unknown } });
+  } catch (thrown) {
+    return settleConverter({ thrown });
   }
 }
 
@@ -270,34 +324,40 @@ export async function loadZodConverter(): Promise<ZodConverter | undefined> {
 export function loadZodConverterSync(): ZodConverter | undefined {
   if (cachedConverter !== null) return cachedConverter;
   try {
-    const zod = nodeRequire('zod') as { toJSONSchema?: unknown };
-    if (typeof zod.toJSONSchema !== 'function') {
-      cachedConverter = undefined;
-      return undefined;
-    }
-    cachedConverter = zod.toJSONSchema as ZodConverter;
-    return cachedConverter;
-  } catch {
-    cachedConverter = undefined;
-    return undefined;
+    return settleConverter({ module: nodeRequire('zod') as { toJSONSchema?: unknown } });
+  } catch (thrown) {
+    return settleConverter({ thrown });
   }
 }
 
 async function loadZodToJSONSchema(): Promise<Result<ZodConverter, InvalidZodConversionError>> {
   const converter = await loadZodConverter();
   if (converter === undefined) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'invalid-zod-conversion',
-        message:
-          'Zod schema passed but the `zod` peer dependency is not installed. ' +
-          'Install `zod` (>=4.0.0) or author with a JSON Schema object.',
-        cause: new Error('zod peer dep not installed'),
-      },
-    };
+    return { kind: 'err', error: missingConverterError() };
   }
   return { kind: 'ok', value: converter };
+}
+
+/**
+ * What a Zod schema gets when the load found no converter, saying why: a
+ * `zod` older than zod 4 (a `zod/v4` schema from zod 3 still needs zod 4
+ * itself to convert), or none at all.
+ */
+function missingConverterError(): InvalidZodConversionError {
+  const way = 'Install `zod` (>=4.0.0) or author with a JSON Schema object.';
+  if (missingWhy === 'older') {
+    return {
+      code: 'invalid-zod-conversion',
+      message: `Zod schema passed but the installed \`zod\` is older than zod 4: it has no \`toJSONSchema\`, and \`zod/v4\` from zod 3 isn't enough. ${way}`,
+      cause: new Error('zod before 4 installed'),
+    };
+  }
+  return {
+    code: 'invalid-zod-conversion',
+    message: `Zod schema passed but the \`zod\` peer dependency is not installed. ${way}`,
+    // What the load threw, when it ran, so a broken install reads apart from an absent one.
+    cause: missingWhy?.thrown ?? new Error('zod peer dep not installed'),
+  };
 }
 
 /**
@@ -310,4 +370,5 @@ async function loadZodToJSONSchema(): Promise<Result<ZodConverter, InvalidZodCon
  */
 export function __resetZodConverterCacheForTests(): void {
   cachedConverter = null;
+  missingWhy = undefined;
 }

@@ -46,6 +46,12 @@ class SpringBoot3Test {
     System.out.println("[compat] Boot " + org.springframework.boot.SpringBootVersion.getVersion() + ": " + Compat.versions());
   }
 
+  /** An agent and a test run's baseline, read by Boot's own mapper as the client reads them. */
+  @Test
+  void bootsJackson2MapperReadsUnionsToldApartByTextOrByAProperty() throws Exception {
+    Compat.appReadsLikeTheClient(bootMapper::readValue);
+  }
+
   /** A newer runtime's variant keeps every property, also one spelled like the record's own map. */
   @Test
   void bootsJackson2MapperKeepsAVariantItDoesntKnow() throws Exception {

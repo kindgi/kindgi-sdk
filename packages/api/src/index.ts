@@ -32,12 +32,16 @@ export type {
   SignInOptionsRateLimit,
 } from './routes/sign-in-options.js';
 export type {
+  LicenseKeyRefusal,
+  LicenseLimit,
+  LicenseLimits,
   LicensePreview,
+  LicenseReplaced,
   LicenseStatus,
   LicenseStatusBinding,
   LicenseUsage,
 } from './routes/license.js';
-export type { RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
+export type { RuntimeConnections, RuntimeInfo, RuntimeInfoInput } from './routes/runtime.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { ProductionGateOptions } from './routes/project-production.js';
 export type { EgressAddresses } from './routes/tenant.js';
@@ -99,10 +103,25 @@ export type {
 export {
   TENANT_LIMIT_MAX,
   TENANT_LIMIT_NAMES,
+  TENANT_PLAN_PATTERN,
   type SystemTenantSettingsBinding,
   type TenantLimitsInUse,
 } from './routes/system-tenant-settings.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
+export {
+  KEPT_REPO_ERASURES_PAGE_MAX,
+  KEPT_REPO_PURGE_REASONS,
+  KEPT_REPO_RULINGS_MAX,
+  KEPT_REPO_STATES,
+  type KeptRepoErasureOutcome,
+  type KeptRepoId,
+  type KeptRepoOpenErasure,
+  type KeptRepoPurgeReason,
+  type KeptRepoRuling,
+  type KeptRepoState,
+  type KeptRepoStateName,
+  type SystemKeptReposBinding,
+} from './routes/system-kept-repos.js';
 export { PACK_ENDPOINT_AUTHS } from './routes/system-deployments.js';
 export type {
   DeploymentRef,
@@ -155,6 +174,11 @@ export type {
   TenantRateLimitName,
 } from './middleware/tenant-limits.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
+export type {
+  RunUploadCheck,
+  RunUploadCheckInput,
+  RunUploadLimiter,
+} from './run-upload-limiter.js';
 export {
   imagePrefixesOverlap,
   imageRefWithin,
@@ -180,12 +204,23 @@ export type {
   OidcProviderConfig,
   ProviderConfig,
   ProviderConfigBase,
+  ProviderJoinRole,
   ProviderSignIn,
   SamlAttributeMapping,
   SamlProviderConfig,
   SignInOption,
   SignInOptionsInput,
 } from './identity-provider-binding.js';
+export type {
+  JoinDomain,
+  JoinDomainAllowOutcome,
+  JoinDomainBinding,
+  JoinDomainCaller,
+  JoinDomainChangeOutcome,
+  JoinDomainRefusal,
+  JoinLookupWorkspace,
+} from './join-domain-binding.js';
+export { joinDomainOf, joinEmailOf } from './routes/join-domains.js';
 export type {
   Site,
   SiteBinding,
@@ -341,7 +376,12 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
-export type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
+export type {
+  PersonCapabilitiesBinding,
+  PersonCapabilityChange,
+  PersonCapabilityError,
+  PersonCapabilityErrorCode,
+} from './person-capabilities-binding.js';
 export type {
   SecondFactorBinding,
   SecondFactorConfirmOutcome,
@@ -415,9 +455,28 @@ export type {
   BlobPutInput,
   BlobRead,
   BlobStorageBinding,
+  FileCreateInput,
+  FileDeleteOutcome,
+  FileError,
+  FileFilter,
+  FileListPage,
+  FilePin,
+  FilePinChange,
+  FilePinChangePage,
+  FilePinInput,
+  FileRestoreInput,
+  FileVersion,
+  FileVersionAddInput,
+  FileVersionMadeVia,
+  FileVersionPage,
+  FileVersionRead,
+  FileVersionSelector,
+  FileVersionsBinding,
+  FileVersionWrite,
   MultipartInitiateInput,
   MultipartListPartsPage,
   S3ListPage,
+  StoredFile,
 } from '@kindgi/blob-binding';
 export type { S3Credential, S3CredentialBinding } from './s3-credential-binding.js';
 export {
@@ -462,7 +521,14 @@ export type {
   ToolFilesBinding,
   ToolFileStoreInput,
   ToolFilesRefusal,
+  ToolFileUpdateAnswer,
+  ToolFileUpdateInput,
 } from './tool-files-binding.js';
+export type {
+  VersionLock,
+  VersionLocksBinding,
+  VersionLocksInput,
+} from './version-locks-binding.js';
 export { WAIT_TOKEN_STATES } from './wait-token-binding.js';
 export type {
   CompleteWaitTokenInput,
@@ -504,6 +570,40 @@ export type {
   WebhookSecretRef,
   WebhookTestEvent,
 } from './webhook-endpoint-binding.js';
+export {
+  DESTINATION_CONTENTS,
+  DESTINATION_DELIVERY_EVENTS,
+  DESTINATION_DELIVERY_STATUSES,
+  DESTINATION_KINDS,
+  DESTINATION_STATUSES,
+  destinationUrlSecretName,
+} from './destination-binding.js';
+export type {
+  Destination,
+  DestinationBinding,
+  DestinationContent,
+  DestinationCreateInput,
+  DestinationCreateOutcome,
+  DestinationDelivery,
+  DestinationDeliveryEvent,
+  DestinationDeliveryListInput,
+  DestinationDeliveryListOutcome,
+  DestinationDeliveryOutcome,
+  DestinationDeliveryReason,
+  DestinationDeliveryRef,
+  DestinationDeliveryStatus,
+  DestinationKind,
+  DestinationListInput,
+  DestinationPage,
+  DestinationRef,
+  DestinationRefusal,
+  DestinationSecretRef,
+  DestinationStatus,
+  DestinationUpdateInput,
+  DestinationUpdateOutcome,
+  ResultEmail,
+  ScheduleDeliveryListInput,
+} from './destination-binding.js';
 export type {
   CronTriggerRecord,
   EventTriggerRecord,
@@ -682,6 +782,8 @@ export {
   MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
+  MCP_READ_ONLY_TOOLS_MAX,
+  MCP_READ_ONLY_TOOL_NAME_MAX,
   MCP_SECRET_ENV_MAX,
   MCP_TRANSPORTS,
   mcpAuthSecretRefs,
@@ -922,6 +1024,20 @@ export type {
   UnpinVersionInput,
 } from './pinned-version-binding.js';
 export type {
+  PlanAdding,
+  PlanAdmission,
+  PlanCheck,
+  PlanCount,
+  PlanLimit,
+  PlanLimitsBinding,
+  PlanLimitsInput,
+  PlanOver,
+  PlanRefused,
+  PlanReinstating,
+  PlanScope,
+  PlanWarning,
+} from './plan-limits-binding.js';
+export type {
   GateMetricName,
   GateMetricSpec,
   ReleaseGate,
@@ -1090,8 +1206,11 @@ export type {
   ConnectionRemovedReason,
   ConnectionSetRefusal,
   ConnectionState,
+  ConnectionTextsCount,
   ConnectionWithdrawn,
   SecretRefInput,
+  TextsInboundAnswer,
+  TextsInboundInput,
 } from './connection-binding.js';
 export {
   CURSOR_TTL_MS,
@@ -1407,15 +1526,29 @@ export {
   secretNameGrammarRefusal,
 } from './secrets-binding.js';
 export { resolveAtScope, scopeOfRecorded } from './secret-scope.js';
-// A model provider's key is used by its provider only.
+export type { SecretLocate } from './secret-scope.js';
+// A model provider's key is used by its provider only, a texts
+// registration's account key by its registration only, and an identity
+// provider's secret by sign-in only.
 export {
+  connectionKeyRefusal,
+  connectionKeysOf,
   guardProviderKeys,
+  guardSecretKeys,
+  identityProviderKeyRefusal,
+  identityProviderKeysOf,
+  identityProviderSecretNames,
   providerKeyRefusal,
   providerKeysOf,
+  refuseIdentityProviderKeyNames,
+  refuseSecretNames,
   usersOfSecret,
 } from './provider-keys.js';
 export type {
+  ConnectionKeys,
+  IdentityProviderKeys,
   ProviderKeys,
+  SecretKeys,
   SecretUse,
   SecretUser,
   SecretUsersDeps,

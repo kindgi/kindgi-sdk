@@ -26,7 +26,7 @@ which you register with Kindgi once.
 - **The `kindgi` CLI reaches your runtime as you,** with the runtime's address
   exported as `KINDGI_API_URL` and your API key as `KINDGI_API_TOKEN`
   ([People and keys](../../../deploy/people-and-keys/#api-keys)).
-  Kindgi 0.6's CLI runs from any folder as `npx --yes @kindgi/cli@0.6`
+  Kindgi 0.7's CLI runs from any folder as `npx --yes @kindgi/cli@0.7`
   ([Install](../../../start/install/)).
 
 ## 1. Create the client in the Google Cloud console
@@ -35,7 +35,8 @@ In your organization's project:
 
 1. **Turn on the Gmail API:** **APIs & Services → Library → Gmail API →
    Enable**. For the [calendar tools](../calendar/), turn on the
-   **Google Calendar API** there too.
+   **Google Calendar API** there too, and for the [file tools](../files/),
+   the **Google Drive API**.
 2. Open **Google Auth Platform**:
    - **Branding:** the app's name and a support email.
    - **Audience: Internal.** Only accounts in your Google Workspace or
@@ -64,7 +65,11 @@ In your organization's project:
      list the calendars, and
      `https://www.googleapis.com/auth/calendar.events.owned` to add and
      change events
-     ([Calendars](../calendar/#permissions-and-review)).
+     ([Calendars](../calendar/#permissions-and-review)). For the file
+     tools: `https://www.googleapis.com/auth/drive.readonly` to list and
+     read files, which Google counts as restricted, as it does reading mail,
+     and `https://www.googleapis.com/auth/drive.file` to add files
+     ([Files](../files/#permissions-and-review)).
    - **Clients → Create client → Web application.** Under **Authorized
      redirect URIs**, enter the console's connect page:
 
@@ -81,13 +86,21 @@ The secret goes into Kindgi's secret store under a name, never into a
 registration or a chat:
 
 ```sh
-npx --yes @kindgi/cli@0.6 secrets set ACME_GOOGLE_CONNECT_SECRET --env=production --scope=tenant
+npx --yes @kindgi/cli@0.7 secrets set ACME_GOOGLE_CONNECT_SECRET --env=prod --scope=tenant
 ```
 
 - `ACME_GOOGLE_CONNECT_SECRET` is the secret's name. The registration keeps
   only this name.
-- `--env` is the runtime's environment, its `KINDGI_ENV`.
+- `--env` is the env your runtime serves, its `KINDGI_ENV`: `prod` here, as
+  on Kindgi Cloud. `kindgi auth whoami` prints yours, in its `servedEnv`
+  field
+  ([Three things called env](../../../concepts/local-staging-production/#three-things-called-env)).
 - `--scope=tenant` stores the secret for the whole workspace.
+
+If this OAuth client also signs your people in to Kindgi, the connection
+needs a client secret of its own: a registration that names sign-in's is
+refused with `identity-provider-key-refused`. Add a second client secret to
+the client and store it under its own name.
 
 The command asks for the value twice, and doesn't show what you type.
 
@@ -98,7 +111,7 @@ In the console, open your workspace's **App registrations** page, choose
 
 - **Client id:** the one Google gave you.
 - **Client secret: its name in Kindgi's secrets:** the environment and name
-  you stored it under, `production/ACME_GOOGLE_CONNECT_SECRET`.
+  you stored it under, `prod/ACME_GOOGLE_CONNECT_SECRET`.
 - **Which projects' runs may use it:** leave it empty for all of them.
 
 Then choose **Register**. Kindgi shows what to give Google: the
@@ -108,7 +121,7 @@ Then choose **Register**. Kindgi shows what to give Google: the
 Or register it from the command line:
 
 ```sh
-npx --yes @kindgi/cli@0.6 connection-apps add google --client-id=<client-id> --client-secret-ref=production/ACME_GOOGLE_CONNECT_SECRET
+npx --yes @kindgi/cli@0.7 connection-apps add google --client-id=<client-id> --client-secret-ref=prod/ACME_GOOGLE_CONNECT_SECRET
 ```
 
 The command prints the registration as JSON: its `redirectUrl` is the
@@ -188,4 +201,5 @@ A mail trigger's looks for new mail count too, against the connection
 it reads with.
 
 Calendar calls don't count in Gmail's units. Kindgi paces them apart, at
-600 a minute for each connection ([Calendars](../calendar/#limits)).
+600 a minute for each connection ([Calendars](../calendar/#limits)), and
+Drive calls apart again, in Drive's own units ([Files](../files/#limits)).

@@ -4,9 +4,13 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import { type Principal, ref } from '@kindgi/authz';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import { type Principal, denyPayload, ref } from '@kindgi/authz';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
+  DeletedProject,
+  MembershipWriteError,
   Project,
   ProjectBinding,
   ProjectMembership,
@@ -16,15 +20,18 @@ import type {
   ProjectRole,
   ProjectSpec,
 } from '@kindgi/platform';
-import type { Cursor, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, OrgId, ProjectId, Result, TenantId, UserId } from '@kindgi/types';
 
-import { callerRef } from '../caller.js';
+import { callerIdentity, isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { holdLimitedCaller, limitedCallerRefusal } from '../middleware/key-project.js';
+import {
+  holdLimitedCaller,
+  limitedCallerRefusal,
+  literalProjectRefusal,
+} from '../middleware/key-project.js';
 import { isReadMethod } from '../read-method.js';
-import type { ServiceAccountBinding } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import {
@@ -33,6 +40,8 @@ import {
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
   projectInEnvironmentOrderError,
+  projectIsDefaultError,
+  projectRestoreUnsupportedError,
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
@@ -42,7 +51,7 @@ import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
 /**
  * Projects resource routes — part of the multi-tenant hierarchy.
  *
- * Ten endpoints on `/v1/projects`:
+ * Twelve endpoints on `/v1/projects`:
  *   - `GET    /`                         — cursor-paginated list;
  *                                          `?limit=` / `?cursor=` / `?orgId=` /
  *                                          `?nameContains=`.
@@ -60,6 +69,10 @@ import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
  *                                          project or 404 `project-not-found`;
  *                                          read on it, as `GET /:projectId`.
  *                                          MUST be mounted BEFORE `/:projectId`.
+ *   - `GET    /deleted`                  — the tenant's deleted projects,
+ *                                          newest first; cursor-paginated.
+ *                                          Admin on the tenant. MUST be
+ *                                          mounted BEFORE `/:projectId`.
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
  *   - `PATCH  /:projectId`               — partial update (`name`, `slug`,
  *                                          `description`, `orgId`,
@@ -68,7 +81,21 @@ import { actionOrRunRefusal, readableOrRun } from './runner-reach.js';
  *                                          `project-not-found` or 409
  *                                          `slug-conflict` (a new slug, or a
  *                                          move to an org that has it).
- *   - `DELETE /:projectId`               — 204 idempotent.
+ *   - `DELETE /:projectId`               — 204 idempotent. The project is
+ *                                          kept, gone from every read until
+ *                                          it's restored; 409
+ *                                          `project-is-default` for the
+ *                                          tenant's default project. A
+ *                                          delete that changed something
+ *                                          is recorded, `project-deleted`.
+ *   - `POST   /:projectId/restore`       — 200 with the project, back as it
+ *                                          was (a live one unchanged), 404
+ *                                          `project-not-found`, or 403
+ *                                          `production-limit-reached` for one
+ *                                          in production at the limit. Admin
+ *                                          on the tenant. A restore of a
+ *                                          deleted one is recorded,
+ *                                          `project-restored`.
  *   - `GET    /:projectId/memberships`   — list; cursor-paginated.
  *   - `POST   /:projectId/memberships`   — add member; body `{ userId, role }`
  *                                          or `{ email, role }`; 201, or 404
@@ -104,19 +131,106 @@ export function projectsRouter(
    */
   directory?: IdentityDirectoryBinding,
   /**
-   * Optional. Where a project's own account is read and unregistered: a
-   * deleted project's account is unregistered with it.
+   * Optional. Where a delete and a restore that changed something are
+   * recorded (`project-deleted`, `project-restored`): once the binding has
+   * answered, best effort, as every route's record is. Without it, nothing
+   * is recorded.
    */
-  serviceAccounts?: Pick<ServiceAccountBinding, 'projectAccounts' | 'unregister'>,
+  auditEvents?: AuditEventBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** A delete's or a restore's record, naming the project by id only. */
+  async function recordLifecycle(
+    c: Context<AppEnv>,
+    kind: 'project-deleted' | 'project-restored',
+    tenantId: TenantId,
+    projectId: ProjectId,
+  ): Promise<void> {
+    await emitAuditEvent({
+      auditEvents,
+      tenantId,
+      projectId,
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc: { projectId: projectId as unknown as string },
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
+
+  /**
+   * With an authorizer, giving `owner`, or changing or removing a member
+   * who holds it, takes `delete` on the project: the one permission
+   * `owner` adds over `admin`. Nothing when the caller holds it (or there
+   * is no authorizer), else the 403, in `message`'s words.
+   */
+  async function ownerDenied(
+    c: Context<AppEnv>,
+    projectId: ProjectId,
+    message: string,
+  ): Promise<Response | undefined> {
+    if (authorizer === undefined) return undefined;
+    const project = ref('project', projectId as unknown as string);
+    const decision = await authorizer.check(c, 'delete', project);
+    if (decision.allowed) return undefined;
+    const deny = denyPayload('delete', project.type, project.id, decision.reason);
+    c.status(403);
+    return c.json(
+      toWireError(
+        {
+          code: deny.code,
+          message,
+          action: deny.action,
+          resource: deny.resource,
+          reason: deny.reason,
+        },
+        c.get('requestId'),
+      ),
+    );
+  }
+
+  /** `ownerDenied` for a request giving `role`: only giving `owner` asks. */
+  async function givingDenied(
+    c: Context<AppEnv>,
+    projectId: ProjectId,
+    role: ProjectRole,
+  ): Promise<Response | undefined> {
+    return role === 'owner' ? ownerDenied(c, projectId, givingOwner(projectId)) : undefined;
+  }
+
+  /**
+   * A change or removal through the tenant-hierarchy binding that, with
+   * `stop`, stops at a member who holds `owner` (`stopAtOwner`). Only then
+   * is `delete` on the project asked (`ownerDenied`): allowed, `call` is
+   * made again without the stop; refused, the 403 to answer. Changing
+   * anyone else asks nothing more.
+   */
+  async function pastOwner<T>(
+    c: Context<AppEnv>,
+    projectId: ProjectId,
+    userId: UserId,
+    stop: boolean,
+    call: (stopAtOwner: boolean) => Promise<Result<T, MembershipWriteError>>,
+  ): Promise<
+    Result<T, MembershipWriteError> | { readonly kind: 'denied'; readonly response: Response }
+  > {
+    const res = await call(stop);
+    if (!stop || res.kind !== 'err' || res.error.code !== 'project-member-holds-owner') return res;
+    const denied = await ownerDenied(c, projectId, changingOwner(projectId, userId));
+    return denied === undefined ? call(false) : { kind: 'denied', response: denied };
+  }
 
   /**
    * Change a member's role. With an authorizer, the row and its FGA tuple
    * change together through the tenant-hierarchy binding, or the change
-   * is refused; without one, the membership binding alone.
+   * is refused; without one, the membership binding alone. Giving `owner`
+   * asks for `delete` on the project first; any other role stops at a
+   * member who holds `owner` (`pastOwner`).
    */
   async function updateMemberRole(
+    c: Context<AppEnv>,
     tenantId: TenantId,
     projectId: ProjectId,
     userId: UserId,
@@ -127,6 +241,7 @@ export function projectsRouter(
         readonly kind: 'refused';
         readonly error: { readonly code: string; readonly message: string };
       }
+    | { readonly kind: 'denied'; readonly response: Response }
   > {
     if (authorizer === undefined) {
       return {
@@ -134,20 +249,54 @@ export function projectsRouter(
         outcome: await membershipBinding.updateRole(tenantId, projectId, userId, role),
       };
     }
-    if (tenantHierarchy.updateProjectMemberRole === undefined) {
+    const asked = await givingDenied(c, projectId, role);
+    if (asked !== undefined) return { kind: 'denied', response: asked };
+    const update = tenantHierarchy.updateProjectMemberRole?.bind(tenantHierarchy);
+    if (update === undefined) {
       return { kind: 'refused', error: membershipNotKeptInStepError('updateProjectMemberRole') };
     }
-    const res = await tenantHierarchy.updateProjectMemberRole({
-      tenantId,
-      projectId,
-      userId,
-      role,
-    });
+    const res = await pastOwner(c, projectId, userId, role !== 'owner', (stopAtOwner) =>
+      update({ tenantId, projectId, userId, role, ...(stopAtOwner && { stopAtOwner }) }),
+    );
+    if (res.kind === 'denied') return res;
     if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
       return { kind: 'refused', error: { code: res.error.code, message: res.error.message } };
     }
     if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     return { kind: 'done', outcome: res.value };
+  }
+
+  /**
+   * Remove a member, with an authorizer: the row and its FGA tuple go
+   * together through the tenant-hierarchy binding, or not at all, since
+   * removing the row alone would leave the permission in place. A member
+   * who holds `owner` stops it (`pastOwner`). Nothing once removed, else
+   * the answer to give.
+   */
+  async function removeMember(
+    c: Context<AppEnv>,
+    tenantId: TenantId,
+    projectId: ProjectId,
+    userId: UserId,
+  ): Promise<Response | undefined> {
+    const remove = tenantHierarchy.removeProjectMember?.bind(tenantHierarchy);
+    if (remove === undefined) {
+      const refusal = membershipNotKeptInStepError('removeProjectMember');
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, c.get('requestId')));
+    }
+    const res = await pastOwner(c, projectId, userId, true, (stopAtOwner) =>
+      remove({ tenantId, projectId, userId, ...(stopAtOwner && { stopAtOwner }) }),
+    );
+    if (res.kind === 'denied') return res.response;
+    if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+      c.status(statusFor(res.error.code) as never);
+      return c.json(
+        toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
+      );
+    }
+    if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    return undefined;
   }
 
   /**
@@ -200,19 +349,23 @@ export function projectsRouter(
   }
 
   // ---------- GET /default (literal segment; must precede /:projectId) ----------
-  // Read on the default project, or `run` there, as `GET /:projectId`
-  // checks it: someone with a role on another project only gets 403, not
-  // its settings.
-  if (authorizer !== undefined) {
-    r.use('/default', async (c, next) => {
-      if (!isReadMethod(c.req.method)) return next();
-      const proj = await binding.getDefault(c.get('tenantId') as TenantId);
-      // None: the handler answers 404.
-      if (proj === undefined) return next();
-      const id = proj.id as unknown as string;
-      return (await actionOrRunRefusal(authorizer, c, 'read', ref('project', id), id)) ?? next();
-    });
-  }
+  // A key or session limited to a project reads the default project only
+  // when it's that project; otherwise it's refused as a request naming the
+  // project `default` is (`literalProjectRefusal`), with a store or without
+  // one. With a store, read on the default project, or `run` there, as `GET
+  // /:projectId` checks it: someone with a role on another project only
+  // gets 403, not its settings.
+  r.use('/default', async (c, next) => {
+    if (!isReadMethod(c.req.method)) return next();
+    if (authorizer === undefined && c.get('tokenProjectId') === undefined) return next();
+    const proj = await binding.getDefault(c.get('tenantId') as TenantId);
+    const id = proj?.id as unknown as string | undefined;
+    const held = literalProjectRefusal(c, authorizer, 'default', id);
+    if (held !== undefined) return held;
+    // None: the handler answers 404.
+    if (id === undefined || authorizer === undefined) return next();
+    return (await actionOrRunRefusal(authorizer, c, 'read', ref('project', id), id)) ?? next();
+  });
   r.get('/default', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -230,6 +383,31 @@ export function projectsRouter(
       );
     }
     return c.json(serializeProject(proj));
+  });
+
+  // ---------- GET /deleted (literal segment; must precede /:projectId) ----------
+  // Admin on the workspace, as the restore is: a deleted project's own
+  // grants went with it, so no role on the project can be checked.
+  r.use('/deleted', (c, next) => tenantAdminOnly(c, next));
+  r.get('/deleted', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    if (binding.listDeleted === undefined) {
+      const error = projectRestoreUnsupportedError();
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
+    const limit = clampLimit(c.req.query('limit'));
+    const cursorRaw = c.req.query('cursor');
+    const page = await binding.listDeleted(tenantId, {
+      limit,
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+    });
+    return c.json({
+      data: page.items.map(serializeDeletedProject),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+    });
   });
 
   // ---------- GET / (list) ----------
@@ -265,8 +443,38 @@ export function projectsRouter(
     });
   });
 
+  /**
+   * Admin on the workspace, for the deleted list and the restore. With an
+   * authorizer, its check; without one, the `tenant-admin` scope
+   * (`isTenantAdmin`). A key or session limited to a project has neither.
+   * `refuseOtherProjectForKey` refuses it `key-project-mismatch` on the list
+   * (its path names no project of its own) and on another project's restore.
+   * Its own project's restore is refused here: without an authorizer
+   * `key-project-mismatch`, as a change to the workspace; with one, the
+   * authorizer's `permission-denied`, as any admin action on the workspace.
+   */
+  async function tenantAdminOnly(c: Context<AppEnv>, next: () => Promise<void>) {
+    const tenant = ref('tenant', c.get('tenantId') as unknown as string);
+    if (authorizer !== undefined) return authorizer.authorize('admin', () => tenant)(c, next);
+    const limited = limitedCallerRefusal(c, 'admin', tenant);
+    if (limited !== undefined) return limited;
+    if (await isTenantAdmin(c, undefined)) return next();
+    c.status(statusFor('permission-denied') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'permission-denied',
+          message: 'Only a workspace admin lists deleted projects or restores one',
+        },
+        c.get('requestId'),
+      ),
+    );
+  }
+
   // ---------- Authorization middleware ----------
   // Full PEP surface for projects + memberships:
+  //   GET /deleted                               → admin on tenant
+  //   POST /:projectId/restore                   → admin on tenant
   //   POST /                                     → admin on tenant
   //   GET /:projectId                            → read or run on project
   //   PATCH /:projectId                          → admin on project
@@ -274,6 +482,9 @@ export function projectsRouter(
   //   DELETE /:projectId                         → delete on project
   //   GET /:projectId/memberships[/:userId]      → write on project
   //   other /:projectId/memberships[/:userId]    → admin on project
+  //     and, giving `owner` or changing or
+  //     removing a member who holds it, delete
+  //     on project                               (the handler checks)
   //   GET /                                      → list-filter by read or run
   if (authorizer !== undefined) {
     r.use('/', async (c, next) => {
@@ -420,7 +631,12 @@ export function projectsRouter(
       if (result.kind === 'err') {
         const error =
           result.error.code === 'slug-conflict'
-            ? slugConflictError('project', spec.slug, result.error.heldAs ?? 'slug')
+            ? slugConflictError(
+                'project',
+                spec.slug,
+                result.error.heldAs ?? 'slug',
+                result.error.deletedProject === true,
+              )
             : result.error.code === 'org-not-found'
               ? orgNotFoundError(result.error.orgId as unknown as string)
               : result.error.code === 'default-conflict'
@@ -438,7 +654,12 @@ export function projectsRouter(
     if (outcome.kind !== 'ok') {
       const error =
         outcome.kind === 'slug-conflict'
-          ? slugConflictError('project', outcome.slug, outcome.heldAs ?? 'slug')
+          ? slugConflictError(
+              'project',
+              outcome.slug,
+              outcome.heldAs ?? 'slug',
+              outcome.deletedProject === true,
+            )
           : outcome.kind === 'org-not-found'
             ? orgNotFoundError(outcome.orgId as unknown as string)
             : projectDefaultAlreadyExistsError();
@@ -530,6 +751,11 @@ export function projectsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
+    // Giving `owner` takes `delete` on the project. Checked before the
+    // person is looked up, so a caller without it learns nothing of who
+    // the tenant's people are.
+    const denied = await givingDenied(c, projectId, role.value);
+    if (denied !== undefined) return denied;
     const resolved = await resolveMember(tenantId, named);
     if (resolved.kind === 'refused') {
       c.status(statusFor(resolved.error.code) as never);
@@ -596,22 +822,10 @@ export function projectsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const projectId = c.req.param('projectId') as ProjectId;
     const userId = c.req.param('userId') as UserId;
-    // With an authorizer, the row and its FGA tuple go together, or not
-    // at all: removing the row alone would leave the permission in place.
+    // With an authorizer, the row and its FGA tuple go together (`removeMember`).
     if (authorizer !== undefined) {
-      if (tenantHierarchy.removeProjectMember === undefined) {
-        const refusal = membershipNotKeptInStepError('removeProjectMember');
-        c.status(statusFor(refusal.code) as never);
-        return c.json(toWireError(refusal, c.get('requestId')));
-      }
-      const res = await tenantHierarchy.removeProjectMember({ tenantId, projectId, userId });
-      if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
-        c.status(statusFor(res.error.code) as never);
-        return c.json(
-          toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
-        );
-      }
-      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+      const refused = await removeMember(c, tenantId, projectId, userId);
+      if (refused !== undefined) return refused;
     } else {
       await membershipBinding.remove(tenantId, projectId, userId);
     }
@@ -647,7 +861,8 @@ export function projectsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
-    const updated = await updateMemberRole(tenantId, projectId, userId, role.value);
+    const updated = await updateMemberRole(c, tenantId, projectId, userId, role.value);
+    if (updated.kind === 'denied') return updated.response;
     if (updated.kind === 'refused') {
       c.status(statusFor(updated.error.code) as never);
       return c.json(toWireError(updated.error, requestId));
@@ -852,7 +1067,12 @@ export function projectsRouter(
     if (outcome.kind === 'slug-conflict' || outcome.kind === 'org-not-found') {
       const error =
         outcome.kind === 'slug-conflict'
-          ? slugConflictError('project', outcome.slug, outcome.heldAs ?? 'slug')
+          ? slugConflictError(
+              'project',
+              outcome.slug,
+              outcome.heldAs ?? 'slug',
+              outcome.deletedProject === true,
+            )
           : orgNotFoundError(outcome.orgId as unknown as string);
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
@@ -867,6 +1087,8 @@ export function projectsRouter(
   });
 
   // ---------- DELETE /:projectId ----------
+  // The project is kept, with its own account and keys: they reach nothing
+  // while it's deleted, and a restore brings them back with it.
   r.delete('/:projectId', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const projectId = c.req.param('projectId') as ProjectId;
@@ -877,48 +1099,75 @@ export function projectsRouter(
       c.status(statusFor(error.code) as never);
       return c.json(toWireError(error, requestId));
     }
-    // Only once the project is gone: a delete refused before here leaves
-    // its triggers their account.
-    await unregisterProjectAccount(c, serviceAccounts, tenantId, projectId);
+    if (outcome.kind === 'project-is-default') {
+      const error = projectIsDefaultError(projectId as unknown as string);
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
+    // An unknown id, or one deleted already, changed nothing: no record.
+    if (outcome.changed) await recordLifecycle(c, 'project-deleted', tenantId, projectId);
     c.status(204);
     return c.body(null);
+  });
+
+  // ---------- POST /:projectId/restore ----------
+  r.use('/:projectId/restore', (c, next) => tenantAdminOnly(c, next));
+  r.post('/:projectId/restore', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const projectId = c.req.param('projectId') as ProjectId;
+    if (binding.restore === undefined) {
+      const error = projectRestoreUnsupportedError();
+      c.status(statusFor(error.code) as never);
+      return c.json(toWireError(error, requestId));
+    }
+    const outcome = await binding.restore(tenantId, projectId);
+    if (outcome.kind === 'limit-reached') {
+      c.status(statusFor('production-limit-reached') as never);
+      return c.json(toWireError(restoreLimitRefusal(outcome, projectId), requestId));
+    }
+    if (outcome.kind === 'project-not-found') {
+      c.status(statusFor('project-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'project-not-found',
+            message: `No project with id "${projectId as unknown as string}"`,
+            projectId: projectId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    // A live project's restore changed nothing: no record.
+    if (outcome.changed) await recordLifecycle(c, 'project-restored', tenantId, projectId);
+    return c.json(serializeProject(outcome.project));
   });
 
   return r;
 }
 
 /**
- * Unregisters a deleted project's own account, if it has one. Best effort,
- * and logged when it fails: the project is gone, the account has no keys,
- * and its one grant names the gone project, so a missed one can't be used.
+ * A restore refused at the workspace's limit on projects in production: the
+ * production route's own refusal, for a project that's in production and
+ * would count again.
  */
-async function unregisterProjectAccount(
-  c: Context<AppEnv>,
-  serviceAccounts: Pick<ServiceAccountBinding, 'projectAccounts' | 'unregister'> | undefined,
-  tenantId: TenantId,
+function restoreLimitRefusal(
+  outcome: { readonly projectsInProduction: number; readonly inProduction: number },
   projectId: ProjectId,
-): Promise<void> {
-  const accounts = serviceAccounts?.projectAccounts;
-  if (serviceAccounts === undefined || accounts === undefined) return;
-  const failed = (why: string) =>
-    c
-      .get('log')
-      .warn(
-        `project ${projectId as unknown as string} deleted, but its own account wasn't unregistered (request ${c.get('requestId')}): ${why}`,
-      );
-  try {
-    const account = await accounts.get({ tenantId, projectId: projectId as unknown as string });
-    if (account === null) return;
-    const by = callerRef(c);
-    const result = await serviceAccounts.unregister({
-      tenantId,
-      serviceAccountId: account.serviceAccountId,
-      ...(by !== undefined && { by }),
-    });
-    if (result.kind === 'err') failed(result.error.message);
-  } catch (err) {
-    failed(err instanceof Error ? err.message : String(err));
-  }
+) {
+  const { projectsInProduction, inProduction } = outcome;
+  // Over a limit lowered below the count, more than one has to come out.
+  const over = inProduction - projectsInProduction + 1;
+  const takeOut = over === 1 ? 'one' : String(over);
+  return {
+    code: 'production-limit-reached',
+    message: `This workspace's limit is ${projectsInProduction} ${projectsInProduction === 1 ? 'project' : 'projects'} in production, and it has ${inProduction}. The deleted project is in production, so it's restored once there's room: take ${takeOut} out of production first. Nothing was restored.`,
+    projectId: projectId as unknown as string,
+    limit: 'projects-in-production',
+    projectsInProduction,
+    inProduction,
+  };
 }
 
 /** Who a new member is: exactly one of `userId` and `email`. */
@@ -941,6 +1190,16 @@ function parseMemberName(b: Record<string, unknown>): MemberName | string {
   return { email: b.email.trim() };
 }
 
+/** Why giving `owner` was refused (`ownerDenied`). */
+function givingOwner(projectId: ProjectId): string {
+  return `Permission denied: giving the owner role on project ${projectId as unknown as string} needs delete on it, which an owner of the project, an admin of its org or a tenant admin holds`;
+}
+
+/** Why changing or removing a member who holds `owner` was refused (`ownerDenied`). */
+function changingOwner(projectId: ProjectId, userId: UserId): string {
+  return `Permission denied: user ${userId as unknown as string} holds the owner role on project ${projectId as unknown as string}, and changing or removing an owner needs delete on it`;
+}
+
 function serializeProject(p: Project): Record<string, unknown> {
   return {
     id: p.id as unknown as string,
@@ -959,6 +1218,18 @@ function serializeProject(p: Project): Record<string, unknown> {
     ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,
+  };
+}
+
+function serializeDeletedProject(p: DeletedProject): Record<string, unknown> {
+  return {
+    id: p.id as unknown as string,
+    tenantId: p.tenantId as unknown as string,
+    ...(p.orgId !== undefined && { orgId: p.orgId as unknown as string }),
+    name: p.name,
+    slug: p.slug,
+    formerSlugs: [...p.formerSlugs],
+    deletedAt: p.deletedAt as unknown as string,
   };
 }
 

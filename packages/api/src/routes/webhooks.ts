@@ -24,7 +24,13 @@ import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import { limitedCallerRefusal } from '../middleware/key-project.js';
+import {
+  type ConnectionKeys,
+  type IdentityProviderKeys,
+  type ProviderKeys,
+  refuseSecretNames,
+} from '../provider-keys.js';
 import {
   type ReferenceScopeBinding,
   outOfScopeResponse,
@@ -81,7 +87,8 @@ export interface WebhooksRouterOptions {
   readonly authorizer?: Authorizer;
   /**
    * The tenant's default project, where a webhook trigger that names no
-   * project goes; and a project's org, where its signing secret may be read.
+   * project goes when the caller's key or session is limited to none; and a
+   * project's org, where its signing secret may be read.
    */
   readonly projects?: Pick<ProjectBinding, 'getDefault' | 'get'>;
   /**
@@ -98,6 +105,16 @@ export interface WebhooksRouterOptions {
   readonly names?: TriggerOwnerNames;
   /** A model provider's key is never a webhook trigger's secret. */
   readonly providerKeys?: ProviderKeys;
+  /**
+   * A texts registration's account key is never named here
+   * (`connection-key-refused`); absent, not checked.
+   */
+  readonly connectionKeys?: ConnectionKeys;
+  /**
+   * An identity provider's secret is never named here
+   * (`identity-provider-key-refused`); absent, not checked.
+   */
+  readonly identityProviderKeys?: IdentityProviderKeys;
   /**
    * A trigger's receive URL (`POST /v1/hooks/{tenantId}/{webhookId}`), made
    * from the deployment's configured public URL; never from a request's
@@ -164,6 +181,8 @@ export function webhooksRouter(
     projects,
     names,
     providerKeys,
+    connectionKeys,
+    identityProviderKeys,
     receiveUrl,
     secrets,
     envName,
@@ -213,19 +232,39 @@ export function webhooksRouter(
     return allowed ? undefined : (answer as Response);
   }
 
-  /** The webhook trigger, if it is one (another kind's id is not found here), and the caller may `action` it. */
+  /**
+   * The webhook trigger, if it is one (another kind's id is not found here),
+   * and the caller may `action` it. A removed one only for a read that asks
+   * for it (`includeUnregistered`), under the same `read` on the project it
+   * was in.
+   */
   async function webhookFor(
     c: Context<AppEnv>,
     action: Action,
+    { includeUnregistered = false }: { readonly includeUnregistered?: boolean } = {},
   ): Promise<{ kind: 'ok'; value: WebhookTriggerRecord } | { kind: 'err'; response: Response }> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
-    const rec = UUID_RE.test(triggerId) ? await binding.get({ tenantId, triggerId }) : null;
+    const rec = UUID_RE.test(triggerId)
+      ? await binding.get({
+          tenantId,
+          triggerId,
+          ...(includeUnregistered && { includeUnregistered }),
+        })
+      : null;
     if (rec === null || rec.kind !== 'webhook') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
-    const refused = await denied(c, action, ref('project', rec.projectId as unknown as string));
+    const projectId = rec.projectId as unknown as string;
+    // Without a store, a key or session limited to another project changes
+    // none of its triggers. It still reads them.
+    const held =
+      authorizer === undefined
+        ? limitedCallerRefusal(c, 'write', ref('project', projectId), 'the trigger')
+        : undefined;
+    if (held !== undefined) return { kind: 'err', response: held };
+    const refused = await denied(c, action, ref('project', projectId));
     if (refused !== undefined) return { kind: 'err', response: refused };
     return { kind: 'ok', value: rec };
   }
@@ -287,7 +326,10 @@ export function webhooksRouter(
     );
   }
 
-  /** A reserved `kindgi.` name or a model provider's key named as the signing secret: the refusal. */
+  /**
+   * A reserved `kindgi.` name, a model provider's key or a texts
+   * registration's account key named as the signing secret: the refusal.
+   */
   async function signingSecretRefused(
     c: Context<AppEnv>,
     name: string,
@@ -297,6 +339,8 @@ export function webhooksRouter(
       c.get('tenantId') as TenantId,
       [name],
       'a webhook trigger',
+      { keys: connectionKeys },
+      identityProviderKeys,
     );
     if (refusal === undefined) return undefined;
     c.status(statusFor(refusal.code) as never);
@@ -335,11 +379,13 @@ export function webhooksRouter(
     const unwritable = generate ? nameRefused(c, hmacSecretName.value) : undefined;
     if (unwritable !== undefined) return unwritable;
 
-    // A trigger that names no project goes in the tenant's default
-    // project: checked and stored as that project. With no default to
-    // find, the registry picks it, and only a tenant admin may.
+    // A trigger that names no project goes in the project the caller's key
+    // or session is limited to, else in the tenant's default project:
+    // checked and stored as that project. With no default to find, the
+    // registry picks it, and only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
+      c.get('tokenProjectId') ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     const refused =
       (project === undefined
@@ -368,6 +414,7 @@ export function webhooksRouter(
         triggerScope(tenantId, project),
         { kind: 'flow', flowId: flowId.value, flowVersion: flowVersion.value },
         tools.value,
+        'webhook',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -541,6 +588,7 @@ export function webhooksRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(statusFilter !== undefined && { status: statusFilter }),
       ...(projectId !== undefined && { projectId }),
+      ...(c.req.query('includeUnregistered') === 'true' && { includeUnregistered: true }),
     });
     // The binding narrows to the project; this keeps a page right from one that doesn't.
     const rows = (page.data as WebhookTriggerRecord[]).filter(
@@ -561,7 +609,9 @@ export function webhooksRouter(
 
   // ---------- GET /:triggerId (get) ----------
   r.get('/:triggerId', async (c) => {
-    const found = await webhookFor(c, 'read');
+    const found = await webhookFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
     return webhookJson(c, found.value);
   });
@@ -667,6 +717,7 @@ export function webhooksRouter(
         triggerScope(tenantId, found.value.projectId),
         flowAfter,
         tools.value,
+        'webhook',
       );
       if (problem !== undefined) return bad(c, requestId, problem);
     }
@@ -831,13 +882,16 @@ export function webhooksRouter(
   // ---------- GET /:triggerId/fires (deliveries) ----------
   r.get('/:triggerId/fires', async (c) => {
     const requestId = c.get('requestId');
-    const found = await webhookFor(c, 'read');
+    const found = await webhookFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
     if (binding.listFires === undefined) return unsupported(c, requestId, 'delivery history');
     const cursorRaw = c.req.query('cursor');
     const page = await binding.listFires({
       tenantId: found.value.tenantId,
       triggerId: found.value.triggerId,
+      ...(found.value.unregisteredAt !== undefined && { includeUnregistered: true }),
       limit: clampLimit(c.req.query('limit')),
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
     });
@@ -863,16 +917,21 @@ export function webhooksRouter(
 
   // ---------- GET /:triggerId/versions (newest first) ----------
   r.get('/:triggerId/versions', async (c) => {
-    const found = await webhookFor(c, 'read');
+    const found = await webhookFor(c, 'read', {
+      includeUnregistered: c.req.query('includeUnregistered') === 'true',
+    });
     if (found.kind === 'err') return found.response;
-    return versionsPage(c, binding, found.value.triggerId, 'webhook', (v) => versionsJson(c, v));
+    return versionsPage(c, binding, found.value, 'webhook', (v) => versionsJson(c, v));
   });
 
   // ---------- GET /:triggerId/versions/:version ----------
+  // A removed trigger's too, with no flag: a run keeps the version it
+  // started from (`trigger.version`), and reading it needs no more than
+  // reading the trigger did.
   r.get('/:triggerId/versions/:version', async (c) => {
-    const found = await webhookFor(c, 'read');
+    const found = await webhookFor(c, 'read', { includeUnregistered: true });
     if (found.kind === 'err') return found.response;
-    return versionOne(c, binding, found.value.triggerId, 'webhook', (v) => versionsJson(c, v));
+    return versionOne(c, binding, found.value, 'webhook', (v) => versionsJson(c, v));
   });
 
   // ---------- POST /:triggerId/owner (take ownership) ----------
@@ -1160,6 +1219,7 @@ function serializeWebhook(
     lastFiredAt: r.lastFiredAt,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
+    ...(r.unregisteredAt !== undefined && { unregisteredAt: r.unregisteredAt }),
   };
 }
 

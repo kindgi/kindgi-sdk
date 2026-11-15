@@ -3,7 +3,7 @@
 
 /**
  * Open a URL in the person's browser: `kindgi console` and
- * `kindgi dev --open` (T374). The system's own opener does it (`open` on
+ * `kindgi dev --open`. The system's own opener does it (`open` on
  * macOS, `xdg-open` on Linux, the URL handler on Windows), started
  * detached so the CLI never waits on the browser. Whether a browser
  * really showed the page can't be known; a missing opener is, and the

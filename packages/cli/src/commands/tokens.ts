@@ -5,7 +5,7 @@ import type { ApiKeyPrincipal, ApiToken, ListPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { renderJson } from '../output.js';
+import { renderJson, successNote } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -191,13 +191,31 @@ const get: LeafCommand = {
 const revoke: LeafCommand = {
   kind: 'leaf',
   name: 'revoke',
-  description: 'Revoke an API key: from its next request on, it is refused.',
+  description:
+    'Revoke an API key: from its next request on, it is refused. Every key minted with it, and with those in turn, is revoked with it.',
   usage: 'kindgi tokens revoke <token-id>',
   run: (ctx) =>
-    runSdk(ctx, 'tokens revoke', async () => {
+    runSdkRendered(ctx, 'tokens revoke', async () => {
       const id = requiredPositional(ctx, 0, 'token-id');
-      await ctx.client().tokens.revoke(id as never);
-      return { tokenId: id, revoked: true };
+      const revoked = await ctx.client().tokens.revoke(id as never);
+      const also = revoked.alsoRevoked ?? [];
+      return {
+        stdout: renderJson(
+          {
+            tokenId: id,
+            revoked: true,
+            ...(revoked.alsoRevoked !== undefined && { alsoRevoked: revoked.alsoRevoked }),
+          },
+          ctx.globals.format,
+        ).stdout,
+        stderr:
+          also.length > 0
+            ? successNote(
+                ctx.globals.format,
+                `Also revoked ${also.length} key${also.length === 1 ? '' : 's'} minted with it.\n`,
+              )
+            : '',
+      };
     }),
 };
 
