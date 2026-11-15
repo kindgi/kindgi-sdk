@@ -260,7 +260,8 @@ export type DestinationDeliveryStatus = (typeof DESTINATION_DELIVERY_STATUSES)[n
  * place in an hour; one closing message says how many were left out),
  * `no-access` (the person is no longer a member, or can't read the run's
  * project), `destination-removed`, `not-for-this-project` (the
- * destination's `projects` no longer has the schedule's project).
+ * destination's `projects` no longer has the schedule's project),
+ * `project-deleted` (the message's project was deleted, so it isn't sent).
  *
  * Failed: `destination-failing` (held until its retry window ended),
  * `window-ended` (not delivered within about a day of being queued), or

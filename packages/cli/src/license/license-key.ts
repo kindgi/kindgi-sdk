@@ -27,6 +27,8 @@ export const KINDGI_LICENSE_PUBLIC_KEYS: Readonly<Record<string, string>> = Obje
   'lk-2026-1': 'cIC6PF4tmqQzkH/MG1GVguOCHIEPBe8zLJWh64pGgp8=',
   // Production license keys, signed with a key of their own (not the self-serve one).
   'lk-2026-p2': 'bmWF6hVW/Cu6cRnuGG614ajJtOjuSseSllBa+rBobq8=',
+  // Limited license keys (a key that caps what it covers), signed with a key of their own. Trusted from runtime 0.7.0.
+  'lk-2026-l1': 'iF00aEING9UpQ3qKprb8cO9HxbPuAygwIXgPE3CVX3o=',
 });
 
 /**
@@ -36,6 +38,7 @@ export const KINDGI_LICENSE_PUBLIC_KEYS: Readonly<Record<string, string>> = Obje
  */
 export const LICENSE_KEY_MINIMUM_RUNTIME: Readonly<Record<string, string>> = Object.freeze({
   'lk-2026-p2': '0.1.8',
+  'lk-2026-l1': '0.7.0',
 });
 
 export type LicenseUse = 'production' | 'non-production';

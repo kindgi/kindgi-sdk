@@ -532,7 +532,7 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
 - **What pins it keeps running:** an agent version pinned to an unregistered
   tool version, or a flow whose step names an unregistered agent version,
   runs as before.
-- **The answer names what can still run it** (runtime X.Y.Z or later).
+- **The answer names what can still run it** (runtime 0.7.0 or later).
   Unregistering a tool or agent version answers `lockedBy`: each agent and
   flow version you can read that locks it, as `{ kind, id, version }`,
   sorted by kind, id, then version. One you can't read isn't listed, as the
