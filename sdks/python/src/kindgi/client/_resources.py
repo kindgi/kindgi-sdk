@@ -5860,12 +5860,12 @@ class ArtifactsResource:
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Use `files.list`. Removed in 0.8.0.
+        Use `files.list`. Removed in 0.9.0.
 
         Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.
         """
         warnings.warn(
-            "client.artifacts.list is deprecated. Use `files.list`. Removed in 0.8.0.",
+            "client.artifacts.list is deprecated. Use `files.list`. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -5895,12 +5895,12 @@ class ArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Use `files.create`. Removed in 0.8.0.
+        Use `files.create`. Removed in 0.9.0.
 
         Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`, `forRun`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. Such an upload is always `forRun`. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. A `forRun` upload is deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; until one does, `BlobMeta.expiresAt` says when. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.
         """
         warnings.warn(
-            "client.artifacts.upload is deprecated. Use `files.create`. Removed in 0.8.0.",
+            "client.artifacts.upload is deprecated. Use `files.create`. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -5918,12 +5918,12 @@ class ArtifactsResource:
     def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Use `files.versions.download`. Removed in 0.8.0.
+        Use `files.versions.download`. Removed in 0.9.0.
 
         Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.
         """
         warnings.warn(
-            "client.artifacts.download is deprecated. Use `files.versions.download`. Removed in 0.8.0.",
+            "client.artifacts.download is deprecated. Use `files.versions.download`. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -5945,12 +5945,12 @@ class ArtifactsResource:
     ) -> _models.DeleteArtifactResult:
         """Delete an artifact. `DELETE /v1/artifacts/{blobId}`
 
-        Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.
+        Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.9.0.
 
         Idempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).
         """
         warnings.warn(
-            "client.artifacts.delete is deprecated. Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.",
+            "client.artifacts.delete is deprecated. Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -17490,12 +17490,12 @@ class AsyncArtifactsResource:
     ) -> _models.ArtifactCollectionPage:
         """List artifact metadata. `GET /v1/artifacts`
 
-        Use `files.list`. Removed in 0.8.0.
+        Use `files.list`. Removed in 0.9.0.
 
         Cursor-paginated. Metadata rows only (no bytes). Filters: `?ownerRunId=`, `?projectId=`, `?contentType=`, `?tag.<key>=<value>` (repeatable — every provided tag must match as AND). Sort order is binding-defined (typically `createdAt desc, blobId desc`). With authorization on, only artifacts in projects the caller can read are listed; with `?ownerRunId=` of a run of the caller's own (one that acts for them), `run` on the project is enough too.
         """
         warnings.warn(
-            "client.artifacts.list is deprecated. Use `files.list`. Removed in 0.8.0.",
+            "client.artifacts.list is deprecated. Use `files.list`. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -17525,12 +17525,12 @@ class AsyncArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Use `files.create`. Removed in 0.8.0.
+        Use `files.create`. Removed in 0.9.0.
 
         Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`, `forRun`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. A person with `run` there and no `write` may upload a file that names no `ownerRunId`: an input for a run they start, which they may download again. Such an upload is always `forRun`. The runtime limits what one person uploads that way in a workspace in 24 hours, by default to 1 GiB and 1,000 files: past it, the upload is `429 upload-limit-reached`, saying when it fits. A `forRun` upload is deleted once the server's unused-upload time has passed (24 hours by default) unless a run that names it in its input has started by then; until one does, `BlobMeta.expiresAt` says when. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`. One that the workspace's storage limit has no room for is `403 storage-limit-reached`, and nothing is stored.
         """
         warnings.warn(
-            "client.artifacts.upload is deprecated. Use `files.create`. Removed in 0.8.0.",
+            "client.artifacts.upload is deprecated. Use `files.create`. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -17548,12 +17548,12 @@ class AsyncArtifactsResource:
     async def download(self, blob_id: str | UUID, /, *, timeout: float | None = None) -> bytes:
         """Download an artifact (stream). `GET /v1/artifacts/{blobId}`
 
-        Use `files.versions.download`. Removed in 0.8.0.
+        Use `files.versions.download`. Removed in 0.9.0.
 
         Streams raw bytes, as a download. Response headers: `Content-Type` (as declared at upload when it is a well-formed media type of at most 255 characters, else `application/octet-stream`), `Content-Disposition` (`attachment`, with the name), `X-Content-Type-Options: nosniff`, `Content-Security-Policy` (`default-src 'none'; sandbox`), `Content-Length`, `X-Kindgi-Blob-Hash` (sha256 hex), `X-Kindgi-Blob-Name` (URI-encoded caller name). Needs `read` on the artifact's project, or `run` there on a file of the caller's own: one they uploaded, or one a run that acts for them stored.
         """
         warnings.warn(
-            "client.artifacts.download is deprecated. Use `files.versions.download`. Removed in 0.8.0.",
+            "client.artifacts.download is deprecated. Use `files.versions.download`. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -17575,12 +17575,12 @@ class AsyncArtifactsResource:
     ) -> _models.DeleteArtifactResult:
         """Delete an artifact. `DELETE /v1/artifacts/{blobId}`
 
-        Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.
+        Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.9.0.
 
         Idempotent: first call returns `{ deleted: true }`, subsequent calls return `{ deleted: false }` (already gone). The route responds 200 either way — 404 only when the id was never known (structurally impossible after `list` returned it).
         """
         warnings.warn(
-            "client.artifacts.delete is deprecated. Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.8.0.",
+            "client.artifacts.delete is deprecated. Use `files.versions.delete` for one version, or `files.delete` for the whole file. Removed in 0.9.0.",
             DeprecationWarning,
             stacklevel=2,
         )

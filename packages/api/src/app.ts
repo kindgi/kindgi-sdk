@@ -1723,7 +1723,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
-  // The artifacts routes go in 0.8.0: each of their answers, a 401 or a
+  // The artifacts routes go in 0.9.0: each of their answers, a 401 or a
   // 413 too, links to what replaces them (`/v1/artifacts/*` matches
   // `/v1/artifacts`). Before the body limits, so their refusals carry it.
   if (input.blobStorage !== undefined) app.use('/v1/artifacts/*', artifactsDeprecationLink());

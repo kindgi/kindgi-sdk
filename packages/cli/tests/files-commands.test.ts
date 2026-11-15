@@ -489,7 +489,7 @@ describe('kindgi artifacts, deprecated', () => {
     const { out } = await run(['artifacts', 'list']);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stderr).toBe(
-      'kindgi artifacts list is deprecated: use kindgi files list. Removed in 0.8.0.\n',
+      'kindgi artifacts list is deprecated: use kindgi files list. Removed in 0.9.0.\n',
     );
     expect(JSON.parse(out.stdout)).toEqual({ data: [], hasMore: false });
   });
@@ -497,20 +497,20 @@ describe('kindgi artifacts, deprecated', () => {
   test("it says so when the call fails, too, and delete's names one version", async () => {
     const { out } = await run(['artifacts', 'delete', 'b-1']);
     expect(out.stderr).toMatch(
-      /^kindgi artifacts delete is deprecated: use kindgi files delete <file-id> <version>, which asks first unless --yes\. Removed in 0\.8\.0\.\n/,
+      /^kindgi artifacts delete is deprecated: use kindgi files delete <file-id> <version>, which asks first unless --yes\. Removed in 0\.9\.0\.\n/,
     );
   });
 
   test('the help lines', async () => {
     const root = await run(['--help']);
     expect(root.out.stdout).toContain(
-      '  artifacts         Deprecated: use kindgi files. Removed in 0.8.0.\n',
+      '  artifacts         Deprecated: use kindgi files. Removed in 0.9.0.\n',
     );
     expect(root.out.stdout).toContain(
       '  files             Files kept in the runtime, with every version: list, get, versions, download, upload, restore, pin, unpin, pin-history, delete.\n',
     );
     const group = await run(['artifacts', '--help']);
-    expect(group.out.stdout.split('\n')[0]).toBe('Deprecated: use kindgi files. Removed in 0.8.0.');
+    expect(group.out.stdout.split('\n')[0]).toBe('Deprecated: use kindgi files. Removed in 0.9.0.');
   });
 
   test('"kindgi file" points at kindgi files', async () => {

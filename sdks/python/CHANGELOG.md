@@ -22,6 +22,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `RegisterMCPEndpointBody` gain `catalog_connection_id`
   (`catalogConnectionId` on the wire), the connection the endpoint lists its
   tools with, required with a `connection` auth.
+- `kindgi`: the deprecated `client.artifacts` methods and the old version
+  calls are removed in 0.9.0, not 0.8.0: their deprecation warnings say so.
 
 ## 0.7.0
 
