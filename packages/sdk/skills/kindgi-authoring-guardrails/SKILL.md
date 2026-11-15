@@ -106,7 +106,7 @@ guardrail before an agent references it.
 - Type surface: hover any `@kindgi/sdk/define` export for full JSDoc;
   `Guardrail`, `validateGuardrail` and the built-in checks are in
   `@kindgi/guardrails`.
-- API reference: https://docs.kindgi.com/v0.6/reference/typescript/sdk/kindgi/sdk/define/
+- API reference: https://docs.kindgi.com/v0.7/reference/typescript/sdk/kindgi/sdk/define/
 - Built-in check implementations: `packages/guardrails/src/checks.ts`.
 
 ## When the framework itself is the problem

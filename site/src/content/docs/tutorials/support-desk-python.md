@@ -28,14 +28,14 @@ A pack is the folder Kindgi runs your code from. Create one from the
 code, and install the dependencies:
 
 ```sh tutorial=run
-uvx --from "kindgi-cli>=0.6,<0.7" kindgi init acme-desk --template=python
+uvx --from "kindgi-cli>=0.7,<0.8" kindgi init acme-desk --template=python
 cd acme-desk
 rm tools/echo.py tools/greet.py agents/greeter.py flows/greet_person.py guardrails/response_not_empty.py tests/test_tools.py
 mkdir support && touch support/__init__.py
 uv sync
 ```
 
-- `uvx --from "kindgi-cli>=0.6,<0.7"` runs the Kindgi 0.6 CLI without
+- `uvx --from "kindgi-cli>=0.7,<0.8"` runs the Kindgi 0.7 CLI without
   installing it.
 - `acme-desk` is the pack's name, and the folder it's created in.
 - `--template=python` starts a Python pack, with a small example.

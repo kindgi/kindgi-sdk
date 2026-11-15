@@ -1,5 +1,226 @@
 # @kindgi/sdk
 
+## 0.7.0
+
+### Minor Changes
+
+- 7f9d20f: **A tool can fail a call on purpose, with its own code and words for a person.** `` throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } }) `` (`@kindgi/sdk/define`; `ToolFailure` in Python, `ToolFailureException` in Java and Scala) fails the call with `tool-failed`, a new code beside the crash's.
+  
+  - **The call's error.** `invokeTool` answers `ToolFailedError`: `{ code: 'tool-failed', message, toolId, reason, details? }`. The tool's code is `reason`, its words are the message as written, with no lead-in and no cause, and `details` are its facts. The message and every string in the details are masked as a thrown message is.
+  - **The rules.** The code is kebab case, a letter first, at most 64 characters: a fixed word, since runs are grouped by it. The message isn't empty and is cut at 1,000 characters. The details are a JSON object of at most 4 KiB as JSON. A value the class refuses throws a `TypeError`, so the call is a crash that says why, and so is a `ToolFailure` changed after it was made. `isToolFailure` tells one by its brand, so another copy of the package agrees.
+  - **Pack protocol 2.12.0.** The error answer's codes gain `tool-failed`, with `reason` and `details`; `v` stays 2. The TypeScript, Python and Java pack services answer it, and the conformance suite has a fixture tool for it, `conformance.fails-on-purpose`, in each language.
+  - **In an agent.** `tool-failed` is a `toolErrors` kind of its own, out of the default and not covered by `tool-error`. With it in `retryOn`, the call goes back to the model with the tool's code, words and details, and an instruction to tell the person or try another way. Otherwise, or past the retries, the turn fails with `ToolFailedTurnError`, `tool-failed` at the top: `{ code, message, toolId, reason, details?, toolRetries? }`. The `tool.failed` stream event says `tool-failed` and the tool's code as `reason`, without the details.
+  - **A run's failure.** `Run.failure` for it has the tool's code as `reason`, its details whole in `details`, and the tool as `cause`: `{ toolId }`. The API answers the turn's error with `422`. The OpenAPI document says so, and an agent's `toolErrors.retryOn` takes `tool-failed`, in the agent schema and the clients too.
+  
+  A check that throws a `ToolFailure` fails as any throw does.
+  
+  Release-decision: 0.7.0, the maintainers, 2026-11-06T22:04:22Z
+
+### Patch Changes
+
+- dfaeea7: **`kindgi dev` and `kindgi build` warn about an agent or flow id that isn't the pack's id, a dot and a name.** An agent's or a flow's id is `<pack-id>.<name>`: the pack's own id (`pack.id` in its config), a dot, and a lowercase kebab-case name with no dot. Until now nothing checked that shape, since defining an agent or a flow checks only that its id isn't empty. Both commands now print a warning, with its file, for each id of another shape, for packs in every language:
+  
+  ```text
+  ⚠ flows/record.py: flow "acme.ledger.record-flow" isn't named "acme.<name>" (this pack's id, a dot, then a lowercase kebab-case name with no dot). An id is hard to change once something calls it, so rename it while it's new. The pack runs as it is.
+  ```
+  
+  The pack builds and runs as it did. A pack id may hold dots of its own, so `acme.legal.review-contract` is right in the pack `acme.legal`.
+  
+  **The id types and the skills say what is checked.** The `AgentId`, `FlowId`, `ToolId` and `GuardrailId` comments, and the agents and tools skills, said the define calls enforced the id's shape. They check only that the id isn't empty, and for a tool that it doesn't start with `kindgi_`.
+- 3621ee2: **The templates' agents and flows are named for what they do.** A new pack from `kindgi init` gets these ids. Packs already made keep theirs, and the template names are unchanged.
+  
+  | Template | Before | Now |
+  |---|---|---|
+  | `sample`, `python`, `java`, `scala` | agent `<pack>.echo-agent`, flow `<pack>.echo-flow` | agent `<pack>.greeter` ("Greeter"), flow `<pack>.greet-person` ("Greet a person") |
+  | `woocommerce` | agent `<pack>.store-agent`, flow `<pack>.order-review`, block `<pack>.store-agent-prompt` | `<pack>.order-desk`, `<pack>.review-order`, `<pack>.order-desk-prompt` |
+  | `drupal` | agents `<pack>.content-agent` and `<pack>.content-reviewer`, flow `<pack>.content-review` | `<pack>.style-checker`, `<pack>.article-reviewer`, `<pack>.review-article` |
+  | `follow-up` | agent `<pack>.follow-up` | `<pack>.follow-up-writer` |
+  | `returns-helper` | agent `<pack>.returns-helper` | `<pack>.returns-desk` |
+  
+  Their folders, files and classes follow: `agents/greeter/`, `Greeter.java`, `greeter.py`.
+  
+  **The agents, flows and getting-started skills give naming rules, in all four languages.**
+  - An agent is named for its role, and a flow for its job, verb first.
+  - The pack id names the app or the business once.
+  - No placeholder words such as `agent`, `flow` or `helper`.
+  - One word per thing.
+  - The display name is the id in words, in sentence case.
+  - An id is the pack's own id, a dot, and a kebab-case name with no dot.
+  
+  The examples follow the rules (`acme.ledger.book-expense`, "Brief writer", "Triage a ticket"). So do the `Agent.id` and `Flow.id` comments, and the Python and Java SDKs' examples.
+- 13e8d75: A coding agent and `kindgi dev`'s sandbox now stay out of a self-hosted deployment's `db.env` (its database's password) and `openfga.env` (OpenFGA's database address and key), as they already did `kindgi.env` and `pack.env`. `kindgi init` writes both into the deny rules for Claude Code and the other agents' ignore files, and the getting-started skills name them. A project set up before keeps its rules: add the two lines as the coding agents page shows.
+- c3a1876: **The agents authoring skills say that `retryOn` replaces the default kinds.** The TypeScript, Java, Python and Scala skills tell an agent to add `tool-error` to `retryOn` when retrying a tool that ran and failed is safe. They now also say that the list replaces the default, so it should name `invalid-arguments` and `unknown-tool` too: a `retryOn` of `tool-error` alone doesn't send a call with bad arguments, or to a tool that doesn't exist, back to the model. The Wait for another system's answer guide, on a wait that times out, says it too.
+- c7b560c: **The docs say what `ask_on_first_use` does: each call to the tool waits for an approval, as with `always_ask`.** They said an approved call ran without asking when it was made again with the same arguments in the conversation, but nothing remembers an approval, and every call has always asked. The mode's doc is now on `ToolHitlMode`, where an editor shows it, and `Tool.mutating`'s description (in the tool schema and the API reference), the approvals guide and the authoring skills say the same. How a call is gated doesn't change.
+- 2fe11be: `createClient()` takes the API's URL and token from the running `kindgi dev` together, or not at all. With `KINDGI_API_TOKEN` set (or `auth` passed) and no URL, it no longer sends that token to the URL in the nearest `.kindgirc.json`: it throws, naming the file and what to set. With `KINDGI_API_URL` set (or `apiUrl` passed) and no token, it takes the file's token only when the URL is the file's own, and throws the same way for another URL. Set both in your env file, or neither to use the running `kindgi dev`.
+- e975c6f: A Python, Java or Scala pack's flow is now checked as a TypeScript one is. Their indexers check a flow against `flow.schema.json` only, so a flow with a cycle, an edge to or from a step that doesn't exist, no edge from `$start`, or a node id used twice indexed and deployed cleanly, then hung until "Run stuck", completed with nothing run, or skipped a step.
+  
+  - `@kindgi/flow` exports `flowGraphProblem(flow)`, with its answer type `FlowGraphCheck`: `loadFlow`'s graph checks, run after the schema with every object left open, so a field from a newer SDK is passed over. It answers `ok`, `err` (the error `loadFlow` gives) or `not-judged` (a shape this version doesn't know). `loadFlow` is unchanged.
+  - `kindgi dev` and `kindgi build` run it on every indexer's result. A flow that fails is a `manifest-validation-failed` file error (`<module>: flow '<id>' is invalid: <code>: <message>`) and is left out of the index file, so `kindgi dev` never serves it, and `kindgi build` stops. A flow whose shape the CLI doesn't know stays, with a `flow-not-checked` warning.
+  - `POST /v1/deployments` refuses a flow that fails them with `deployment-validation-failed`, and the flow's issue message starts with the check's code (`cycle-detected: …`). A flow already deployed keeps running as before; deploying it again is refused until it's fixed. A field or a shape the API doesn't know is passed over, not refused.
+  - `@kindgi/pack-conformance` ships an invalid-flow pack per language (`fixtures/<name>-invalid-flow-pack`, whose one flow is `FIXTURE_CYCLE_FLOW_ID`), and a case that its cycle is refused, by the indexer or by `flowGraphProblem` on the index it wrote. A target feeds it through the optional `indexInvalidFlowPack`; a target without it has the case skipped, and the skip says so. Every flow in the fixture pack's index must pass `flowGraphProblem` too. The suite depends on `@kindgi/flow`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say where a flow is checked: `kindgi dev` and `kindgi build` run the graph checks on every language's flows, and a deploy refuses a flow that fails them.
+  
+  To upgrade a Python, Java or Scala pack: run `kindgi build` (or `kindgi dev`) once on this CLI before you deploy, so a flow the deploy would refuse shows up as a file error first.
+- d3435bc: The flows skills, in each language, say how a schedule, a mail trigger or a webhook trigger starts runs of a flow: the command, what each gives the flow as its input, when the runtime serves it, and which tool steps those runs refuse. They say event triggers aren't served.
+- 74d2fe7: The `gemini` and `gemini-api` provider presets price a cached prompt token at a tenth of the input price, as Google bills it on Vertex AI and the Gemini API, past `gemini-3.1-pro-preview`'s 200K-token threshold too. Before, they set no `cachedPromptMultiplier`, so a turn's `totalCostUsd` priced cached tokens at the Gemini adapter's default of a quarter, 2.5 times too high. The Gemini adapter's README example and the providers skill's Vertex AI example set it too. A provider already registered from either preset keeps the prices it was registered with: to take the new ones, unregister it, then register the preset. For one a pack's config declares, restart `kindgi dev`, which registers it again because the preset changed. Both presets' `pricesCheckedAt` is 2026-11-07.
+- f2baded: **Tools for Google Drive.** `googleDriveFilesList`, `googleDriveFileGet` and `googleDriveFileCreate`, from `@kindgi/connections/google/tools`, find, read and add files in the Drive of the Google account the run acts as, or the company's with `as: 'company'`.
+  
+  - **The list** gives the files others share with the account too, never what's in the trash: the newest first, or, with `text`, the best matches first. It narrows by words in a file's name or content, words in its name, a folder, a kind or a time. Each file comes with its `id`, `name`, `kind`, `contentType`, `size`, `modified`, `link`, `folderId`, and `owner` when that's someone else, and `next` gives the next page.
+  - **The get** stores one file as a file of the run, as an attachment tool does. A Google Doc is read as Markdown, a Sheet as CSV, Slides as text and a Drawing as a PNG, or each as a PDF with `format: 'pdf'`. Other files are read as they are when they're a JPEG, PNG or WebP image, a PDF, or a text, Markdown or CSV file, within its type's size limit. Else the answer says why the file isn't shown (`notShown`). The answer also gives the file as the list does (`listed`).
+  - **The create** adds a file at the top of the Drive from `text` or from a file of the run. With `convert: true`, text or Markdown becomes a Google Doc and CSV a Google Sheet. In a run no person started, it waits for a yes. It runs once per call: run again, it gives the first call's answer, and it finds a file the call added before rather than adding a second.
+  - **Permissions.** The Google entry adds `drive.readonly`, with review `restricted`, for the list and the get, and `drive.file`, with review `none`, for the create: it reaches only the files the app added. A connection made before lacks them until the person allows it. Turn on the Google Drive API in your OAuth client and add them to its Data access.
+  - **Pacing.** A new rate limit paces each connection's Drive calls at 325,000 of Drive's quota units a minute, at Drive's cost for each call. Drive calls don't count in Gmail's or the calendar's units, and a Gmail attachment's download no longer counts in the calendar's. Outlook's send, reply and event writes are now named in its sends limit, at the 1 they cost before.
+  - **Your own calls.** `appFetch`'s `body` takes bytes as well as text, and sends them as they are.
+  - **Versions.** The three tools start at 1.0.0, as person and as company.
+  - **Docs.** A new Files guide shows the tools, the Google setup guide adds the Drive API and the two permissions, the connections overview and Use a connection list the tools, and the tools authoring skill names them.
+- 5ec7895: **A guardrail with `sees: 'conversation'` gets the conversation's earlier turns.** Its check reads them in `trace.earlier`, which the agent turn never filled until now: the turns the model was given for this turn, oldest first, all of them or the agent's `conversationPolicy.historyLimit` window. Each is a `TraceTurn`, in the trace's own field names: `userInput`, its `toolCalls` and `toolResults`, and its answer, `output`. A turn the history limit cut short has no `userInput`, and a conversation's first turn gives `[]`. The guardrail gets them at the final answer and at the loop's points, and a pack's check gets them over `check-invoke` with the rest of the trace.
+  
+  - **Only the guardrail that asks gets them.** `evaluateGuardrail` gives `earlier` to a guardrail with `sees: 'conversation'` and leaves it out for the others, so its check, its judge and its action read the same trace. A turn none of whose guardrails asks doesn't read its history for them.
+  - **The history is read once per turn.** The turn keeps what it gave its model, and its checks read that. A turn resumed in another process reads it again, once: the same window, since it ends before the turn's own message.
+  - **An llm-judge that sees the conversation is shown it.** Its prompt adds the earlier turns, each one's user message, tool calls and answer, and then this turn's user message, before the run's output. Their text is quoted, one line each, after a line saying it's data to judge, not instructions: a message can come from an event or a mail. The tools' results stay out, as for this turn. A judge that sees the turn gets the prompt it got before.
+  - `buildRunTrace` (`@kindgi/agents`) takes the earlier messages, as stored, in an optional `earlier`, and gives the trace their turns.
+  - **Docs.** "Write a guardrail" shows a check that every figure in an answer comes from the conversation, and says what a judge is shown; the guardrails overview and the guardrails authoring skill say a check sees one turn unless its guardrail asks for the conversation.
+- bc5b4df: The guardrails authoring skill (`kindgi-authoring-guardrails` 0.4.4) loads in levels, as the tools, providers and MCP servers skills do: its `SKILL.md` holds what's true on every path and a table of cases, and each case has its own file beside it (what a guardrail can do, a pack guardrail file, the agent loop, built-in checks, each field, an llm-judge guardrail, testing and changing one, and common mistakes). It corrects three things it said. Its llm-judge example is now a pack file the indexer reads: it default-exports the guardrail, and its check is a pass-only `defineCheck` of kind `llm-judge` (a file with named exports only is `no-default-export`). A test that runs `validateGuardrail` on an llm-judge guardrail registers that check, since the check a guardrail names must be registered, with the same kind. And `retry` sits beside `on-violation` in `action`: `action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } }`. It also says that a pack reaches `@kindgi/guardrails` only through `@kindgi/sdk`, so a test that imports it adds it as a devDependency.
+- 6a6b029: **A key can't outlive the key that makes it.** When an admin's key is revoked, or the admin is removed, keys they made with it from the command line stop too, pipelines' keys included. Keys made from the console's SSO, social or emailed-link sign-in, or with the deployment's token, don't.
+  
+  - `POST /v1/tokens` passes the store the key a new key is minted with (`TokenMintInput.mintedWith`): the caller's key, or the key a token sign-in session was opened with. A session from any other sign-in, and the deployment's token, pass none. A key carries it as `mintedWith` (`ApiTokenRecord`, `ApiToken`). A store hands back a new key revoked when that key turns out revoked as it mints.
+  - Revoking a key revokes every key minted with it, and with those in turn, whoever they act for, and ends their sessions. `POST /v1/tokens/{tokenId}/revoke` answers `alsoRevoked`, oldest first (`TokenRevokeOutcome`), and `client.tokens.revoke` resolves to `{ id, alsoRevoked }` (`TokenRevoked`). Revoking a revoked key revokes any key minted with it that isn't revoked yet.
+  - `GET /v1/tokens?mintedWith=<tokenId>` (`client.tokens.list({ mintedWith })`) lists the keys minted with a key, to any depth, within what the caller sees. Each page says `mintedWith`; an older runtime ignores the filter, and its page doesn't.
+  - Removing a person counts the keys minted with theirs apart, as `mintedKeysRevoked` (`IdentityUnregisterUserResult`, `UnregisterUserResult`).
+  - `kindgi tokens revoke` says how many keys went with it, and `kindgi people remove` how many were minted with theirs.
+  - Every new field is optional. A store that doesn't record which key minted which leaves them out, and a key minted before a store recorded it stands alone.
+- 2d81e64: **LinkedIn posts carry images and a link card, and a post can be deleted.** `linkedinPost`, from `@kindgi/connections/linkedin/tools`, takes `images`: 1 to 20 of the run's files, in order, each with its `altText`. One is the post's image, and two or more make a multi-image post. It takes `link` too: a card with its `url`, the `title` it shows (LinkedIn makes no card from a link itself) and a `description`, with one image at most as its thumbnail. `linkedinDeletePost` deletes a post the person made, by the `postId` that posting it gave.
+  
+  - **Images.** Each is a JPEG, GIF or PNG of fewer than 36,152,320 pixels, LinkedIn's limits. Every image is read and checked before any is uploaded, and a file the run can't read fails the call in words, before anything is posted. The tool declares `readsFiles`, and its network adds `www.linkedin.com`, LinkedIn's upload host: an upload address on any other host is refused. On a runtime that gives a tool no file reads, a post with images fails in words, and a text post works as before.
+  - **Once per call.** The uploads happen in the recorded step with the post, so a step run again uploads and posts nothing more.
+  - **Calls.** Each image takes two of the person's 150 LinkedIn calls a day: one to start its upload, and one for its bytes.
+  - **Deleting.** A post already deleted counts as deleted, and a server error says deleting again is safe. It asks the same `posts.write` permission, and in a run no person started it waits for the person's yes, as a post does.
+  - **`appFetch`** takes bytes as a `body`, for an upload.
+  - **Versions.** `linkedinPost` moves to 1.1.0. `linkedinDeletePost` starts at 1.0.0.
+  - **Docs.** The connections guide, the LinkedIn guide's limits, the package README and the tools authoring skill name the new fields and the delete tool.
+- 524e626: **The docs and the code comments name their examples the way the naming rules say.** The docs site's example agents and flows are named for their role and their job, and each page keeps its own pack id. The `ToolId`, `ToolManifest` and `GuardrailId` comments, the audit events' actor example, the tools README and the tools skills use `acme.fetch-order`, `acme.response-not-empty`, `agent:acme.brief-writer` and `acme.echo` in place of the `demo` and `shop` examples. The `ToolManifest` comment says what `defineTool` checks: that the id isn't empty and doesn't start with `kindgi_`. The guardrail scope example names `acme.support-desk`. The dev-echo provider's README says what it does when a call declares no tools: it answers at once with the last user message.
+- 1dd8f20: **Tools for OneDrive and SharePoint.** `oneDriveFilesList`, `oneDriveSharedFilesList`, `sharePointLibrariesList` and `oneDriveFileCreate`, from `@kindgi/connections/microsoft/tools`, find and add files in the OneDrive of the Microsoft account the run acts as, or the company's with `as: 'company'`, and find the files others share with it and its organization's SharePoint libraries.
+  
+  - **The own list** reads the account's OneDrive: with `text`, the files whose name, details or content match, across the drive; with `folderId`, what's in that folder; with neither, its top level. Each file comes with the same fields as a Google Drive list's, and `next` gives the next page. A folder's `contentType` is `inode/directory`.
+  - **The shared list** searches, with `text`, what the account can open, those others share with it too, or lists a drive by its `driveId`: its top level, a folder in it, or what matches in it. A file in another drive gives its `driveId`, and its `owner` when Microsoft names one.
+  - **The libraries list** finds the SharePoint sites that match `text`, at most `top` (5 when it's left out, 10 at most), and gives each one's document libraries with their `driveId`, for the shared list.
+  - **The create** adds a file at the top of the OneDrive or in a folder by its `folderId`, from `text` or from a file of the run. It never replaces a file: when one of that name is already there, it fails, saying so, unless that file has the same size, which it answers as the file it added. In a run no person started, it waits for a yes. It runs once per call: run again, it gives the first call's answer.
+  - **Permissions.** The Microsoft entry adds `Files.Read` for the own list, `Files.ReadWrite` for the create, `Files.Read.All` for the shared list and `Sites.Read.All` for the libraries list. On Microsoft's default for new tenants, the last two need an admin's consent once. A connection made before lacks them until the person allows it.
+  - **Pacing.** A new rate limit paces each connection's OneDrive and SharePoint calls at 3,000 in 5 minutes. File calls don't count in the mailbox's limits, and Outlook's calls don't count in the new one. The mailbox's 10,000 in 10 minutes now names each Outlook call, at the 1 it cost before.
+  - **`FileListed`** gains `driveId`, given only by OneDrive's lists.
+  - **Versions.** The four tools start at 1.0.0, as person and as company.
+  - **Docs.** The Files guide adds OneDrive and SharePoint, the Microsoft setup guide adds the Files and Sites permissions and the admin-consent default, the calendar guide's consent sentence is corrected, and the connections overview, Use a connection, the README and the tools authoring skill name the new tools.
+- 94424cc: A TypeScript pack's helper module under a discovery folder, a file whose name starts with `_` (`tools/_shared.ts`, `tools/echo/_format.ts`), is skipped when it defines no primitive, as in a Python pack. Such a file failed the index with `no-default-export` or `ambiguous-kind`. A `_` file that defines a primitive is indexed as before, and one that fails to import still fails. Both errors now say a helper module's name starts with `_`, and the `kindgi-authoring-tools` skill (0.5.7) says it too.
+- f7264e7: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.** A Java, Scala or Python tool that sets no version of its own takes the pack's, and a deploy takes no other tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or `"1.0.0-rc.1"` no longer loads: `kindgi build`, `deploy`, `env`, `dev` and `mcp` stop with `config-parse-failed`, naming `pack.version`, as they do when it's missing (`Config file <path>: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '1'`). Write `1.0.0`. The Java and Python packs' own config loaders check it the same way.
+  
+  `defineTool`'s message for a version that isn't `MAJOR.MINOR.PATCH` says so. It called a prerelease such as `1.2.3-beta.1` fine, and then the tool's schema refused it. What `defineTool` takes doesn't change. The Java, Scala and Python authoring skills say each kind's version rule: a tool's is `MAJOR.MINOR.PATCH`, and an agent's is an exact semver with no build metadata.
+- 13d3769: The Scala tools authoring skill now says that a tool's input or output case class refuses unknown properties unless it says `@JsonIgnoreProperties(ignoreUnknown = true)`, as the Java skill says for a record.
+- ec86779: **`@kindgi/sdk/client` exports every resource client's type, as it says it does**, so you can name the type of any part of a client: `import type { ProjectsClient, ProjectMembershipsClient } from '@kindgi/sdk/client'`. It used to leave out 58 of them, among them `ProjectsClient`, `DeploymentsClient`, `SecretsClient` and the ones under a resource, such as `client.projects.memberships`'s. `@kindgi/client` now exports the eight it left out too: `AgentTestSetClient`, `AuditResourceClient`, `AuthzAuditClient`, `EnvironmentOrdersClient`, `McpPromptsClient`, `McpResourcesClient`, `SecretRotationsClient` and `SignInAuditClient`. Each of them gets its page in the TypeScript API reference. Only types are added: nothing a client does changes.
+- 3f33df6: The Python, Java and Scala guardrail skills show how to name a built-in check: `built_in_guardrail(...)` in Python, `builtInCheck(...)` in Java and Scala, with its settings and where it runs. They no longer say a Python pack can't use one.
+- cdf511b: **An HTTP tool's `secretRef` can leave its env out.** `authorization.secretRef.envName` is optional in `tool.schema.json`, in `@kindgi/tools`' `ToolSecretRef` and in the API's `ToolSecretRef`. Left out, the secret is read in the env the runtime serves (`KINDGI_ENV`; `local` under `kindgi dev`), as the secrets a tool's code declares are, so one tool works unchanged in every env. A ref that names its env still reads there. The ref is stored as given, so a tool registered or deployed without an env reads in whatever env the runtime calling it serves. A runtime from before this release refuses a ref without an env when the tool is registered or deployed.
+  
+  On a runtime that refuses other envs (`refuseOtherEnvs`), `POST /v1/tools` and `POST /v1/deployments` answer `409 env-not-served` for a tool whose `secretRef` names an env other than the served one, with `details.envName` and `details.servedEnv`. A deploy refuses that tool before anything is stored, even when it would keep a version already published. To read the secret under the served env, leave `envName` out. `KINDGI_REFUSE_OTHER_ENVS`' description and the `env-not-served` error reference name the tool case and its fix. A promotion, and reinstating an unregistered version, aren't refused: a tool's definition changes only where it's registered or deployed.
+  
+  **Breaking for code that reads a ref's env.** `ToolSecretRef.envName` is now `string | undefined`, in `@kindgi/tools` and in `@kindgi/sdk`, which re-exports it. A harness or a test that resolves a tool's secret from its ref, such as `resolveSecret: (ref) => store.get(ref.envName, ref.name)`, no longer compiles. The fix is one line: read the env it serves when the ref names none, `resolveSecret: (ref) => store.get(ref.envName ?? env, ref.name)`. Every manifest that names its env stays valid. A Python or JVM client from before this release fails to read a tool whose ref names no env, or a page of tools that holds one, so upgrade the client with the runtime.
+  
+  The authoring skills, the sample pack's HTTP tool and the docs leave the env out, and the skills say when to name one.
+- e2fd25b: **The kindgi-using skill names the console's Results page.** A project's Results shows what each run gave back, newest first, a card each, and it's where a viewer, or someone who only runs the project, opens the console. The skill lists it with the project's pages, names it first on a tour of the console, and answers "where do I see every answer it finished" with it, using the runs list's `agent`, `status` and `since` filters.
+- 3997b3d: **Every resource's version calls now live under `versions`.** Policies, schedules, webhooks, mail triggers, queue rules and secrets get the names agents, blocks, flows, tools, release gates and test sets already have: `versions.list`, `versions.get`, `versions.unregister` and `versions.reinstate`, as far as the API has each call. Their old names still work, deprecated, and send the same requests as before. The 0.8.0 release removes them.
+  
+  - **Policies:** `policies.versions.list`, `versions.get`, `versions.unregister` and `versions.reinstate`, in place of calling `policies.versions(id)` directly, `getVersion`, `unregister` and `reinstateVersion`. `versions.unregister` answers `{ policyId, version, unregistered }`, where `policies.unregister` answers nothing.
+  - **Schedules, webhooks and mail triggers:** `versions.list` and `versions.get`, in place of calling `versions(triggerId)` directly and `getVersion`. A trigger's version is still its number.
+  - **Text triggers** have `versions.list` and `versions.get` from the start, with no old names to deprecate.
+  - **Queue rules:** `projects.queueRules.versions.list`, in place of calling `projects.queueRules.versions(projectId, ruleId)` directly.
+  - **Secrets:** `secrets.versions.list` and `secrets.versions.get`, in place of `listVersions` and `getVersion`. They take the same input objects, and `versions.get` still answers `null` for a version that isn't there.
+  - **Each old `versions` you could call** still takes and answers what it did. Its deprecation sits on the call alone, so an editor strikes through `policies.versions(id)` and not `policies.versions.list`.
+  - **Code that implements one of these clients itself**, such as a typed test fake, adds the new `versions` members; calls don't change.
+  - **Every version client is exported, and so are the unregister and reinstate results**, among them `PolicyVersionsClient`, `UnregisterPolicyVersionResult`, and the agent, flow and tool ones that weren't exported yet, such as `FlowVersionsClient`. So is `ToolVersionRow`, the row `tools.versions.list` answers.
+  - **`@kindgi/sdk/client` re-exports them too**: every version client, `FlowVersionRow`, `PolicyVersionRow`, `ToolVersionRow`, and the unregister and reinstate results. The TypeScript reference then documents each resource's version calls.
+  - **The CLI calls the new names.** Its commands and their output don't change.
+- 39c4e12: **An app on zod 3 is shown the way to JSON Schema.**
+  
+  - **A schema from zod 3 is refused by name**, from the zod 3.x package or from zod 4's `zod/v3`. That's a tool's `input` or `output`, an agent's `output.schema` or a check's `configSchema`, and a tool's raw `input` or `output` when the build reads a tool not made with `defineTool`. The message says Kindgi takes zod 4 schemas, and shows the JSON Schema object to write instead. Before, such a schema was read as JSON Schema and failed to compile with a message that never said zod.
+  - **An older zod is named.** A zod 4 schema, such as `zod/v4` from zod 3.25, used with a `zod` older than zod 4 installed, now says the installed `zod` is older than zod 4, not that it isn't installed. When loading `zod` throws, the error keeps what it threw as its cause.
+  - **`kindgi init`'s warning names both ways** for an app on zod 3: move the app to zod 4, or write Kindgi's schemas as JSON Schema objects, with an example.
+  - **The `kindgi-authoring-tools` skill** says the same.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [3621ee2]
+- Updated dependencies [70a156b]
+- Updated dependencies [95494bb]
+- Updated dependencies [5903a0b]
+- Updated dependencies [a976d95]
+- Updated dependencies [c7b560c]
+- Updated dependencies [2a9b047]
+- Updated dependencies [b7f58fb]
+- Updated dependencies [7118139]
+- Updated dependencies [5d0d0a3]
+- Updated dependencies [b8cb40c]
+- Updated dependencies [f418104]
+- Updated dependencies [f8a4191]
+- Updated dependencies [c8395f7]
+- Updated dependencies [6ac7e3d]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [e975c6f]
+- Updated dependencies [0c60659]
+- Updated dependencies [5ec7895]
+- Updated dependencies [8c5e37a]
+- Updated dependencies [9b9bb22]
+- Updated dependencies [b247ee3]
+- Updated dependencies [520e54d]
+- Updated dependencies [9c4b4f1]
+- Updated dependencies [6a6b029]
+- Updated dependencies [717d950]
+- Updated dependencies [712383f]
+- Updated dependencies [b4addfd]
+- Updated dependencies [054e09f]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [090706e]
+- Updated dependencies [f85b5d7]
+- Updated dependencies [94424cc]
+- Updated dependencies [cb29e00]
+- Updated dependencies [3f33df6]
+- Updated dependencies [f7264e7]
+- Updated dependencies [ea7d74f]
+- Updated dependencies [ea5b156]
+- Updated dependencies [d5e05dc]
+- Updated dependencies [c09130a]
+- Updated dependencies [de3a30f]
+- Updated dependencies [3af15cf]
+- Updated dependencies [3cf1c3f]
+- Updated dependencies [d4814d8]
+- Updated dependencies [afba79e]
+- Updated dependencies [ec86779]
+- Updated dependencies [1df25b1]
+- Updated dependencies [439bffc]
+- Updated dependencies [54faad5]
+- Updated dependencies [86c2610]
+- Updated dependencies [8cac758]
+- Updated dependencies [15c2925]
+- Updated dependencies [fd2d147]
+- Updated dependencies [768e1b3]
+- Updated dependencies [00afa37]
+- Updated dependencies [a478edf]
+- Updated dependencies [7f9d20f]
+- Updated dependencies [cdf511b]
+- Updated dependencies [d3f48a7]
+- Updated dependencies [a6a4ecb]
+- Updated dependencies [25d902a]
+- Updated dependencies [7078517]
+- Updated dependencies [3997b3d]
+- Updated dependencies [85274b1]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/agents@0.7.0
+  - @kindgi/flow@0.7.0
+  - @kindgi/client@0.7.0
+  - @kindgi/guardrails@0.7.0
+  - @kindgi/tools@0.7.0
+  - @kindgi/handler-runtime@0.7.0
+  - @kindgi/schema@0.7.0
+  - @kindgi/crypto@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,96 @@
 # @kindgi/handler-runtime
 
+## 0.7.0
+
+### Minor Changes
+
+- 7f9d20f: **A tool can fail a call on purpose, with its own code and words for a person.** `` throw new ToolFailure('order-not-found', `No order ${orderId}`, { details: { orderId } }) `` (`@kindgi/sdk/define`; `ToolFailure` in Python, `ToolFailureException` in Java and Scala) fails the call with `tool-failed`, a new code beside the crash's.
+  
+  - **The call's error.** `invokeTool` answers `ToolFailedError`: `{ code: 'tool-failed', message, toolId, reason, details? }`. The tool's code is `reason`, its words are the message as written, with no lead-in and no cause, and `details` are its facts. The message and every string in the details are masked as a thrown message is.
+  - **The rules.** The code is kebab case, a letter first, at most 64 characters: a fixed word, since runs are grouped by it. The message isn't empty and is cut at 1,000 characters. The details are a JSON object of at most 4 KiB as JSON. A value the class refuses throws a `TypeError`, so the call is a crash that says why, and so is a `ToolFailure` changed after it was made. `isToolFailure` tells one by its brand, so another copy of the package agrees.
+  - **Pack protocol 2.12.0.** The error answer's codes gain `tool-failed`, with `reason` and `details`; `v` stays 2. The TypeScript, Python and Java pack services answer it, and the conformance suite has a fixture tool for it, `conformance.fails-on-purpose`, in each language.
+  - **In an agent.** `tool-failed` is a `toolErrors` kind of its own, out of the default and not covered by `tool-error`. With it in `retryOn`, the call goes back to the model with the tool's code, words and details, and an instruction to tell the person or try another way. Otherwise, or past the retries, the turn fails with `ToolFailedTurnError`, `tool-failed` at the top: `{ code, message, toolId, reason, details?, toolRetries? }`. The `tool.failed` stream event says `tool-failed` and the tool's code as `reason`, without the details.
+  - **A run's failure.** `Run.failure` for it has the tool's code as `reason`, its details whole in `details`, and the tool as `cause`: `{ toolId }`. The API answers the turn's error with `422`. The OpenAPI document says so, and an agent's `toolErrors.retryOn` takes `tool-failed`, in the agent schema and the clients too.
+  
+  A check that throws a `ToolFailure` fails as any throw does.
+  
+  Release-decision: 0.7.0, the maintainers, 2026-11-06T22:04:22Z
+
+### Patch Changes
+
+- c8395f7: `kindgi dev` on a pack with no primitives yet no longer leaves the runtime warning that the pack service isn't answering. No pack service starts until the first primitive, so the runtime's check at startup found nothing to answer it. Now the local pack service answers that check for the pack: its id and version from the config, no tools and no checks. So the runtime's startup line names the pack with 0 tools and 0 checks. The first primitive starts the pack service as before. In `@kindgi/handler-runtime`, the pack service supervisor has `serveEmpty(pack)`. While no child serves, `GET /v1/info` answers 200 with that pack, no tools and no checks, and `artifactVersion` `none`. `/readyz` and calls still answer 503, and the next `start` or `stop` ends it. Its argument's type, `PackIdentity`, is exported from `@kindgi/handler-runtime/pack-service`.
+- 2d279a5: **Tools and agents that change files.** A tool can declare `updatesFiles: true` (tool schema 1.5.0, pack index 1.10.0): it adds versions to files its run has. Only a tool with a handler can, so `defineTool` and the pack indexer refuse it on a declarative or MCP tool, as they refuse `storesFiles`. It's part of the tool's definition, so changing it takes a new version.
+  
+  An agent can declare `files: { update?, create? }` (agent schema 1.9.0). `update: true` offers its model the built-in `kindgi_update_file`, and `create: true` offers `kindgi_create_file`. An agent can't list either one in `tools`. The pack index and the API's agent schemas carry the declaration, and `@kindgi/agents` exports `UPDATE_FILE_TOOL_ID`, `CREATE_FILE_TOOL_ID` and the `AgentFilesPolicy` type.
+  
+  A handler of a tool that declares `updatesFiles` gets `ctx.files.update({ fileId, expectedVersion, name?, contentType, bytes })` on a call with an `idempotencyKey`. It answers `{ file }`, the new version; `{ same }`, Latest, when the bytes are Latest's; `{ conflict }`, Latest, when Latest isn't the version the tool read; or `{ notUpdated }`, with a reason from `FILE_NOT_UPDATED_REASONS` (`@kindgi/types`): `rule`, `denied`, `gone`, `type`, `size` or `storage`. A re-run of the call answers the version its first run made. The new version keeps Latest's tags, and Latest's name unless the call gives one.
+  
+  The runtime takes an update through the call's tool files link (pack protocol 2.13.0). It says a call may update with `toolFiles.updates: true`. Without it, as from a runtime before 2.13.0, a handler gets no `files.update`. The tool's update posts its bytes to `<url>/<fileId>/versions`, with `Kindgi-Expected-Version` set to the version it read, and `Kindgi-File-Name` when it names the new version. An update over 10 MB (`MAX_STORED_FILE_BYTES`) answers `size`, and nothing is sent. `@kindgi/api` serves the route as `toolFiles.update` (`POST /v1/tool-files/{fileId}/versions`) for a `ToolFilesBinding` that has `update`, and answers a `ToolFileUpdateAnswer`. Without `update`, it answers 404, as it does for an unknown token. In `@kindgi/agents`, a `FileBinding` gains `update`, keyed by the call, and `create`, which answers a `FileCreateAnswer`: the new file, or why there's none (`FILE_NOT_CREATED_REASONS`: `denied`, `type`, `size` or `storage`). `@kindgi/pack-conformance` gains the `file-updates` feature and the fixture tool `conformance.update`.
+  
+  **The model's file tools.** On a turn whose file binding can, `kindgi_update_file` takes `{ fileId, expectedVersion, content }`: the whole new text of a version the turn was given (in its messages, a tool's result or the history its model reads), up to 1 MB of UTF-8 (`FILE_LIMITS.textBytes`, a text file's limit). It changes only a version of at most 100,000 bytes: a model reads a text file's first 100,000 characters (`FILE_LIMITS.textChars`), so a longer version may have been read cut, and the tool answers `too-large` without sending anything. It adds a version through `FileBinding.update` under the call's key, keeping that version's type, and answers `{ status, files?, reason? }`: `updated`, `same` or `conflict`, each with the file in `files`, so the next call shows it (Latest, for `same` and `conflict`); or `not-text`, `too-large`, `gone`, `not-in-run`, `not-allowed` or `not-stored`, each with a reason. `kindgi_create_file` takes `{ name, content, contentType? }` (`text/plain` by default) and answers `created`, with the new file, or `not-text`, `too-large`, `not-allowed` or `not-stored`. Both are mutating, write `files`, and are asked of `authorizeToolCall` as built-ins are. Only text changes this way: `isTextFileType` (`@kindgi/types`) says which types are text, any `text/*`, JSON, XML and YAML, and their `+json`, `+xml` and `+yaml` types. `@kindgi/agents` exports `FILE_TOOLS_VERSION` and the `UpdateFileToolOutput` and `CreateFileToolOutput` types.
+  
+  A file a model call is shown, when its value has a `fileId` and `version`, comes after the line `file <fileId> v<version>` (`@kindgi/capabilities`' `fileParts`), so the model can name that version; a value from before file versions shows as before. A model now reads as text every type `isTextFileType` takes, not only `text/plain`, `text/markdown` and `text/csv`, so it can read a JSON, XML or YAML file it was given or made; a text block shows the type without its parameters. A kept file value keeps its `fileId` and `version` in a model message. Publishing an agent that declares `files.update` or `files.create` to an API with no file store (no `fileVersions`) answers the warning `files-unavailable`.
+  
+  **A file version's node.** `@kindgi/provenance` exports `FileVersionAttributes`, the keys an `artifact` node of a file version carries in its `attributes`: `fileId`, `fileVersion`, `fileName`, and `filePreviousVersion` on an update's node, with the version's sha256 as the node's `contentHash`. `fileVersionOf(node)` reads them, and answers `undefined` for a node from before file versions. `FileBinding.admit`'s doc says that a value naming a `fileId` and `version` is admitted only when the runtime's record says they're its `artifactId`'s bytes, and carries them from that record. A value that names only one of `fileId` and `version` isn't admitted, and a deleted version is `notShown: 'gone'`, as a deleted file is.
+  
+  **A record's file versions.** `@kindgi/provenance` exports `ProvenanceFileVersion`, a file version a run took or made as a runtime gives it (`how`: `input`, `made` or `given`), and `fileVersionNodes`, which makes their nodes, at most `MAX_FILE_VERSION_NODES` (1000) with one node counting the rest. `FlowProvenanceRun` takes them as an optional `files`, each with the step it came from or went to, and an optional `outputFile`; `FLOW_PROVENANCE_LIMITS.maxFileNodes` is the new cap. An agent turn's record gets them from the run's `FileBinding.versions`, when the runtime has it, with an edge to the call that made or was given each one. A file version's `contentHash` is the version's own sha256, as the files API answers it.
+  
+  **What `type` means.** A tool's store and its update answer `type` when the bytes aren't the type they claim, or they're a type no model is shown and no tool the run can call reads files. `FILE_NOT_UPDATED_REASONS`, `FileNotStoredReason`, the tool-files routes' answers, the pack protocol's text and the Python pack SDK now say it in those words. So a run that can call a tool that reads files can keep a file of a type no model is shown, up to `MAX_STORED_FILE_BYTES` (10 MB), the cap on every file a tool stores or updates.
+- f85b5d7: A pack service no longer names `GPG_KEY` in its `env-dropped` line, so a Python pack's service no longer warns at every start: Python's base image sets it in every Python pack's image. The service still drops it like any name the pack doesn't declare, and a pack that reads it declares it. `QUIETLY_DROPPED_ENV_NAMES` lists the names it drops without naming them. The list is the same in TypeScript, Python and Java, and the conformance suite now starts each service with `GPG_KEY` as the only name the pack doesn't declare, and checks that it doesn't reach the pack's code and that no `env-dropped` line is written.
+- 94424cc: A TypeScript pack's helper module under a discovery folder, a file whose name starts with `_` (`tools/_shared.ts`, `tools/echo/_format.ts`), is skipped when it defines no primitive, as in a Python pack. Such a file failed the index with `no-default-export` or `ambiguous-kind`. A `_` file that defines a primitive is indexed as before, and one that fails to import still fails. Both errors now say a helper module's name starts with `_`, and the `kindgi-authoring-tools` skill (0.5.7) says it too.
+- cb29e00: **Pack protocol 2.12.0: the workspace's time zone.** A call's `ctx` can carry `timeZone`, an IANA name such as `America/Toronto`, the one `@kindgi/tools`' `ToolContext.timeZone` has: an agent turn reads it once, and every call the turn makes gets the same one, `UTC` when the workspace sets none or it can't be read. `pack-protocol.schema.json` gains it, optional, at protocol 2.12.0 (this release's schema-version is 2.13.0), and the Python SDK's copy matches. The Python and JVM packs hand it to the handler as `ToolContext.time_zone` and `ToolContext.timeZone()` (`None` or `null` from an older runtime), and a TypeScript pack service passes it on as it is. A pack service from before 2.12.0 ignores it. In all four languages, the conformance suite sends it and checks that each SDK hands it to the handler, that a call without it gives the handler none, and that an older service still answers a call that carries it.
+- 3f33df6: A pack service lists no check for a guardrail that names a built-in check (`checkBuiltIn` in its index entry), as the Python and JVM pack services do: the runtime runs a built-in, and the pack has no code for it. `GET /v1/info`'s `checks` leaves it out, and a `check-invoke` naming it answers `check-not-in-pack`.
+- f7264e7: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.** A Java, Scala or Python tool that sets no version of its own takes the pack's, and a deploy takes no other tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or `"1.0.0-rc.1"` no longer loads: `kindgi build`, `deploy`, `env`, `dev` and `mcp` stop with `config-parse-failed`, naming `pack.version`, as they do when it's missing (`Config file <path>: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '1'`). Write `1.0.0`. The Java and Python packs' own config loaders check it the same way.
+  
+  `defineTool`'s message for a version that isn't `MAJOR.MINOR.PATCH` says so. It called a prerelease such as `1.2.3-beta.1` fine, and then the tool's schema refused it. What `defineTool` takes doesn't change. The Java, Scala and Python authoring skills say each kind's version rule: a tool's is `MAJOR.MINOR.PATCH`, and an agent's is an exact semver with no build metadata.
+- 39c4e12: **An app on zod 3 is shown the way to JSON Schema.**
+  
+  - **A schema from zod 3 is refused by name**, from the zod 3.x package or from zod 4's `zod/v3`. That's a tool's `input` or `output`, an agent's `output.schema` or a check's `configSchema`, and a tool's raw `input` or `output` when the build reads a tool not made with `defineTool`. The message says Kindgi takes zod 4 schemas, and shows the JSON Schema object to write instead. Before, such a schema was read as JSON Schema and failed to compile with a message that never said zod.
+  - **An older zod is named.** A zod 4 schema, such as `zod/v4` from zod 3.25, used with a `zod` older than zod 4 installed, now says the installed `zod` is older than zod 4, not that it isn't installed. When loading `zod` throws, the error keeps what it threw as its cause.
+  - **`kindgi init`'s warning names both ways** for an app on zod 3: move the app to zod 4, or write Kindgi's schemas as JSON Schema objects, with an example.
+  - **The `kindgi-authoring-tools` skill** says the same.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [3621ee2]
+- Updated dependencies [c7b560c]
+- Updated dependencies [5b35796]
+- Updated dependencies [c2fb23f]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [621a831]
+- Updated dependencies [a5c02ad]
+- Updated dependencies [5ed65f8]
+- Updated dependencies [f50cded]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [e975c6f]
+- Updated dependencies [8c5e37a]
+- Updated dependencies [b247ee3]
+- Updated dependencies [9c4b4f1]
+- Updated dependencies [6b72ae9]
+- Updated dependencies [c376829]
+- Updated dependencies [f3515c2]
+- Updated dependencies [524e626]
+- Updated dependencies [be4c212]
+- Updated dependencies [f7264e7]
+- Updated dependencies [71c4e12]
+- Updated dependencies [311ceaa]
+- Updated dependencies [afba79e]
+- Updated dependencies [439bffc]
+- Updated dependencies [86c2610]
+- Updated dependencies [8cac758]
+- Updated dependencies [00afa37]
+- Updated dependencies [a478edf]
+- Updated dependencies [7f9d20f]
+- Updated dependencies [cdf511b]
+- Updated dependencies [25d902a]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/flow@0.7.0
+  - @kindgi/tools@0.7.0
+  - @kindgi/env-schema@0.7.0
+  - @kindgi/log@0.7.0
+  - @kindgi/schema@0.7.0
+  - @kindgi/sandbox@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

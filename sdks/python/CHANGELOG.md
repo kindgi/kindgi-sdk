@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.7.0
+
 - `kindgi`: **the client takes the URL and the token from the running
   `kindgi dev` together, or not at all.** With `KINDGI_API_TOKEN` set (or
   `token=` passed) and no URL, `Kindgi()` and `AsyncKindgi()` no longer send

@@ -1,5 +1,360 @@
 # @kindgi/cli
 
+## 0.7.0
+
+### Patch Changes
+
+- dfaeea7: **`kindgi dev` and `kindgi build` warn about an agent or flow id that isn't the pack's id, a dot and a name.** An agent's or a flow's id is `<pack-id>.<name>`: the pack's own id (`pack.id` in its config), a dot, and a lowercase kebab-case name with no dot. Until now nothing checked that shape, since defining an agent or a flow checks only that its id isn't empty. Both commands now print a warning, with its file, for each id of another shape, for packs in every language:
+  
+  ```text
+  ⚠ flows/record.py: flow "acme.ledger.record-flow" isn't named "acme.<name>" (this pack's id, a dot, then a lowercase kebab-case name with no dot). An id is hard to change once something calls it, so rename it while it's new. The pack runs as it is.
+  ```
+  
+  The pack builds and runs as it did. A pack id may hold dots of its own, so `acme.legal.review-contract` is right in the pack `acme.legal`.
+  
+  **The id types and the skills say what is checked.** The `AgentId`, `FlowId`, `ToolId` and `GuardrailId` comments, and the agents and tools skills, said the define calls enforced the id's shape. They check only that the id isn't empty, and for a tool that it doesn't start with `kindgi_`.
+- 3621ee2: **The templates' agents and flows are named for what they do.** A new pack from `kindgi init` gets these ids. Packs already made keep theirs, and the template names are unchanged.
+  
+  | Template | Before | Now |
+  |---|---|---|
+  | `sample`, `python`, `java`, `scala` | agent `<pack>.echo-agent`, flow `<pack>.echo-flow` | agent `<pack>.greeter` ("Greeter"), flow `<pack>.greet-person` ("Greet a person") |
+  | `woocommerce` | agent `<pack>.store-agent`, flow `<pack>.order-review`, block `<pack>.store-agent-prompt` | `<pack>.order-desk`, `<pack>.review-order`, `<pack>.order-desk-prompt` |
+  | `drupal` | agents `<pack>.content-agent` and `<pack>.content-reviewer`, flow `<pack>.content-review` | `<pack>.style-checker`, `<pack>.article-reviewer`, `<pack>.review-article` |
+  | `follow-up` | agent `<pack>.follow-up` | `<pack>.follow-up-writer` |
+  | `returns-helper` | agent `<pack>.returns-helper` | `<pack>.returns-desk` |
+  
+  Their folders, files and classes follow: `agents/greeter/`, `Greeter.java`, `greeter.py`.
+  
+  **The agents, flows and getting-started skills give naming rules, in all four languages.**
+  - An agent is named for its role, and a flow for its job, verb first.
+  - The pack id names the app or the business once.
+  - No placeholder words such as `agent`, `flow` or `helper`.
+  - One word per thing.
+  - The display name is the id in words, in sentence case.
+  - An id is the pack's own id, a dot, and a kebab-case name with no dot.
+  
+  The examples follow the rules (`acme.ledger.book-expense`, "Brief writer", "Triage a ticket"). So do the `Agent.id` and `Flow.id` comments, and the Python and Java SDKs' examples.
+- 13e8d75: A coding agent and `kindgi dev`'s sandbox now stay out of a self-hosted deployment's `db.env` (its database's password) and `openfga.env` (OpenFGA's database address and key), as they already did `kindgi.env` and `pack.env`. `kindgi init` writes both into the deny rules for Claude Code and the other agents' ignore files, and the getting-started skills name them. A project set up before keeps its rules: add the two lines as the coding agents page shows.
+- 1a5deb5: A schedule, webhook trigger or mail trigger registered without a `projectId` by an API key or session limited to a project goes in that project, not the workspace's default project. With an authorization store, such a registration was refused unless the default project was the key's own; it now succeeds in the key's project. Keys and sessions limited to no project still register in the default project. On a runtime without an authorization store, a key or session limited to a project is refused, `403 key-project-mismatch` (`details.keyProjectId`, `details.projectId`), any change to another project's schedule, webhook trigger or mail trigger by its id: updating, pausing, resuming, unregistering, running a schedule now, or taking a trigger over. A runtime with a store is unchanged and still answers `permission-denied`. Reading another project's trigger by its id stays as it was without a store. The CLI's `--project` help for `schedules`, `webhooks` and `mail-triggers` registration says where a trigger goes without it.
+- c4b13ab: When a build service refuses `kindgi build`, the printed line now ends the service's message with a full stop if it has none, so the "Try again in N s." after it reads as a sentence of its own. A refusal with an empty message ends the line at its code.
+- ce7888b: With `HOME` set but empty, the CLI's home folder resolved under the current folder, often a pack's repository. Now:
+  
+  - `kindgi key create`, `export`, `list` and `trust` refuse rather than use `.kindgi/keys/` there, where `create` wrote the private key. They say to set `HOME` or pass `--home <dir>`.
+  - `kindgi feedback submit`, `status` and `withdraw`, and `kindgi auth login`, refuse rather than keep their files under `.kindgi/` there, and say to set `HOME`.
+  - No command reads a home config file then.
+  - `kindgi dev` refuses where its sandbox would run, since the sandbox keeps the home folder closed.
+  - `kindgi init` writes nothing into a repository root it can't tell apart from the home folder, and says so.
+- ae6d77c: **`kindgi exports create` writes files and their versions.** A bundle gains `files.jsonl` (each file, with its Latest), `file-versions.jsonl` (each file's versions, deleted and purged ones included) and `file-pin-history.jsonl` (each pin and unpin). A live version's bytes are in the bundle already, as `artifacts/<blobId>`, so they aren't read twice.
+- 73f3e04: `kindgi files` works with files kept in the runtime, and every version of each: `list`, `get`, `versions`, `download`, `upload`, `restore`, `pin`, `unpin`, `pin-history` and `delete`. `upload --to=<file-id>` adds a version, and `--expected-version` makes it refuse when Latest has moved. Without `--content-type`, `upload` takes the type from the file's extension. `delete` asks first, unless given `--yes`. On a runtime without the file store, each command says so.
+  
+  `kindgi artifacts` is deprecated, and 0.8.0 removes it. Its help line says so, and each of its commands says on stderr which `kindgi files` command to use. Stdout stays the same.
+- fbb0bca: **`kindgi init` tells a published CLI from a source checkout by the `@kindgi/sdk` spec in the CLI's own package.json, not by where the CLI sits.** It used to call any CLI outside a `node_modules` folder a checkout. A packed CLI copied somewhere else (a `pnpm deploy` folder, an unpacked tarball) then got `file:` or `link:` specs pointing into its own folder, and a Python, Java or Scala pack stopped with "the Kindgi checkout is incomplete". Now, wherever the CLI sits:
+  
+  - A version (`0.4.0`, `^0.4.0`, `0.5.0-rc.1`) means a published CLI. The project pins it, as from `node_modules` before.
+  - `workspace:*` means a checkout only with a `pnpm-workspace.yaml` at or above the CLI. With none, init stops and says the packed CLI's `workspace:` specs were never replaced by versions. Under `node_modules`, it stays a publisher error.
+  - Any other spec (`link:`, `file:`, `catalog:`, a URL, `latest`, or none) stops init with an error that names it. Under `node_modules`, such a spec used to be copied into the project as it was (a missing one was already an error).
+  - Python, Java and Scala packs read the same spec. Under `node_modules`, they used to take any CLI as published, and now stop with the same named error for a spec that isn't a version.
+- d3869cd: **A key for an email sign-in (`em-…`) is self-serve, in `kindgi doctor` and `kindgi license renew`, as the runtime says.** Its next step is to renew it from the deployment or to sign in at access.kindgi.com. Before, these said to write to Kindgi.
+- efc220c: The CLI trusts the limited license signing key `lk-2026-l1` when it checks a renewed key; such a key verifies on runtime 0.7.0 or later. The destination delivery docs list `project-deleted` among the skip reasons.
+- 9d1aefc: **`kindgi auth login --hosted` signs in to Kindgi Cloud, and login asks for the key on a terminal.**
+  - `--hosted` on `kindgi auth login` saves Kindgi Cloud's address, `https://platform.kindgi.com`, as the CLI's own, so a `--hosted` command goes there from then on, and so do the others outside a `kindgi dev` folder. A `--url` for another address beside it is refused (exit 2). With `--profile <name>` it's saved as that profile: `kindgi auth login --hosted --profile cloud`.
+  - Given no key (`--token-stdin`, `--token`, or `KINDGI_API_TOKEN` without a profile), login asks for one, hidden, when stdin is a terminal: `API key for <url>: `. Ctrl+C cancels and an empty key is refused, and neither saves anything. Without a terminal, login never asks: it saves the key stored for that address, or it's refused for having none. When it would replace another address's login and `--force` isn't given, it refuses before it asks.
+  - A hosted command with no API address names `kindgi auth login --hosted` for Kindgi Cloud. So do login's refusal for no address, and its refusal to replace another address's login when `--hosted` named Kindgi Cloud.
+- 366d437: **Kindgi login profiles: a login for each runtime.**
+  - `kindgi auth login --profile <name> --url <url> --token-stdin` keeps a login under that name in `~/.kindgi/config.json`, beside the login without a name. A command uses it only when it names it: `--profile <name>`, or `KINDGI_PROFILE=<name>` in that shell. No current profile is stored, and a profile's key is never found by its address: a command that would need it is refused, naming the profile to add.
+  - `--profile` beats `KINDGI_API_URL` and `KINDGI_API_TOKEN`, and says so on stderr. `KINDGI_PROFILE` beside either is refused. `--url` and `--token` still win, but a `--url` for another address than the profile's is refused. A profile skips this folder's `.kindgirc.json`. `kindgi dev` refuses `--profile` and ignores `KINDGI_PROFILE`.
+  - A name the file doesn't hold is refused, listing the ones it holds, and so is an entry that can't be used, when it's named.
+  - `kindgi auth login --token-stdin` reads the key from stdin, for any login, so it lands in no shell history or `ps`. A key given that way is saved where a stored key for another address would be refused. Under a profile, login never reads the env vars, and a profile for another address is kept unless `--force`.
+  - `kindgi auth list` shows each login's name, address and file, and whether it can be used, never a key. `kindgi auth logout [--profile <name>]` removes one. `kindgi auth whoami` gains `profile`.
+  - `kindgi doctor` names a profile's key, and warns about a profile that can't be used. The sign-in hints name `--profile` and `--token-stdin`.
+- cd1bd88: `kindgi connections connect`'s link and waiting line, and `kindgi exports create`'s line for each kind, go out through `runCli`'s `progress`, as `kindgi build`'s and `kindgi deploy`'s lines do, after the dev runtime's line and the pin warning that the CLI says first. A tool that embeds the CLI gets them there, no longer straight on its process's stderr. Given no `progress`, `exports create` returns its lines in the outcome's `stderr`, and `connections connect` at a terminal still writes its link to stderr, since the person needs it while the command waits. `connectionsSeam.progress` and `exportsSeam.progress` are gone: pass `progress` to `runCli` instead.
+- 84478e9: **A project can be stored with the key.** A `project` field (an id or a slug) in the config file that holds the key, `~/.kindgi/config.json` or a folder's `.kindgirc.json`, is where a command that names no project goes: `kindgi deploy` (after `--project` and the env block's `project`), and the commands that would otherwise take the workspace's default project (`agents publish`, `flows publish`, `guardrails register`, `tools publish`, `sites`, `connection-choices`, `expert-queue` and `queue-rules`). `--project` comes first. The project goes with that key only: a key given with `--token` or `KINDGI_API_TOKEN` has none, and `kindgi auth login` with another key or address removes it, with a warning. `kindgi deploy` names the project it took and the file it came from. Without the field, nothing changes.
+- ab574a3: `kindgi dev` runs runtime 0.7.0-rc.0.
+- e3cd341: `kindgi dev` runs runtime 0.7.0.
+- 5d0d0a3: **Removing a person from the workspace removes the connections they own too.** A connection's `removedReason` gains `owner-removed`: the person who owned it was removed from the workspace. Each one goes as a disconnect does: withdrawn at its app where the app allows, and its stored token destroyed, so a run that was still acting as them finds no connection to act with. `removedReason` now says what each of its values means, and `POST /v1/identity/users/{userId}/unregister` and `kindgi people remove` say that a person's connections go with them. A client that reads `removedReason` can meet the new value; the Python client already takes values it doesn't know.
+  
+  **Upgrading:** people removed before this version keep the connections they own until their removal is finished. Removing them again finishes it and changes nothing else: `kindgi people remove <user-id>`, `POST /v1/identity/users/{userId}/unregister`, or **Finish removing** on their page in the console, which shows while they still hold any.
+- f418104: The corrections and test-case words say which run can be corrected: one that completed with an output. They said a finished run, but a run that failed, was cancelled, or completed with no output is finished too, and is refused with `409 run-not-finished`. The descriptions of `POST /v1/corrections`, `POST /v1/agents/{agentId}/test-set/cases` and the corrections tag say so, as do `kindgi corrections add`'s help, the TypeScript client's `corrections` and `agents.addCase` docs, and the Correct a run's output and An agent's test set guides. What you pass or read doesn't change.
+- 7756ff2: **The Cloud Run module can renew the license key on a schedule, and both deploy modules' expiring alerts now follow the key's own warning window.**
+  
+  - `deploy/gcp-cloud-run`:
+    - With `license_renewal_schedule` (a cron line), the module adds a Cloud Run job on the runtime image that runs `kindgi license renew`, started by Cloud Scheduler. It runs as a service account of its own, which can read the license key and the renewer key and add versions to the license key, and nothing else. The job never restarts the server.
+    - The module always creates the renewer key's secret, `<prefix>-license-renewer` or `license_renewer_secret`, empty; `kindgi license enroll` fills it once. The server gets `KINDGI_LICENSE_KEY_REF` and `KINDGI_LICENSE_RENEWER_REF`, so its expiry warning names the exact renew command. The outputs `license_enroll_command` and `license_renew_command` give both commands.
+    - With `license_usage_key_secret` too (a secret holding a system key with `system:license` alone), the job renews with `--runtime` and `--runtime-token`: it sends counts of the deployment's use. It writes a renewed key as it does without them, and the server uses it when Cloud Run next starts an instance: runtime 0.7.0 can't take a key while it runs. Cloud Run IAM in front of the server would refuse those calls, so the module refuses this setting unless `server_public` or `server_invoker_iam_disabled` is true.
+    - With the schedule, three Cloud Monitoring alerts, sent to `alert_notification_channels`: a run that failed, a key inside its warning window, and, with the usage key, a run that sent no counts. The schedule turns on the Monitoring API.
+    - `upgrade.sh`'s plan check takes the renewal job's new image on an upgrade.
+  - **The expiring alert's lead time changes, in both modules.** It used to fire when the key had under 7 days left. It now fires on any run inside the key's warning window, the same line `kindgi license renew` warns with: from 30 days before the key expires for a key that sets no warning, so much earlier than before, and from 5 days for a key that sets a warning of 5, so a little later.
+- c2fb23f: **`kindgi dev` offers connections.** An agent or a flow can use your own app at a provider on your laptop, as on a deployed runtime.
+  - `kindgi dev` keeps connections' tokens in its database, encrypted under a key pair it makes for that database in `~/.kindgi/dev/connections/<database>/`: each key a file only you can read (`0600`), in a folder only you can open (`0700`), given to the runtime read-only and never printed. `--reset` of the bundled database removes its pair with it; a database you name keeps its pair.
+  - Its start says whether connections are on, with the redirect URI your apps need: `Connections  on · redirect URI http://127.0.0.1:4000/console/connect/callback · register your app in the console (Connection apps)`, or `off` and why. A runtime image that doesn't say shows `off, this runtime image doesn't say`.
+  - The first start on a port the database hasn't used says, once, to add that port's redirect URI to each of your apps.
+  - When the runtime refuses to start because a database's tokens were stored under other keys, `kindgi dev` names the key file and the ways out.
+  - The follow-up template's README says how to send for real under `kindgi dev`.
+  - `@kindgi/env-schema`: `KINDGI_CONNECTIONS_STORE` (development, with the `dotenv` backend): `none`, the default, or `postgres`, the database under a local key. `KINDGI_SECRETS_BACKEND_KMS`'s description names its use there.
+- 2747789: **`kindgi dev` no longer moves a providers record keyed on a hash of the database URL.** Before 0.6.0, a database URL with a list of hosts and ports, or libpq's socket form, keyed its entries in `.kindgi/dev/providers.json` on a hash of the whole URL, password included. 0.6.0 keys them on the URL's hosts, ports and database, and each boot moved the hash-keyed entries and then deleted every key of that shape. A record still keyed on a hash is now left as it is: a provider it registered reads "registered already, not from kindgi.config.ts", and `kindgi providers unregister <id>`, then a restart, makes it the pack's own again.
+- c8395f7: `kindgi dev` on a pack with no primitives yet no longer leaves the runtime warning that the pack service isn't answering. No pack service starts until the first primitive, so the runtime's check at startup found nothing to answer it. Now the local pack service answers that check for the pack: its id and version from the config, no tools and no checks. So the runtime's startup line names the pack with 0 tools and 0 checks. The first primitive starts the pack service as before. In `@kindgi/handler-runtime`, the pack service supervisor has `serveEmpty(pack)`. While no child serves, `GET /v1/info` answers 200 with that pack, no tools and no checks, and `artifactVersion` `none`. `/readyz` and calls still answer 503, and the next `start` or `stop` ends it. Its argument's type, `PackIdentity`, is exported from `@kindgi/handler-runtime/pack-service`.
+- 65674e3: **`kindgi dev` that fails to start the runtime closes its bundler.** When the runtime doesn't start, `kindgi dev` now disposes the bundler's esbuild context as well as closing the pack service before it exits, as it does after a run. Before, the esbuild context was left open, and esbuild could print a Go panic after `kindgi dev`'s own error.
+- c88d9dd: `kindgi dev` runs the runtime with a license key, as every Kindgi runtime does from 0.7.0. The free non-production key from https://access.kindgi.com covers development.
+  
+  - `kindgi auth registry` keeps the license key it logged Docker in with for `kindgi dev`, in `~/.kindgi/license/license-key`: a file only you can read (`0600`), in a folder that holds nothing else (`0700`). A mirror's token isn't a license key, and isn't kept; `--check` keeps nothing. When your key renews, log in again with the new one.
+  - `kindgi dev` takes `KINDGI_LICENSE_KEY` from your shell, else that file. It gives the key to the runtime through Docker's own environment: never in `docker run`'s arguments, and never in the pack's `.kindgi/dev/runtime.env`, where a coding agent reads. With no key, it stops before anything starts and says where to get a free one, and a value that isn't a Kindgi license key is refused there too. A key that expires soon, or has expired, starts with a warning and the way to renew it. With `--runtime-url` it starts no runtime and asks for no key.
+  - `kindgi doctor`'s `license` check reads the key `kindgi auth registry` kept, too. With no key anywhere it fails, where it skipped before, and a kept key's renewal advice is a laptop's: sign in at access.kindgi.com, then `kindgi auth registry` again.
+  - `@kindgi/env-schema`: `KINDGI_LICENSE_KEY`'s description says the server requires it in development mode too, from 0.7.0.
+  - `@kindgi/api`: `GET /v1/license`'s `mode` describes `development` as a runtime before 0.7.0, which ran with no key. From 0.7.0 a development runtime has a key, and answers `licensed`. The field and its values don't change.
+- a49b78e: `kindgi dev` hands `KINDGI_TENANT_EGRESS_PROXY` and `KINDGI_TENANT_EGRESS_NO_PROXY` to the runtime when they're set where it runs: each one that's set and not empty goes into `.kindgi/dev/runtime.env` as it is (the file stays mode `0600`), for a network that lets traffic out only through a forward proxy. `kindgi dev` never prints them. Runtimes before 0.7.0 ignore them.
+- 0f6814b: **`kindgi exports create` exports deleted projects** (`deleted-projects.jsonl`), as a workspace admin reads them from `GET /v1/projects/deleted`: a deleted project is kept and can be restored. Anyone else skips the kind, and so does an export from a server that can't restore projects.
+- 12ff4ea: **`kindgi exports create` exports destinations and where results went.** A tenant admin's export holds each destination (`destinations.jsonl`) and its deliveries (`destination-deliveries.jsonl`). Every export holds each schedule's deliveries (`schedule-deliveries.jsonl`). Someone who isn't a tenant admin skips destinations and their deliveries. A destination's `url` isn't exported, since no route returns it. A runtime before Kindgi 0.7.0 doesn't serve these routes, and the manifest marks them skipped.
+- f50cded: **`kindgi exports create` records the runtime's version.** `manifest.json` gains an optional **`runtime`** (`{ version }`), as `GET /v1/runtime` answers it, so whoever reads the export later knows which release's API shapes its records follow. It's there only when every read found the same version: it's left out for a runtime that doesn't answer it, and for an export whose runtime was upgraded while it ran or between a run and its `--resume`. The command's description now says that an export is the workspace's own copy of its records, not a backup to restore: no runtime loads one.
+  
+  **`KINDGI_TENANT_ID`'s description says what an unset id does.** A runtime serving one tenant seeds a new tenant at every start when it's left unset, so the description says to set it, in lower case, on any runtime you keep, and to give each runtime its own id.
+- e975c6f: A Python, Java or Scala pack's flow is now checked as a TypeScript one is. Their indexers check a flow against `flow.schema.json` only, so a flow with a cycle, an edge to or from a step that doesn't exist, no edge from `$start`, or a node id used twice indexed and deployed cleanly, then hung until "Run stuck", completed with nothing run, or skipped a step.
+  
+  - `@kindgi/flow` exports `flowGraphProblem(flow)`, with its answer type `FlowGraphCheck`: `loadFlow`'s graph checks, run after the schema with every object left open, so a field from a newer SDK is passed over. It answers `ok`, `err` (the error `loadFlow` gives) or `not-judged` (a shape this version doesn't know). `loadFlow` is unchanged.
+  - `kindgi dev` and `kindgi build` run it on every indexer's result. A flow that fails is a `manifest-validation-failed` file error (`<module>: flow '<id>' is invalid: <code>: <message>`) and is left out of the index file, so `kindgi dev` never serves it, and `kindgi build` stops. A flow whose shape the CLI doesn't know stays, with a `flow-not-checked` warning.
+  - `POST /v1/deployments` refuses a flow that fails them with `deployment-validation-failed`, and the flow's issue message starts with the check's code (`cycle-detected: …`). A flow already deployed keeps running as before; deploying it again is refused until it's fixed. A field or a shape the API doesn't know is passed over, not refused.
+  - `@kindgi/pack-conformance` ships an invalid-flow pack per language (`fixtures/<name>-invalid-flow-pack`, whose one flow is `FIXTURE_CYCLE_FLOW_ID`), and a case that its cycle is refused, by the indexer or by `flowGraphProblem` on the index it wrote. A target feeds it through the optional `indexInvalidFlowPack`; a target without it has the case skipped, and the skip says so. Every flow in the fixture pack's index must pass `flowGraphProblem` too. The suite depends on `@kindgi/flow`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say where a flow is checked: `kindgi dev` and `kindgi build` run the graph checks on every language's flows, and a deploy refuses a flow that fails them.
+  
+  To upgrade a Python, Java or Scala pack: run `kindgi build` (or `kindgi dev`) once on this CLI before you deploy, so a flow the deploy would refuse shows up as a file error first.
+- 74d2fe7: The `gemini` and `gemini-api` provider presets price a cached prompt token at a tenth of the input price, as Google bills it on Vertex AI and the Gemini API, past `gemini-3.1-pro-preview`'s 200K-token threshold too. Before, they set no `cachedPromptMultiplier`, so a turn's `totalCostUsd` priced cached tokens at the Gemini adapter's default of a quarter, 2.5 times too high. The Gemini adapter's README example and the providers skill's Vertex AI example set it too. A provider already registered from either preset keeps the prices it was registered with: to take the new ones, unregister it, then register the preset. For one a pack's config declares, restart `kindgi dev`, which registers it again because the preset changed. Both presets' `pricesCheckedAt` is 2026-11-07.
+- 0c60659: **A tenant admin gives another tenant admin capabilities, and takes them back.** `POST /v1/identity/users/{userId}/capabilities` gives 1 to 32 of them, and `DELETE /v1/identity/users/{userId}/capabilities/{capability}` takes one back. Each answers with the person's grants after. In the TypeScript client, that's `users.giveCapabilities` and `users.takeBackCapability`.
+  
+  - **What may be given** is only what the admin's own person holds now. What their key was made with never counts, so a service account or a system key gives none (`403 caller-not-a-person`). A capability they don't hold is `403 capability-not-held`, naming the missing ones. No person gives `secrets:reveal` or a system capability (`403 capability-not-givable`). Only a tenant admin is given any (`409 receiver-not-tenant-admin`).
+  - **Taking back** is for a tenant admin whose own person holds the capability, or for the person themselves, with a full API key or session: not a `member` one, nor one limited to a project. The last holder's may go. One the person doesn't hold is left as it is.
+  - **The binding:** `PersonCapabilitiesBinding` gains optional `give` and `takeBack`, which check the rest. A runtime without them answers `501 person-capabilities-unsupported`. Both routes also need `personGrants`, as the grants read does.
+  - **Reading them:** `PersonGrants` gains an optional `capabilities`, on `GET /v1/identity/users/{userId}/grants` and the people list's `include=grants`. An older runtime leaves it out, which means unknown, not none. `kindgi people grants --table` lists them as rows.
+  - **A person's own:** the routes that let a person read their own record, sessions and grants, or revoke their own sessions, now compare ids as the rest of the API does, whatever their case. A seed user id given in upper case before 0.3.0 now reads its own grants.
+- bc5b4df: The guardrails authoring skill (`kindgi-authoring-guardrails` 0.4.4) loads in levels, as the tools, providers and MCP servers skills do: its `SKILL.md` holds what's true on every path and a table of cases, and each case has its own file beside it (what a guardrail can do, a pack guardrail file, the agent loop, built-in checks, each field, an llm-judge guardrail, testing and changing one, and common mistakes). It corrects three things it said. Its llm-judge example is now a pack file the indexer reads: it default-exports the guardrail, and its check is a pass-only `defineCheck` of kind `llm-judge` (a file with named exports only is `no-default-export`). A test that runs `validateGuardrail` on an llm-judge guardrail registers that check, since the check a guardrail names must be registered, with the same kind. And `retry` sits beside `on-violation` in `action`: `action: { 'on-violation': 'retry', retry: { maxAttempts: 3 } }`. It also says that a pack reaches `@kindgi/guardrails` only through `@kindgi/sdk`, so a test that imports it adds it as a devDependency.
+- 8c5e37a: **An identity provider can let colleagues join by domain.** `join: domain` now does what it says: someone the workspace's own identity provider signs in for the first time, with a verified email at one of its `domains`, is added as a new person, when the deployment routes that domain to the workspace. A new optional `joinRole` says what they get: `viewer` (the default) or `runner` (who also runs its agents and flows) on the default project, or `none`. It's never tenant admin. Someone removed from the workspace stays out, and the deployment's own ways in (Google, Microsoft, GitHub and the emailed link) still need people added. The person's `createdBy` is `identity_provider:<providerId>`. `joinRole` needs `join: domain` when it's set, and `join: invite` keeps a stored one. `kindgi sso providers finish` and `update` take `--join=invite|domain` and `--join-role=viewer|runner|none`.
+  
+  **Domain join needs an authorization store.** On a deployment without one, setting `join: domain` or `joinRole` is refused with `409 domain-join-needs-authorization`, since a joiner would work in every project. Until now, `join: domain` was saved there and did nothing. A provider already stored with it keeps it, and a change that leaves it alone goes through. A binding says it can join by domain with the identity provider binding's new optional `joinsByDomain`.
+  
+  **`KINDGI_ADMIN_EMAILS` names a self-hosted workspace's tenant admins by email.** On a runtime that serves one workspace and has an authorization store, each listed address is a tenant admin from its first sign-in. At every start, the runtime adds the person if there's none with that email, and makes them a tenant admin with what a first admin holds. While listed, taking tenant admin from them answers `409 listed-admin`, and removing them answers `409 identity-user-unregister-refused` with `reason` `listed-admin`, a new value of `IdentityUnregisterUserRefusal`. Taken off the list, someone the list made a tenant admin stops being one at the next start. `PersonGrants` gains the optional `tenantAdminFromSetting`. The setting is in the environment reference, and the env-schema package exports `ADMIN_EMAILS_VAR`.
+  
+  **Upgrading: once set, `KINDGI_ADMIN_EMAILS` always counts.** Nobody loses tenant admin at the upgrade itself, since no one is one by this setting before it. After that, unset or empty is an empty list: a start without it, such as a redeploy that drops it from the runtime's environment, takes tenant admin from everyone the list made one, and they stay members. To keep them, keep its line, for example `KINDGI_ADMIN_EMAILS=dana@acme.com,lee@acme.com`, in the runtime's environment. Tenant admins made in People or with `tenants make-admin` are never touched.
+- 9b9bb22: **An identity provider's secret is sign-in's only.** An OIDC client secret, or a SAML signing or decryption key, that a tenant's identity provider references is refused to every other user of the secrets store, when it's named and when it's read:
+  - A tool (declared or sent), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a model provider, a connection app registration or a pack's `env` that names one answers `400 identity-provider-key-refused` (`details.secret`, `details.identityProviderId`), and nothing is stored. A name is checked whatever its environment, as a model provider's key is. The check runs after the reserved names, the model providers' keys and the texts registrations' keys. If one app registration serves both sign-in and a connection, give it a second client secret, stored under its own name.
+  - `IdentityProviderKeys` (`of(tenantId)`: each secret's name to the provider that references it) and `identityProviderKeysOf(binding)` read them from the `IdentityProviderBinding`. `identityProviderSecretNames(config)` names a provider's references, and `identityProviderKeyRefusal` and `refuseIdentityProviderKeyNames` are exported with them.
+  - `refuseSecretNames` takes the identity provider keys as an optional sixth argument, and every write route takes them as `identityProviderKeys` (`createApp` passes them).
+  - `SecretKeys` gains `identityProviderKeys`: `guardSecretKeys` refuses such a secret to every user but `'an identity provider'`. `SecretError` gains `identity-provider-key-refused` (`name`, `identityProviderId`).
+  - `POST /v1/auth/providers` and `PATCH /v1/auth/providers/{providerId}` also refuse a texts registration's account key (`400 connection-key-refused`). `authRouter` takes the app's `connectionKeys`.
+  - They also refuse a secret that a tool (its current version), an MCP endpoint, a webhook endpoint, a webhook trigger, a destination or a connection app registration already uses: `409 identity-provider-key-in-use` (`details.secret`, `details.usedBy`), asked after the checks above, and nothing is stored. Without it, setting up sign-in with a secret a connection already uses would leave the connection refused at its next read. `authRouter` takes `secretUsers`; `createApp` passes what a model provider's key is checked against, plus each connection app registration, which `connectionAppsNaming` lists.
+  - `@kindgi/client` reads `identity-provider-key-refused` as an invalid request, with `secret` and `identityProviderId` in `fields`, and `identity-provider-key-in-use` as a conflict. The CLI's `--client-secret-ref` help for `kindgi sso providers` and `kindgi connection-apps add` says to give each its own client secret.
+- b247ee3: **A workspace can let people at its email domain join.** Instead of adding each person, a tenant admin allows a domain, and someone who signs in with a mailbox there, by a way that proves it (a Google Workspace account at it, a Microsoft work account, or the emailed link; never GitHub), and whom the workspace doesn't have yet, is offered the workspace and joins. A joiner gets the domain's role: `viewer` (the default) or `runner` on the default project, or `none`, never tenant admin, and their `createdBy` is `email_domain:<domain>`. A person's record now carries `createdBy`, who added them, as ids only (`user:<id>`, `service_account:<id>`, `identity_provider:<providerId>`, `email_domain:<domain>` or `site:<siteId>`): absent for the seed user, and from a runtime that doesn't keep it. Someone removed stays out, and stopping allowing a domain stops new joins only. A sign-in through the workspace's own identity provider follows that provider's `join` setting instead. The routes are `GET` and `POST /v1/auth/join-domains`, `PATCH /v1/auth/join-domains/{domain}` and `POST /v1/auth/join-domains/{domain}/unregister`, and the TypeScript client's `auth.joinDomains`; `kindgi exports create` writes the allowed domains as `join-domains`. From the CLI, `kindgi sign-in join-domains list` lists them, `allow <domain> [--role=viewer|runner|none]` allows one, and `remove <domain>` stops one; an API key proves no email, so `allow` takes the operator's key (on a runtime serving one tenant, a key holding `kindgi:system`). A runtime implements them with the new `JoinDomainBinding`, passed as the app's `joinDomains`; without one, the routes aren't there.
+  
+  **The domain's own mailbox is the proof.** Allowing a domain, or giving its joiners more, takes a tenant admin whose sign-in proved an email at exactly that domain, or the deployment's operator: anyone else, an API key too, is refused with `403 join-domain-not-yours`, recorded like the API's other refusals. Lowering the role, or stopping allowing the domain, takes any tenant admin. A public mailbox domain is refused with `400 join-domain-public`, a domain the operator verified for another workspace with `409 join-domain-verified-elsewhere`, and a deployment without an authorization store answers `409 domain-join-needs-authorization`, whose `providerId` is now only there for an identity provider. `409 join-domain-exists` and `404 join-domain-not-found` are new too.
+  
+  **Where the operator manages sign-in, who joins by domain is the operator's.** With `KINDGI_AUTH_TENANT_PROVIDERS=off`, allowing a domain or giving joiners more takes the operator's credential, and a tenant admin's answers `403 join-domains-operator-managed`. On a runtime serving many tenants, the operator lists and changes a tenant's domains on `/v1/system/tenants/{tenantId}/join-domains` (`system:join-domains`), and a sign-up page asks `POST /v1/system/join-domains/lookup` which workspaces one verified email may join, and which it's in already (`system:join-domains:read`): ids, names and join roles only. The TypeScript client's `systemTenants` gains `joinDomains`, `allowJoinDomain`, `updateJoinDomain`, `unregisterJoinDomain` and `lookupJoinDomains`, and both new 403 codes are `forbidden` auth errors.
+- 6a6b029: **A key can't outlive the key that makes it.** When an admin's key is revoked, or the admin is removed, keys they made with it from the command line stop too, pipelines' keys included. Keys made from the console's SSO, social or emailed-link sign-in, or with the deployment's token, don't.
+  
+  - `POST /v1/tokens` passes the store the key a new key is minted with (`TokenMintInput.mintedWith`): the caller's key, or the key a token sign-in session was opened with. A session from any other sign-in, and the deployment's token, pass none. A key carries it as `mintedWith` (`ApiTokenRecord`, `ApiToken`). A store hands back a new key revoked when that key turns out revoked as it mints.
+  - Revoking a key revokes every key minted with it, and with those in turn, whoever they act for, and ends their sessions. `POST /v1/tokens/{tokenId}/revoke` answers `alsoRevoked`, oldest first (`TokenRevokeOutcome`), and `client.tokens.revoke` resolves to `{ id, alsoRevoked }` (`TokenRevoked`). Revoking a revoked key revokes any key minted with it that isn't revoked yet.
+  - `GET /v1/tokens?mintedWith=<tokenId>` (`client.tokens.list({ mintedWith })`) lists the keys minted with a key, to any depth, within what the caller sees. Each page says `mintedWith`; an older runtime ignores the filter, and its page doesn't.
+  - Removing a person counts the keys minted with theirs apart, as `mintedKeysRevoked` (`IdentityUnregisterUserResult`, `UnregisterUserResult`).
+  - `kindgi tokens revoke` says how many keys went with it, and `kindgi people remove` how many were minted with theirs.
+  - Every new field is optional. A store that doesn't record which key minted which leaves them out, and a key minted before a store recorded it stands alone.
+- 712383f: **A renewed license key can be handed to a running server that takes one (`PUT /v1/license`). Runtime 0.7.0 doesn't serve that route, so it runs a renewed key from its next start.**
+  
+  - `@kindgi/api`: `PUT /v1/license` (`license.replace`) hands the running server a key, sent as `{ "key": "kgi_lk_…" }`.
+    - Only the deployment's operator can: with its own token, or with a system key holding `system:license`. System keys now reach this route too.
+    - The server checks the key as it does at startup, and against the key it runs. It refuses a key for another licensee or another use, and an older key: one that expires earlier, or expires at the same time and was issued earlier.
+    - Taken, it answers with the license, as `GET /v1/license` does.
+    - Refused, it answers 409 `license-key-refused`. Its `reason` is one of `malformed`, `unknown-key`, `bad-signature`, `not-yet-valid`, `expired`, `other-licensee`, `other-use` or `older`.
+    - A server that binds no `replace` doesn't serve the route. Runtime 0.7.0 binds none.
+  - `@kindgi/client`: `client.license.replace({ key })`.
+  - `@kindgi/cli`: `kindgi license renew --runtime` offers a new key to the runtime before writing it.
+    - Taken: the key is written, and the runtime runs it now.
+    - Refused: nothing is written. Renew exits 1 with the runtime's reason.
+    - No answer, or a runtime that can't take a key, as runtime 0.7.0 can't: the key is written, with a warning that the runtime uses it from its next start.
+    - One exception: a key whose signing key needs a later runtime than the current key's, 0.7.0 or later. That key isn't written, and renew exits 1, because an older runtime would refuse it at its next start. No signing key needs 0.7.0 yet.
+    - Unchanged, where the runtime runs a key that expires earlier (it wasn't handed the key on the day it was written): the kept key goes to it, and nothing is written. Renew succeeds either way, with a warning when the runtime didn't take it. A runtime that runs the kept key, or a later one, is handed nothing.
+    - Without `--runtime`, renew writes the key as before.
+- 712383f: **A license key can set when it starts warning and what it limits.**
+  
+  - `@kindgi/cli`:
+    - **Warning window.** A key's `warn`, in whole days from 1 to 30, is when it starts warning that it expires. Without it, the window is 30 days, as before. `kindgi doctor` and `kindgi license renew` warn from it.
+    - **Limits.** A production key's `lim` is read: `flows` and `agents`, whole numbers from 1 to 100000. A key isn't a key if either is out of range, or if a non-production key has a `lim`.
+    - **Older keys.** Renewal now also refuses a key that expires at the same time as the current one but was issued earlier.
+  - `@kindgi/api`: the license (`GET /v1/license`) gains `limits` in its operator's view. A tenant admin's view doesn't have it. For each count the key limits, it gives:
+    - `plan`: the number the key carries;
+    - `most`: the most the runtime runs; past it, it refuses new ones;
+    - `inUse`: how many it counts now.
+- f7264e7: **`pack.version` must be `MAJOR.MINOR.PATCH`, such as `1.0.0`.** A Java, Scala or Python tool that sets no version of its own takes the pack's, and a deploy takes no other tool version. A pack whose `pack.version` is `"1"`, `"1.0"` or `"1.0.0-rc.1"` no longer loads: `kindgi build`, `deploy`, `env`, `dev` and `mcp` stop with `config-parse-failed`, naming `pack.version`, as they do when it's missing (`Config file <path>: 'pack.version' must be MAJOR.MINOR.PATCH (e.g. 1.0.0), got '1'`). Write `1.0.0`. The Java and Python packs' own config loaders check it the same way.
+  
+  `defineTool`'s message for a version that isn't `MAJOR.MINOR.PATCH` says so. It called a prerelease such as `1.2.3-beta.1` fine, and then the tool's schema refused it. What `defineTool` takes doesn't change. The Java, Scala and Python authoring skills say each kind's version rule: a tool's is `MAJOR.MINOR.PATCH`, and an agent's is an exact semver with no build metadata.
+- ea7d74f: **A runtime can count the flows and agents in production against its license key's plan: at the plan, a write's answer warns, and past the most the key runs, a write that adds new ones is refused, and adds none of them.** The app takes a plan limits binding (`planLimits`, a `PlanLimitsBinding`) and asks it on each write that can add a flow or an agent to production: publishing an agent or a flow (`POST /v1/agents`, `POST /v1/flows`) and reinstating a retired version of one, deploying (`POST /v1/deployments`), promoting a build (`POST /v1/deployments/{deploymentId}/promotions`), putting a project in production (`PUT /v1/projects/{projectId}/production`), and the agent version a suggested change's check makes. Past the most, the write is refused with `403 plan-limit-reached`, whose `details` name each count over and the ids the write adds; when its turn to count takes too long, with `503 plan-count-busy` and `Retry-After`, and a retry is safe. Once a count reaches its plan, these answers carry `planWarning` (`PlanWarning`: `flows` and `agents`, each a `PlanCount` with `plan`, `most` and `inUse`), and so do the deploy check's and a promotion check's, which answer as the write would. `POST /v1/deployments/check` takes the pack's `flows` too. Without a binding, nothing is counted, as before. `kindgi deploy` sends the pack's flows to the check and stops there on `plan-limit-reached`, with nothing deployed; it and `kindgi promote` print a line for each count the answer warns of, flows first. The client's types gain `planWarning` on those answers.
+- 697cdc8: **Breaking, for API keys limited to a project, with authorization on.** Such a key reads its own project's work and what that work needs, and no longer reads the rest of the workspace:
+  
+  - Rows with no project are the whole workspace's, so the key doesn't read them: artifacts, cost records, provenance records, approvals, and deployments that serve no project. A list leaves them out, and one asked for alone answers as another project's does: 404, or 403 for a cost record.
+  - The workspace's settings answer 403: model providers, policies, adapters, capabilities, signing keys and identity providers. So `kindgi providers list|get` and `kindgi sso providers list|get` refuse such a key.
+  - Of the workspace's orgs, the key reads only its project's, and it reads no team. The workspace's release gates, which apply to its project's runs, it still reads.
+  - In memory, it still reads its person's own facts that name no project, as the runs it starts recall them. But it writes, changes, verifies and deletes its person's facts only in its project: one that names no project answers 403 `permission-denied`, since it reaches that person's runs in every project. A session limited to a project gets the same answer.
+  - A cost total leaves out records with no project, and a cost total for another org's scope answers 403 `permission-denied`, where it was an empty total before. `CostAggregateInput` gains an optional `includeTenantRecords`: the route sets it to `false` for such a key, and a binding that applies `readableProjectIds` applies it too.
+  - `kindgi doctor` skips its provider check for such a key and says why, instead of advising a restart.
+  
+  A key that isn't limited to a project, and a person's own sign-in, read as before.
+- e11e55e: A Python pack's image build now fails when one of the pack's modules won't import there, instead of leaving that module's tools out of the image's index. Before, the build went on, and `kindgi build` then stopped at the integrity gate, which said only that the image's index differed from the local one. The image installs the main dependencies only (`uv sync --no-dev`, or Poetry's main group), so a package that a tool imports and only a dev group lists loads under `kindgi dev` but not in the image. The build log now names the file and the missing module, and says to move the package to `[project].dependencies` (in a Poetry 1 app, `[tool.poetry.dependencies]`). A helper module whose name starts with `_` and won't import there doesn't stop the build on its own: a tool that imports it fails too. If it defines tools itself, they're left out of the image's index, and the build log says so, with the same fix. The image runs the pack's own `kindgi`, so this needs a `kindgi` whose `python -m kindgi.pack index` has `--strict`. With an older one, the image indexes as before.
+- e2cddae: A removed schedule, webhook trigger, mail trigger or text trigger can be read. `GET …/{triggerId}/versions/{version}` answers a removed trigger's version, with `unregisteredAt` saying when the trigger was removed, so a run's `trigger.version` resolves whatever became of its trigger. Before, it was `404 trigger-not-found`. The trigger itself, its versions and its fires read with `?includeUnregistered=true`, and so do the lists; `?status=` matches the status a removed trigger had. Changing a removed trigger is still `404`. `TriggerRegistryBinding`'s reads take an optional `includeUnregistered`, and its records and versions carry an optional `unregisteredAt`: a registry that ignores the input answers as before. The in-memory registry (`@kindgi/api/testing`) keeps a removed trigger and answers it when asked. `kindgi exports create` asks for removed triggers too, with their versions and fires, so a run's `trigger.version` resolves inside the export as well.
+- a28729c: **`kindgi init --template=returns-helper` scaffolds a date and time tool.** The helper gets a third tool, `<pack-id>.today`, which answers the date, the weekday and the time in the workspace's time zone (`ctx.timeZone`, UTC without one), with its test in `tools/today/index.test.ts`. Its instructions tell it to ask the tool before answering anything that depends on the date.
+- ced2a0f: **A SAML provider carries the service provider's certificates, for its metadata.**
+  - `SamlProviderConfig`, and the API's SAML provider, take `spSigningCertificates` and `spDecryptionCertificates`: the certificates (PEM) of the keys `spSigningKeyRef` and `spDecryptionKeyRef` name. They're published in the service provider's metadata (`signIn.spMetadataUrl`), so an identity provider that imports it has them, and no one adds a certificate by hand. Several signing certificates let the key change without a gap. Certificates without their key are refused with `400 invalid-provider-config`, on a registration and on a change, and so is one that holds a private key, which would be published; `PATCH` removes them with `null`.
+  - `kindgi sso providers finish` and `update` take `--sp-signing-certificate=@<file>` and `--sp-decryption-certificate=@<file>`, each repeatable, and `--sp-decryption-key-ref=<name>` beside `--sp-signing-key-ref`.
+- b9f0857: `kindgi test-runs start --help` no longer says `--agent-version` and `--flow-version` default to the latest version. A run on test cases (a `corrections` test set) tries one version, and one started without it is refused, so the help now says the flag is required there. The CLI reference says the same.
+- fd2d147: Finding a link in a remembered fact or the ids a drafted template names, and masking URLs, tokens and `key=value` secrets in a feedback report or a tool's error line, take time in step with the text's length.
+- 768e1b3: **A run can start from a text message.** `RunStartedBy` gains `text`, for a run a text trigger fired. Such a run is one no person is watching, with the rules a mail-started run has:
+  - The text is read as outside data, in an `<event>` block, never as the person's own message.
+  - Every tool that changes something (any tool that isn't `mutating: false`) waits for a person's yes, with the new reason `text-change` (`UnattendedWaitReason`), unless the trigger lists it in `toolsAllowedUnattended`. A read-only tool runs.
+  - A tool that declares `needsApprovalWhenUnattended`, or uses a person's connection, waits as in any run no person started, unless the trigger lists it.
+  - A run's `startedBy` in the API can be `text`, and such a run acts for the trigger's owner.
+  
+  **Text triggers.** A text trigger starts a run of an agent or a flow for each text (SMS or WhatsApp) to a business number, with the text as the run's input. `TRIGGER_KINDS` gains `text`.
+  - The API has `/v1/text-triggers`: register, list, get, update, pause, resume, unregister, its fires, its versions, and take ownership. The CLI has `kindgi text-triggers`, and the TypeScript client has `textTriggers`.
+  - Its `config` names the number, `connectionId`: one of the project's company connections of app `texts`. `runsPerHour` (1-600, default 60) and `perSenderPerHour` (1-60, default 10) limit how many runs it starts.
+  - One live text trigger answers a number. Registering another on it, or moving one onto it, is refused with `409 trigger-connection-taken`, whose `heldBy` names the trigger that answers it, which can be in another project of the workspace. A paused trigger keeps its number; unregistering it frees the number.
+  - The number is the company's, so registering a text trigger and every change to one take a project admin. Pausing, resuming and unregistering follow the rules other triggers have.
+  - `toolsAllowedUnattended` never lists `kindgi_send_text`: a text that isn't a reply always waits for a person's yes.
+  
+  **Texts come in at `/v1/texts-inbound/{tenantId}/{appId}`.** It's where a texting provider delivers to a texts registration: `POST` for texts and delivery statuses, `GET` for a provider's handshake.
+  - No sign-in: the server checks the provider's own signature over the URL it called and the body's exact bytes, before anything is written. A bearer token, a cookie or a `Proxy-Authorization` header, if sent, is never read nor passed on.
+  - A request that doesn't prove its sender is `401 texts-inbound-refused`, the same answer whatever the reason, a body over the cap included, at any size, and a client past its refusals this minute gets `429`. The server's own trouble is `503 texts-inbound-unavailable`, and the provider sends the texts again.
+  - `ConnectionBinding` gains an optional `receiveTexts`, and the route is mounted only where a binding has it.
+  
+  **The texts connection: a business number, connected without a browser.** `@kindgi/connections` gains the `texts` entry (`@kindgi/connections/texts`), for the company: a number at a texting provider (Telnyx for now), with the permissions `texts.reply` and `texts.send`.
+  - `SignIn` gains `token`, an account's credential kept on the registration by reference, with the providers it serves. `AccountLookup` gains `number`, and `AppRemoval.revoke` gains `restore-inbound`. `defineApp` checks that the three go together, and that each permission of a `token` sign-in grants its own key.
+  - A texts registration takes `token`: the provider, its API key by reference (`apiKey`) and the account's Ed25519 public key (`publicKey`, base64 of 32 bytes), on `POST` and `PATCH /v1/connection-apps`. The key reaches the whole provider account, so a secret a tool, MCP endpoint, webhook endpoint, webhook trigger or destination uses is refused with `409 connection-key-in-use`, and nothing is stored.
+  - Only its registration names that key. A tool, an MCP endpoint, a webhook endpoint, a webhook trigger, a destination, a model provider or another connection app registration that names it is refused with `400 connection-key-refused` (`details.secret`, `details.appId`), and nothing is stored; a texts registration whose key another registration names in any of its secrets is `409 connection-key-in-use`, with that registration in `usedBy` (kind `connection-app`). Both ask for a new API key from the provider, stored under its own name, since a copy of the account key under another name reaches the same account; the 409 also says to rotate a shared key at the provider. A removed registration frees its key, and one kept while its numbers' inbound can't be put back still holds it. `@kindgi/api` exports `connectionKeysOf` (its `ConnectionKeys` maps each key to every live registration holding it) and `connectionKeyRefusal`, and the TypeScript and Python clients read the new code as an invalid request.
+  - `POST /v1/connections` takes `number` (E.164) and `replaceInbound`. A texts connect comes back `connected` at once, with its `connectionId`; it keeps `connectUrl`, whose page only shows it connected, and `expiresAt`, which ends only a `pending` request. A number whose texts go somewhere else today is refused with `409 inbound-in-use`, naming the webhook's host or the messaging profile, until the connect says `replaceInbound: true`. A number live in another environment, or under another texts registration, is `409 number-in-use`. A reconnect names the same number, and is how a connection whose key the provider refused (`credential-refused`) works again once the registration's secret is updated.
+  - A disconnect puts the number's old inbound back first. When that fails, the connection stays `removing` and the answer is `502 inbound-restore-failed`; disconnecting again retries, and `DELETE /v1/connections/{connectionId}?skipInboundRestore=true` drops what was kept without putting it back. The flag is ignored for a connection of any other app. Removing a registration with its connections does the same for each number, and keeps the registration while one fails.
+  - A connection gains `lastProvenInboundAt` and `textsThisMonth` (`received`, `sent`, `unanswered`), for a number only.
+  - The CLI: `kindgi connection-apps add texts --provider=telnyx --api-key-ref=<env>/<name> --public-key=<base64>`, `kindgi connections connect texts --for-company --number=<E.164> [--replace-inbound]`, which prints the connection, and `kindgi connections disconnect <connection> --skip-inbound-restore`. The TypeScript client's `connections.disconnect` takes `skipInboundRestore`.
+  - `@kindgi/connections-inmemory` serves the entry with a fake provider: connect, reconnect and removal work, with hooks for the lookup and the restore, and `seed.inbound` and `seed.credentialRefused` set up a number's state. Texts come in only on a Kindgi server.
+- 00afa37: **A run a text started can answer it.** `@kindgi/agents` offers two built-in tools in such a run: `kindgi_reply_to_text`, when the number grants `texts.reply`, and `kindgi_hand_to_person`.
+  - A reply goes to the person who texted, on the same number and channel. The number, channel and sender come from the run, never from the model: the reply takes only its text, up to 1600 characters.
+  - A refusal (`texts-window-closed`, `texts-opted-out`, `texts-with-person`, `texts-not-granted`) comes back to the agent as the tool's output, and nothing is sent.
+  - The hand-over gives the conversation to a person, with a note for them, and no run answers that thread's texts after it. It doesn't wait for a person's yes the way other changes in such a run do; a workspace or agent rule that always asks still asks.
+  - `toolsAllowedUnattended` can list the reply and the hand-over.
+  - A run that waits keeps its thread: `InvokeAgentInput.textThread` is recorded with the run, and a resumed run replies on the thread it started from.
+  - A step that runs again, resumed or retried, replies and hands over once: the host's `TextsToolBinding` gets each call's `idempotencyKey`, and a repeat of a call that went through answers as it did.
+  - A pack tool can't use the `texts` app: `defineTool` refuses it (`BUILT_IN_ONLY_APPS`). A flow's tool node can't name a tool built into Kindgi (the `kindgi_` prefix, `BUILT_IN_TOOL_PREFIX`, now exported by `@kindgi/types` too).
+- cdf511b: **An HTTP tool's `secretRef` can leave its env out.** `authorization.secretRef.envName` is optional in `tool.schema.json`, in `@kindgi/tools`' `ToolSecretRef` and in the API's `ToolSecretRef`. Left out, the secret is read in the env the runtime serves (`KINDGI_ENV`; `local` under `kindgi dev`), as the secrets a tool's code declares are, so one tool works unchanged in every env. A ref that names its env still reads there. The ref is stored as given, so a tool registered or deployed without an env reads in whatever env the runtime calling it serves. A runtime from before this release refuses a ref without an env when the tool is registered or deployed.
+  
+  On a runtime that refuses other envs (`refuseOtherEnvs`), `POST /v1/tools` and `POST /v1/deployments` answer `409 env-not-served` for a tool whose `secretRef` names an env other than the served one, with `details.envName` and `details.servedEnv`. A deploy refuses that tool before anything is stored, even when it would keep a version already published. To read the secret under the served env, leave `envName` out. `KINDGI_REFUSE_OTHER_ENVS`' description and the `env-not-served` error reference name the tool case and its fix. A promotion, and reinstating an unregistered version, aren't refused: a tool's definition changes only where it's registered or deployed.
+  
+  **Breaking for code that reads a ref's env.** `ToolSecretRef.envName` is now `string | undefined`, in `@kindgi/tools` and in `@kindgi/sdk`, which re-exports it. A harness or a test that resolves a tool's secret from its ref, such as `resolveSecret: (ref) => store.get(ref.envName, ref.name)`, no longer compiles. The fix is one line: read the env it serves when the ref names none, `resolveSecret: (ref) => store.get(ref.envName ?? env, ref.name)`. Every manifest that names its env stays valid. A Python or JVM client from before this release fails to read a tool whose ref names no env, or a page of tools that holds one, so upgrade the client with the runtime.
+  
+  The authoring skills, the sample pack's HTTP tool and the docs leave the env out, and the skills say when to name one.
+- 39c4e12: **An app on zod 3 is shown the way to JSON Schema.**
+  
+  - **A schema from zod 3 is refused by name**, from the zod 3.x package or from zod 4's `zod/v3`. That's a tool's `input` or `output`, an agent's `output.schema` or a check's `configSchema`, and a tool's raw `input` or `output` when the build reads a tool not made with `defineTool`. The message says Kindgi takes zod 4 schemas, and shows the JSON Schema object to write instead. Before, such a schema was read as JSON Schema and failed to compile with a message that never said zod.
+  - **An older zod is named.** A zod 4 schema, such as `zod/v4` from zod 3.25, used with a `zod` older than zod 4 installed, now says the installed `zod` is older than zod 4, not that it isn't installed. When loading `zod` throws, the error keeps what it threw as its cause.
+  - **`kindgi init`'s warning names both ways** for an app on zod 3: move the app to zod 4, or write Kindgi's schemas as JSON Schema objects, with an example.
+  - **The `kindgi-authoring-tools` skill** says the same.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [3621ee2]
+- Updated dependencies [70a156b]
+- Updated dependencies [95494bb]
+- Updated dependencies [5903a0b]
+- Updated dependencies [13e8d75]
+- Updated dependencies [c3a1876]
+- Updated dependencies [a976d95]
+- Updated dependencies [c7b560c]
+- Updated dependencies [2a9b047]
+- Updated dependencies [b7f58fb]
+- Updated dependencies [2fe11be]
+- Updated dependencies [7118139]
+- Updated dependencies [5d0d0a3]
+- Updated dependencies [b8cb40c]
+- Updated dependencies [f418104]
+- Updated dependencies [5b35796]
+- Updated dependencies [f8a4191]
+- Updated dependencies [c2fb23f]
+- Updated dependencies [c8395f7]
+- Updated dependencies [c88d9dd]
+- Updated dependencies [621a831]
+- Updated dependencies [a5c02ad]
+- Updated dependencies [5ed65f8]
+- Updated dependencies [6ac7e3d]
+- Updated dependencies [f50cded]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [e975c6f]
+- Updated dependencies [d3435bc]
+- Updated dependencies [74d2fe7]
+- Updated dependencies [0c60659]
+- Updated dependencies [f2baded]
+- Updated dependencies [5ec7895]
+- Updated dependencies [bc5b4df]
+- Updated dependencies [8c5e37a]
+- Updated dependencies [9b9bb22]
+- Updated dependencies [b247ee3]
+- Updated dependencies [520e54d]
+- Updated dependencies [9c4b4f1]
+- Updated dependencies [6a6b029]
+- Updated dependencies [6b72ae9]
+- Updated dependencies [717d950]
+- Updated dependencies [712383f]
+- Updated dependencies [c376829]
+- Updated dependencies [2d81e64]
+- Updated dependencies [f3515c2]
+- Updated dependencies [b4addfd]
+- Updated dependencies [054e09f]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [1dd8f20]
+- Updated dependencies [be4c212]
+- Updated dependencies [090706e]
+- Updated dependencies [f85b5d7]
+- Updated dependencies [94424cc]
+- Updated dependencies [cb29e00]
+- Updated dependencies [3f33df6]
+- Updated dependencies [f7264e7]
+- Updated dependencies [ea7d74f]
+- Updated dependencies [ea5b156]
+- Updated dependencies [c003626]
+- Updated dependencies [6279526]
+- Updated dependencies [71c4e12]
+- Updated dependencies [d5e05dc]
+- Updated dependencies [c09130a]
+- Updated dependencies [de3a30f]
+- Updated dependencies [3af15cf]
+- Updated dependencies [311ceaa]
+- Updated dependencies [3cf1c3f]
+- Updated dependencies [d4814d8]
+- Updated dependencies [13d3769]
+- Updated dependencies [ec86779]
+- Updated dependencies [1df25b1]
+- Updated dependencies [439bffc]
+- Updated dependencies [54faad5]
+- Updated dependencies [86c2610]
+- Updated dependencies [3f33df6]
+- Updated dependencies [8cac758]
+- Updated dependencies [15c2925]
+- Updated dependencies [fd2d147]
+- Updated dependencies [768e1b3]
+- Updated dependencies [00afa37]
+- Updated dependencies [7f9d20f]
+- Updated dependencies [cdf511b]
+- Updated dependencies [d3f48a7]
+- Updated dependencies [a6a4ecb]
+- Updated dependencies [e2fd25b]
+- Updated dependencies [25d902a]
+- Updated dependencies [7078517]
+- Updated dependencies [3997b3d]
+- Updated dependencies [85274b1]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/sdk@0.7.0
+  - @kindgi/agents@0.7.0
+  - @kindgi/flow@0.7.0
+  - @kindgi/client@0.7.0
+  - @kindgi/env-schema@0.7.0
+  - @kindgi/platform@0.7.0
+  - @kindgi/handler-runtime@0.7.0
+  - @kindgi/log@0.7.0
+  - @kindgi/crypto@0.7.0
+  - @kindgi/secrets-dotenv@0.7.0
+  - @kindgi/dotenv-file@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

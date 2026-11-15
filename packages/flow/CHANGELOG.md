@@ -1,5 +1,59 @@
 # @kindgi/flow
 
+## 0.7.0
+
+### Patch Changes
+
+- 3621ee2: **The templates' agents and flows are named for what they do.** A new pack from `kindgi init` gets these ids. Packs already made keep theirs, and the template names are unchanged.
+  
+  | Template | Before | Now |
+  |---|---|---|
+  | `sample`, `python`, `java`, `scala` | agent `<pack>.echo-agent`, flow `<pack>.echo-flow` | agent `<pack>.greeter` ("Greeter"), flow `<pack>.greet-person` ("Greet a person") |
+  | `woocommerce` | agent `<pack>.store-agent`, flow `<pack>.order-review`, block `<pack>.store-agent-prompt` | `<pack>.order-desk`, `<pack>.review-order`, `<pack>.order-desk-prompt` |
+  | `drupal` | agents `<pack>.content-agent` and `<pack>.content-reviewer`, flow `<pack>.content-review` | `<pack>.style-checker`, `<pack>.article-reviewer`, `<pack>.review-article` |
+  | `follow-up` | agent `<pack>.follow-up` | `<pack>.follow-up-writer` |
+  | `returns-helper` | agent `<pack>.returns-helper` | `<pack>.returns-desk` |
+  
+  Their folders, files and classes follow: `agents/greeter/`, `Greeter.java`, `greeter.py`.
+  
+  **The agents, flows and getting-started skills give naming rules, in all four languages.**
+  - An agent is named for its role, and a flow for its job, verb first.
+  - The pack id names the app or the business once.
+  - No placeholder words such as `agent`, `flow` or `helper`.
+  - One word per thing.
+  - The display name is the id in words, in sentence case.
+  - An id is the pack's own id, a dot, and a kebab-case name with no dot.
+  
+  The examples follow the rules (`acme.ledger.book-expense`, "Brief writer", "Triage a ticket"). So do the `Agent.id` and `Flow.id` comments, and the Python and Java SDKs' examples.
+- e975c6f: A Python, Java or Scala pack's flow is now checked as a TypeScript one is. Their indexers check a flow against `flow.schema.json` only, so a flow with a cycle, an edge to or from a step that doesn't exist, no edge from `$start`, or a node id used twice indexed and deployed cleanly, then hung until "Run stuck", completed with nothing run, or skipped a step.
+  
+  - `@kindgi/flow` exports `flowGraphProblem(flow)`, with its answer type `FlowGraphCheck`: `loadFlow`'s graph checks, run after the schema with every object left open, so a field from a newer SDK is passed over. It answers `ok`, `err` (the error `loadFlow` gives) or `not-judged` (a shape this version doesn't know). `loadFlow` is unchanged.
+  - `kindgi dev` and `kindgi build` run it on every indexer's result. A flow that fails is a `manifest-validation-failed` file error (`<module>: flow '<id>' is invalid: <code>: <message>`) and is left out of the index file, so `kindgi dev` never serves it, and `kindgi build` stops. A flow whose shape the CLI doesn't know stays, with a `flow-not-checked` warning.
+  - `POST /v1/deployments` refuses a flow that fails them with `deployment-validation-failed`, and the flow's issue message starts with the check's code (`cycle-detected: …`). A flow already deployed keeps running as before; deploying it again is refused until it's fixed. A field or a shape the API doesn't know is passed over, not refused.
+  - `@kindgi/pack-conformance` ships an invalid-flow pack per language (`fixtures/<name>-invalid-flow-pack`, whose one flow is `FIXTURE_CYCLE_FLOW_ID`), and a case that its cycle is refused, by the indexer or by `flowGraphProblem` on the index it wrote. A target feeds it through the optional `indexInvalidFlowPack`; a target without it has the case skipped, and the skip says so. Every flow in the fixture pack's index must pass `flowGraphProblem` too. The suite depends on `@kindgi/flow`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say where a flow is checked: `kindgi dev` and `kindgi build` run the graph checks on every language's flows, and a deploy refuses a flow that fails them.
+  
+  To upgrade a Python, Java or Scala pack: run `kindgi build` (or `kindgi dev`) once on this CLI before you deploy, so a flow the deploy would refuse shows up as a file error first.
+- 00afa37: **A run a text started can answer it.** `@kindgi/agents` offers two built-in tools in such a run: `kindgi_reply_to_text`, when the number grants `texts.reply`, and `kindgi_hand_to_person`.
+  - A reply goes to the person who texted, on the same number and channel. The number, channel and sender come from the run, never from the model: the reply takes only its text, up to 1600 characters.
+  - A refusal (`texts-window-closed`, `texts-opted-out`, `texts-with-person`, `texts-not-granted`) comes back to the agent as the tool's output, and nothing is sent.
+  - The hand-over gives the conversation to a person, with a note for them, and no run answers that thread's texts after it. It doesn't wait for a person's yes the way other changes in such a run do; a workspace or agent rule that always asks still asks.
+  - `toolsAllowedUnattended` can list the reply and the hand-over.
+  - A run that waits keeps its thread: `InvokeAgentInput.textThread` is recorded with the run, and a resumed run replies on the thread it started from.
+  - A step that runs again, resumed or retried, replies and hands over once: the host's `TextsToolBinding` gets each call's `idempotencyKey`, and a repeat of a call that went through answers as it did.
+  - A pack tool can't use the `texts` app: `defineTool` refuses it (`BUILT_IN_ONLY_APPS`). A flow's tool node can't name a tool built into Kindgi (the `kindgi_` prefix, `BUILT_IN_TOOL_PREFIX`, now exported by `@kindgi/types` too).
+- Updated dependencies [dfaeea7]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [524e626]
+- Updated dependencies [afba79e]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/schema@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

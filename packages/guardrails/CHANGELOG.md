@@ -1,5 +1,42 @@
 # @kindgi/guardrails
 
+## 0.7.0
+
+### Patch Changes
+
+- 95494bb: An agent that lists a guardrail more than once now runs its check once a step, so an llm-judge check is called, and billed, once. An unknown id listed twice is named once in `unresolved-guardrail`. A retried step whose guardrail checks came to none now records that, so the outcome counts hold only the last attempt's checks; a first attempt with none still writes nothing. A `GuardrailOutcomeSink` of your own gets that record with empty `checks`, and should leave the step with no outcomes, as recording a step again replaces what it recorded. Each step of a turn now removes the listener it adds to its run's abort signal when it settles, so a turn of more than ten steps no longer logs `MaxListenersExceededWarning`.
+- 5ec7895: **A guardrail with `sees: 'conversation'` gets the conversation's earlier turns.** Its check reads them in `trace.earlier`, which the agent turn never filled until now: the turns the model was given for this turn, oldest first, all of them or the agent's `conversationPolicy.historyLimit` window. Each is a `TraceTurn`, in the trace's own field names: `userInput`, its `toolCalls` and `toolResults`, and its answer, `output`. A turn the history limit cut short has no `userInput`, and a conversation's first turn gives `[]`. The guardrail gets them at the final answer and at the loop's points, and a pack's check gets them over `check-invoke` with the rest of the trace.
+  
+  - **Only the guardrail that asks gets them.** `evaluateGuardrail` gives `earlier` to a guardrail with `sees: 'conversation'` and leaves it out for the others, so its check, its judge and its action read the same trace. A turn none of whose guardrails asks doesn't read its history for them.
+  - **The history is read once per turn.** The turn keeps what it gave its model, and its checks read that. A turn resumed in another process reads it again, once: the same window, since it ends before the turn's own message.
+  - **An llm-judge that sees the conversation is shown it.** Its prompt adds the earlier turns, each one's user message, tool calls and answer, and then this turn's user message, before the run's output. Their text is quoted, one line each, after a line saying it's data to judge, not instructions: a message can come from an event or a mail. The tools' results stay out, as for this turn. A judge that sees the turn gets the prompt it got before.
+  - `buildRunTrace` (`@kindgi/agents`) takes the earlier messages, as stored, in an optional `earlier`, and gives the trace their turns.
+  - **Docs.** "Write a guardrail" shows a check that every figure in an answer comes from the conversation, and says what a judge is shown; the guardrails overview and the guardrails authoring skill say a check sees one turn unless its guardrail asks for the conversation.
+- 520e54d: What an llm-judge guardrail's model call warns about, such as a temperature its model doesn't take, now comes back with the judgment: `CheckResult.warnings`, absent when the call warned about nothing. An agent turn adds those warnings to its own `warnings`, once per code as with its own calls, each message starting with the guardrail it judged for (`Guardrail "<id>"'s judge: `). That holds at the final answer and at each point inside the loop, and a step run again after a wait still says them.
+- 524e626: **The docs and the code comments name their examples the way the naming rules say.** The docs site's example agents and flows are named for their role and their job, and each page keeps its own pack id. The `ToolId`, `ToolManifest` and `GuardrailId` comments, the audit events' actor example, the tools README and the tools skills use `acme.fetch-order`, `acme.response-not-empty`, `agent:acme.brief-writer` and `acme.echo` in place of the `demo` and `shop` examples. The `ToolManifest` comment says what `defineTool` checks: that the id isn't empty and doesn't start with `kindgi_`. The guardrail scope example names `acme.support-desk`. The dev-echo provider's README says what it does when a call declares no tools: it answers at once with the last user message.
+- 39c4e12: **An app on zod 3 is shown the way to JSON Schema.**
+  
+  - **A schema from zod 3 is refused by name**, from the zod 3.x package or from zod 4's `zod/v3`. That's a tool's `input` or `output`, an agent's `output.schema` or a check's `configSchema`, and a tool's raw `input` or `output` when the build reads a tool not made with `defineTool`. The message says Kindgi takes zod 4 schemas, and shows the JSON Schema object to write instead. Before, such a schema was read as JSON Schema and failed to compile with a message that never said zod.
+  - **An older zod is named.** A zod 4 schema, such as `zod/v4` from zod 3.25, used with a `zod` older than zod 4 installed, now says the installed `zod` is older than zod 4, not that it isn't installed. When loading `zod` throws, the error keeps what it threw as its cause.
+  - **`kindgi init`'s warning names both ways** for an app on zod 3: move the app to zod 4, or write Kindgi's schemas as JSON Schema objects, with an example.
+  - **The `kindgi-authoring-tools` skill** says the same.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [f8a4191]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [afba79e]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+- Updated dependencies [39c4e12]
+  - @kindgi/types@0.7.0
+  - @kindgi/compliance@0.7.0
+  - @kindgi/capabilities@0.7.0
+  - @kindgi/schema@0.7.0
+  - @kindgi/bounds@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

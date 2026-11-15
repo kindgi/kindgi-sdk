@@ -1,5 +1,37 @@
 # @kindgi/blob-binding
 
+## 0.7.0
+
+### Patch Changes
+
+- bb5bbf8: **Files with versions.** A runtime that keeps files serves `/v1/files`: a file is a name and its versions 1, 2, 3, each one stored blob, read by its number or by `latest`. The operations are `files.list`, `files.create`, `files.get`, `files.delete`, `files.versions.list`, `files.versions.add`, `files.versions.get`, `files.versions.download` (the bytes, with `X-Kindgi-File-Version`), `files.versions.restore`, `files.versions.delete`, `files.versions.pin`, `files.versions.unpin` and `files.pinHistory`. Adding or restoring a version takes an optional `expectedVersion`: when Latest isn't that version, nothing is written and the answer is `409 file-version-conflict`. Bytes that are Latest's add no version (`200`, `created: false`). A restore is a new version with an earlier version's bytes, type and tags, under Latest's name. A pinned version can't be deleted, nor a file with one (`409 file-version-pinned`), and a file's last live version goes only with the file (`409 file-last-version`). Reads need `read` on the file's project, or, for a person, `run` there for a file of their own; changes need `write`, except that a person with `run` can create a file of their own that names no run, to start a run with. An upload has the artifact upload's cap: over it is `413 file-too-large`.
+  
+  `createApp` takes the store as `fileVersions`, a `FileVersionsBinding` from `@kindgi/blob-binding` (its types are also exported by `@kindgi/api`); without one, `/v1/files` isn't mounted. A file's id is its version 1's `blobId`. `BlobMeta` gains `fileId` and `version`, for a blob that is a file's version, and `/v1/artifacts` answers carry them; deleting an artifact whose bytes a file still needs is `409 artifact-in-file`. `FileValue` in `@kindgi/types` takes `fileId` and `version`, both or neither, and `FileId` is a new id type. The retention domains gain `file_version`, opt-in like `memory` and `conversation`: a deleted version goes after the grace, and so does one that isn't Latest, isn't among its file's newest 10, isn't pinned, and was superseded longer ago than the grace. The error codes `file-not-found`, `file-version-not-found`, `file-version-conflict`, `file-version-pinned`, `file-last-version`, `file-too-large` and `artifact-in-file` are in the API's status map and the error codes reference, and the TypeScript client reads each as its kind.
+  
+  Deleting a file or a version that's already deleted answers `{ deleted: false }` and changes nothing; an id no file ever had is `404 file-not-found`. The version in a restore, delete, pin or unpin path is a whole number from 1. A `files.list` filter on `ownerRunId` or `projectId` that isn't an id is `400`. A version's `supersededAt` is when a newer version replaced it as Latest, so Latest has none. When two versions share bytes, the blob's `BlobMeta.version` names the lower one. The five `artifacts.*` operations are `deprecated: true` and go in 0.8.0, and every `/v1/artifacts` answer, a refused one too, carries a `Link` with `rel="deprecation"` to the docs' "What 0.8.0 removes", `concepts/files-and-versions/#what-080-removes` on the release's docs line. The TypeScript client's wire types keep a deprecated operation, since it's served until the release that removes it.
+- 8cac758: **A put past the workspace's storage limit is refused, and an upload for a run that never starts is deleted.**
+  - `BlobError` gains `storage-limit-reached`. A put that the workspace's storage limit has no room for stores nothing. The error carries the limit (`storageMiB`), what the workspace's files already take (`usedBytes`) and what the put needs (`neededBytes`). The API answers it with `403 storage-limit-reached`.
+  - `BlobPutInput.forRun` marks an upload for a run that hasn't started yet. Such an upload is deleted once the deployment's unused-upload time has passed (24 hours by default), unless a run that names it has started by then. `BlobMeta.expiresAt` says when, and goes away once such a run starts.
+  - `POST /v1/artifacts` takes `forRun=true` for such an upload, and its metadata, in the answer and wherever it's read, has `expiresAt` while it's unused. `forRun` with `ownerRunId`, or with a value other than `true` or `false`, is `400 bad-input`. An upload by someone who may run the project but not write to it is always one.
+  - The TypeScript client's `artifacts.upload` takes `forRun`, and its `BlobMeta` has `expiresAt`. With the Python client, pass `data={"forRun": "true"}` to `artifacts.upload`; its `BlobMeta` has `expires_at`.
+  - `TenantLimits.storageMiB` is the workspace's storage limit, in MiB, from 1 to 1000000. It's set and read like the other limits, on `PUT` and `GET /v1/system/tenants/:tenantId/limits`. Lowering it deletes no file.
+  - `BlobStorageBinding.storageUsed`, optional, says what a tenant's files take, with the uploads under way. From a store that has it, `GET /v1/tenant` answers `storage: { usedBytes }`. A runtime that counts files adds `storageUsedBytes` to the limits read's `inUse`.
+  - The env schema has `KINDGI_UNUSED_UPLOAD_TTL_MS`: how long an upload for a run is kept while no run that names it has started, in milliseconds, from 1 to 315360000000 (ten years). The default is 86400000 (24 hours). Runtimes before 0.7.0 ignore it.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [f8a4191]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [524e626]
+- Updated dependencies [c003626]
+- Updated dependencies [6279526]
+- Updated dependencies [439bffc]
+- Updated dependencies [8cac758]
+- Updated dependencies [15c2925]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.7.0
+  - @kindgi/platform@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

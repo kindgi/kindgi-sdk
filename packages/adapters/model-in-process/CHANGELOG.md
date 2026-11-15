@@ -1,5 +1,14 @@
 # @kindgi/adapter-model-in-process
 
+## 0.7.0
+
+### Patch Changes
+
+- f00c738: **The in-process model adapter keeps to a model's registered `maxOutputTokens`.** A call that sets no `maxOutputTokens` now gets the one its model is registered with, as the other model adapters do, and `512` only when neither sets one. Before, it got `512` whatever the registration said.
+- Updated dependencies [2d279a5]
+- Updated dependencies [af5b037]
+  - @kindgi/capabilities@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes
