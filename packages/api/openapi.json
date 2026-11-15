@@ -32654,7 +32654,7 @@
               "string",
               "null"
             ],
-            "description": "Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise."
+            "description": "Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`, `project-deleted`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise."
           },
           "attempts": {
             "type": "integer",
@@ -93430,7 +93430,7 @@
             }
           }
         },
-        "description": "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
+        "description": "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`, `project-deleted`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
         "parameters": [
           {
             "name": "destinationId",

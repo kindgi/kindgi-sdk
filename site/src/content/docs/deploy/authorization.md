@@ -190,7 +190,7 @@ token and no `KINDGI_SEED_USER_ID` says so when it starts:
 :::
 
 **When OpenFGA can't be reached,** a request that needs a check answers
-`503 authz-backend-unavailable` with `Retry-After: 5` (runtime X.Y.Z or
+`503 authz-backend-unavailable` with `Retry-After: 5` (runtime 0.7.0 or
 later; earlier ones answer `500 internal-server-error`): the request wasn't
 run, so sending it again after that wait is safe. OpenFGA can't be reached
 when it gives no answer, or answers `429` or a `5xx` other than `501`, after
@@ -201,7 +201,7 @@ Any other failure of a check answers `500 internal-server-error`, as any
 error does. `GET /v1/identity/me/permissions`, which the console reads for
 what the signed-in person may do, answers its own `503
 authz-backend-unavailable` for any failure to read their access, with the
-same `Retry-After` from runtime X.Y.Z, and logs it at `warn` as
+same `Retry-After` (runtime 0.7.0 or later), and logs it at `warn` as
 `me/permissions: the authorization store couldn't be read: …`.
 
 - **A check before the request's work** answers the `503` on any method.

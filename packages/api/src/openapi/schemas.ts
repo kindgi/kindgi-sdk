@@ -19887,7 +19887,7 @@ export const DestinationDeliverySchema: JsonSchema = {
     reason: {
       type: ['string', 'null'],
       description:
-        'Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise.',
+        'Why it was `skipped` (`rate-cap`, `no-access`, `destination-removed`, `not-for-this-project`, `project-deleted`) or `failed` (`destination-failing`, `window-ended`, `refused`, or a send error such as `timeout`); `null` otherwise.',
     },
     attempts: { type: 'integer', minimum: 0 },
     nextAttemptAt: {

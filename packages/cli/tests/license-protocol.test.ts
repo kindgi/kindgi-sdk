@@ -193,11 +193,11 @@ describe('a license key, checked offline', () => {
   });
 
   test("the minimum runtimes, as the runtime's copy has them", () => {
-    expect(LICENSE_KEY_MINIMUM_RUNTIME).toEqual({ 'lk-2026-p2': '0.1.8' });
+    expect(LICENSE_KEY_MINIMUM_RUNTIME).toEqual({ 'lk-2026-p2': '0.1.8', 'lk-2026-l1': '0.7.0' });
   });
 
   test("Kindgi's own signing keys, as a released runtime trusts them", () => {
-    for (const kid of ['lk-2026-1', 'lk-2026-p2']) {
+    for (const kid of ['lk-2026-1', 'lk-2026-p2', 'lk-2026-l1']) {
       const pub = KINDGI_LICENSE_PUBLIC_KEYS[kid];
       expect(Buffer.from(pub ?? '', 'base64'), kid).toHaveLength(32);
       // A key signed with anything else under that kid is refused.
