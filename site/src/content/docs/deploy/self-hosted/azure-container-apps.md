@@ -721,7 +721,8 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
   `$(terraform output -raw license_renew_command)` by hand or from your
   scheduler. Or set `license_renewal_schedule`, a cron in UTC, and the
   module runs it as a job of its own. It comes with an alert for a failed run,
-  and one for a key within 7 days of its end
+  and one for a run that says the key is inside its warning window: from 30
+  days before the key expires, or fewer if the key sets its own warning
   ([Renew the license key](../renew-the-license-key/#on-a-schedule)). With
   `license_usage_key_secret` too, its renewals carry counts of the
   deployment's use
