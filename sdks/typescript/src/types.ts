@@ -2679,8 +2679,30 @@ export interface McpHeaderAuth {
   readonly headers: readonly McpAuthHeader[];
 }
 
+/**
+ * A sign-in as a connection to an app whose entry lists the endpoint's server
+ * (`@kindgi/api/openapi.json#MCPConnectionAuth`): the runtime sends each call
+ * with `Authorization: Bearer <token>`, a token minted for that server from
+ * the connection of the person the run acts for (`as: 'person'`) or the
+ * company's (`as: 'company'`). The endpoint lists its tools with
+ * `catalogConnectionId`'s connection.
+ */
+export interface McpConnectionAuth {
+  readonly scheme: 'connection';
+  /** The app entry's id (`hubspot`, `asana`); its `mcpServers` lists the endpoint's origin. */
+  readonly app: string;
+  /** Whose connection a call uses: the person the run acts for, or the company's. */
+  readonly as: 'person' | 'company';
+  /** The entry's permissions the tools need, 1 to 64, no repeats. Absent: all of the entry's. */
+  readonly permissions?: readonly string[];
+}
+
 /** How an endpoint signs in when it isn't a plain bearer (`@kindgi/api/openapi.json#MCPEndpointAuth`). */
-export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth | McpHeaderAuth;
+export type McpEndpointAuth =
+  | McpBasicAuth
+  | McpOAuth2ClientCredentialsAuth
+  | McpHeaderAuth
+  | McpConnectionAuth;
 
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#MCPEndpoint`. Represents an
@@ -2701,6 +2723,8 @@ export interface McpEndpoint {
   readonly sendTraceparent?: boolean;
   /** The server's tools that only read, by its own names (see `RegisterMcpEndpointInput`). */
   readonly readOnlyTools?: readonly string[];
+  /** The connection the endpoint lists its tools with, under a `connection` auth (see `RegisterMcpEndpointInput`). */
+  readonly catalogConnectionId?: string;
 }
 
 /**
@@ -2723,9 +2747,10 @@ export interface RegisterMcpEndpointInput {
   /**
    * How it signs in when it isn't a plain bearer: `basic` (a user name and a
    * password secret), `oauth2-client-credentials` (a token the runtime
-   * fetches and refreshes) or `header` (headers of the server's own, each with
-   * a secret). Not with `secretRef`, not on `stdio`, and not with a header
-   * `auth` sends in `config.headers` too.
+   * fetches and refreshes), `header` (headers of the server's own, each with
+   * a secret) or `connection` (a token from a connection to an app whose
+   * entry lists the server). Not with `secretRef`, not on `stdio`, and not
+   * with a header `auth` sends in `config.headers` too.
    */
   readonly auth?: McpEndpointAuth;
   /**
@@ -2750,6 +2775,14 @@ export interface RegisterMcpEndpointInput {
    * transport.
    */
   readonly readOnlyTools?: readonly string[];
+  /**
+   * The connection the endpoint lists its server's tools with: the
+   * registrant's own (`as: 'person'`) or the company's (`as: 'company'`), to
+   * the auth's app, in the env the runtime serves. Required with a
+   * `connection` auth, refused without one. While it needs reconnecting, the
+   * endpoint keeps the tools it last listed.
+   */
+  readonly catalogConnectionId?: string;
   /** The scope the endpoint is registered in; authorization checks it. */
   readonly scope: import('./scope-wire.js').ScopeRef;
 }

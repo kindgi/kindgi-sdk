@@ -6797,6 +6797,30 @@ class MCPOAuth2ClientCredentialsAuth(BaseModel):
     """
 
 
+class MCPConnectionAuth(BaseModel):
+    """
+    A connection to the app whose own MCP server this is (HubSpot's, Asana's): each tool call sends the access token of the connection the call runs with, minted for the server's `resource` (RFC 8707), and renewed once on a `401`. No secret is stored. The app's entry must list the endpoint's origin in its `mcpServers`, so a token goes to that origin only (reason `origin-not-listed`), and the server's Protected Resource Metadata must name the entry's authorization server (reason `issuer-mismatch`, or `resource-metadata-unreadable`). Needs `catalogConnectionId`. Each of the server's tools needs a connection to `app` (`needsSpec.connections`, named for the app), so a call without one waits for its person to connect, or is refused as a pack tool's need would be.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scheme: Literal["connection"]
+    app: Annotated[str, Field(pattern="^[a-z][a-z0-9-]{1,31}$")]
+    """
+    The app's entry id (`hubspot`, `asana`), one the server knows (`GET /v1/connections/entries`; reason `unknown-app`).
+    """
+    as_: Annotated[Annotated[Literal["person", "company"] | str, _open.OPEN], Field(alias="as")]
+    """
+    Whose connection a call uses: `person`, the account of the person the run acts for; `company`, the company's one account, which runs no person started (a webhook's, a schedule's) can use. The entry must allow that owner (reason `owner-not-allowed`).
+    """
+    permissions: Annotated[list[Permission] | None, Field(max_length=64, min_length=1)] = None
+    """
+    The entry's permission keys the tools need, one set for every tool of the endpoint. Each must be the entry's (reason `unknown-permission`). Absent: each of the entry's permissions.
+    """
+
+
 class MCPAuthHeader(BaseModel):
     """
     One header a `header` auth sends: `<name>: <prefix><secret>`.
@@ -21617,13 +21641,18 @@ class RegisterMCPEndpointBody(BaseModel):
             MCPBasicAuth
             | MCPOAuth2ClientCredentialsAuth
             | MCPHeaderAuth
+            | MCPConnectionAuth
             | MCPEndpointAuthUnrecognized,
             _open.OpenUnion("scheme", MCPEndpointAuthUnrecognized),
         ]
         | None
     ) = None
     """
-    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials`, `header` or `connection`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic`, `oauth2-client-credentials` and `connection` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` or `connection` scheme as `invalid-auth`.
+    """
+    catalog_connection_id: Annotated[UUID | None, Field(alias="catalogConnectionId")] = None
+    """
+    With a `connection` auth only, and needed with one: the connection the runtime lists the server's tools with (`connectionId`, from `GET /v1/connections`). It only lists tools, and never calls one. A live connection to `auth.app`, under the env the runtime serves (reason `catalog-connection-not-found`), and the registrant's own or the company's (reason `catalog-connection-not-yours`). Without a `connection` auth it's refused (reason `catalog-connection-without-connection-auth`); missing with one, reason `catalog-connection-required`; not a UUID, reason `invalid-catalog-connection-id`. While it needs reconnecting, the endpoint keeps the tools it last listed. An older runtime refuses the field as unknown.
     """
     secret_env: Annotated[
         dict[constr(pattern=r"^[^=\u0000]+$", min_length=1), MCPEndpointSecretRef] | None,
@@ -22028,13 +22057,18 @@ class MCPEndpoint(BaseModel):
             MCPBasicAuth
             | MCPOAuth2ClientCredentialsAuth
             | MCPHeaderAuth
+            | MCPConnectionAuth
             | MCPEndpointAuthUnrecognized,
             _open.OpenUnion("scheme", MCPEndpointAuthUnrecognized),
         ]
         | None
     ) = None
     """
-    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials`, `header` or `connection`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic`, `oauth2-client-credentials` and `connection` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` or `connection` scheme as `invalid-auth`.
+    """
+    catalog_connection_id: Annotated[UUID | None, Field(alias="catalogConnectionId")] = None
+    """
+    With a `connection` auth only, and needed with one: the connection the runtime lists the server's tools with (`connectionId`, from `GET /v1/connections`). It only lists tools, and never calls one. A live connection to `auth.app`, under the env the runtime serves (reason `catalog-connection-not-found`), and the registrant's own or the company's (reason `catalog-connection-not-yours`). Without a `connection` auth it's refused (reason `catalog-connection-without-connection-auth`); missing with one, reason `catalog-connection-required`; not a UUID, reason `invalid-catalog-connection-id`. While it needs reconnecting, the endpoint keeps the tools it last listed. An older runtime refuses the field as unknown.
     """
     secret_env: Annotated[
         dict[constr(pattern=r"^[^=\u0000]+$", min_length=1), MCPEndpointSecretRef] | None,

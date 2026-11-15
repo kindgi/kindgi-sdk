@@ -13,6 +13,16 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **an MCP endpoint can sign in as a connection.** The client's
+  models gain `MCPConnectionAuth` (`scheme` `connection`, with `app`, `as_`
+  and `permissions`), a variant of an endpoint's `auth`: each call sends a
+  token minted for the endpoint's server from the connection of the person
+  the run acts for, or the company's, to an app whose entry lists the
+  server, such as `hubspot` or `asana`. `MCPEndpoint` and
+  `RegisterMCPEndpointBody` gain `catalog_connection_id`
+  (`catalogConnectionId` on the wire), the connection the endpoint lists its
+  tools with, required with a `connection` auth.
+
 ## 0.7.0
 
 - `kindgi`: **the client takes the URL and the token from the running

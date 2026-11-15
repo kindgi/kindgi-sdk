@@ -13,11 +13,21 @@ An entry is data. It says:
 - **what each permission allows,** in plain words for the person asked
   (`permissions`), and whether it changes anything;
 - **whose account it is** (`account`), learned from an ID token, the
-  installation, or the number a connect names;
+  installation, or the number a connect names, or none where the app
+  names no account (the connection is then its owner's);
 - **how access is withdrawn** on a disconnect, and how the app reports a
   removal made at the app (`removal`);
 - **the app's rate limit,** per connection (`rateLimits`);
-- **the docs page** an admin follows to register the app (`setupGuide`).
+- **the docs page** an admin follows to register the app (`setupGuide`);
+- **the app's own MCP servers** (`mcpServers`), which an MCP endpoint signs
+  in to with the app's connections: each server's origin, its `resource`
+  and its authorization server's issuer. A connection's token goes to
+  these origins only.
+
+The `hubspot` and `asana` entries (`@kindgi/connections/hubspot`,
+`@kindgi/connections/asana`) are such apps. They have no tools here: their
+tools come from their own MCP servers, registered as an MCP endpoint with
+`auth: { scheme: 'connection', app: 'hubspot', as: 'person' }`.
 
 ```ts
 import { google } from '@kindgi/connections/google';
