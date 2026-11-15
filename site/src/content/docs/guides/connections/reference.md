@@ -22,7 +22,11 @@ company's `support@acme.example` and `sales@acme.example` at Google, say,
 or a person's work and home accounts. A connect that lands on an account
 its owner already has reconnects that connection when the grant keeps
 every permission it holds, and the connection keeps its name and gains
-what was allowed. One of a person's connections through a
+what was allowed. An app whose entry looks no account up, such as
+HubSpot or Asana, has no accounts to tell apart: each owner keeps one
+connection to it in an environment, and a connect renews that one
+([An app with its own MCP server](../add-an-app/#an-app-with-its-own-mcp-server)).
+One of a person's connections through a
 registration in an environment is their **main**, the one their agents use
 when no choice names another. When there are several, the run's mail, a
 choice or a person's main says which one a call uses
@@ -275,6 +279,11 @@ It asks first, unless `--yes`, and prints what was done. Kindgi then:
    - **LinkedIn:** withdraws nothing, since LinkedIn has no way to give a
      token back. It works until its 60 days end, or until the person
      removes your app at LinkedIn ([LinkedIn](../linkedin/#disconnecting)).
+   - **HubSpot:** withdraws nothing, since HubSpot's MCP server has no way
+     to give a token back. What the person allowed stays until it's
+     removed at HubSpot ([HubSpot](../hubspot/#disconnecting)).
+   - **Asana:** withdraws nothing. What the person allowed stays until
+     they remove your app at Asana ([Asana](../asana/#disconnecting)).
    - If the app doesn't answer, Kindgi records that and goes on.
 3. **Destroys the stored token** in your secret store (below).
 4. **Records the removal,** with a signed audit event that names the app

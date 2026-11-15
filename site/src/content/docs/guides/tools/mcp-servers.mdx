@@ -20,7 +20,10 @@ it like a tool of your pack.
 :::note
 `kindgi mcp` is a different thing: it adds MCP servers to your coding
 agent's `.mcp.json`. The runtime's MCP endpoints are registered through the
-API, as this guide shows.
+API, as this guide shows. Two of its kinds are the exception:
+`kindgi mcp add hubspot` and `kindgi mcp add asana` register the vendor's
+own server at the runtime, signing in as a connection
+([Sign in as a connection](#sign-in-as-a-connection)).
 :::
 
 ## Before you start
@@ -631,11 +634,125 @@ endpoint back shows the references only:
   23:53:08.218 WARN  [mcp] MCP endpoint "inventory-pasted" sync failed: mcp-auth-unresolved: MCP endpoint "inventory-pasted": its credential for the header "X-Api-Key" has a line break, which a header can't carry: store the secret without it endpointId=inventory-pasted
   ```
 
+### Sign in as a connection
+
+An app that runs its own MCP server, such as HubSpot or Asana, signs people
+in to it with OAuth. An endpoint for that server signs in as a connection
+to the app (runtime 0.8.0 or later): each tool call sends the access token
+of the connection the call runs with, minted for that server. No secret is
+stored with the endpoint.
+
+First, an admin registers the app with Kindgi, and you connect it
+([HubSpot](../../connections/hubspot/), [Asana](../../connections/asana/)).
+Then register the server, from your pack's directory:
+
+```sh
+pnpm exec kindgi mcp add hubspot
+```
+
+```text
+  Registered "hubspot" (preset hubspot) at the runtime: it signs in as each person's own HubSpot connection.
+  Its tools are listed with yours (3c7e1f90-…).
+```
+
+`kindgi mcp add asana` registers Asana's the same way, and
+`kindgi mcp presets` lists both. With these two kinds, `kindgi mcp add`
+writes nothing to `.mcp.json`, and takes:
+
+- **`--as=company`** to sign in as the company's connection, not each
+  person's own (`--as=person`, the default).
+- **`--scope`:** `tenant` (the default), `org:<id>` or `project:<id>`
+  ([Give some projects its tools](#give-some-projects-its-tools)).
+- **`--server-name`:** the endpoint id, by default the kind. **`--force`**
+  replaces an endpoint registered under it already.
+- **`--env`:** the env of the connection its tools are listed with, needed
+  only when you have one in more than one.
+
+Without a connection to list the tools with, it registers nothing, and
+says what to run first:
+
+```text
+No HubSpot connection of yours to list its tools with. Run `kindgi connections connect hubspot` first, then this again.
+```
+
+It prints the endpoint as JSON: its `endpointId`, `preset`, `app`, `as`,
+`url`, `scope`, `catalogConnectionId`, and whether it `replaced` one.
+`kindgi mcp list` and `kindgi mcp remove` read `.mcp.json` only, so they
+don't show or remove it: unregister it as
+[When the server changes](#when-the-server-changes) shows.
+
+For reference, the registration it makes has:
+
+```json excerpt
+"config": { "transport": "streamable-http", "url": "https://mcp.hubspot.com" },
+"auth": { "scheme": "connection", "app": "hubspot", "as": "person" },
+"catalogConnectionId": "3c7e1f90-…"
+```
+
+- **`auth.app`:** the app's id, one the runtime has
+  (`GET /v1/connections/entries`).
+- **`auth.as`:** whose connection a call uses. `person` is the person's the
+  run acts for, and `company` the company's, which runs that act for
+  nobody, such as a shared schedule's or a webhook's, can use too. The app
+  must take that owner.
+- **`auth.permissions`:** the app's permissions its tools need, 1 to 64 of
+  its keys, one set for all of the endpoint's tools. Left out, it's all of
+  them.
+- **`catalogConnectionId`:** the connection the server's tools are listed
+  with (its `connectionId`, from `GET /v1/connections`): a live connection
+  to the app, in the env the runtime serves, your own or the company's,
+  whatever `as` is. It's needed with a `connection` auth, and refused
+  without one. It only lists tools, and never calls one. While it needs
+  reconnecting, the endpoint keeps the tools it last listed.
+
+Each of the server's tools then needs a connection to the app, as a tool of
+your own that declares one does
+([Use a connection in a tool](../../connections/use-a-connection/)). A call
+uses the connection of the run it's in, never the one its tools were listed
+with. With `as: 'person'`, an agent's call in a run you started waits for
+you to connect, and a run that acts for nobody fails with
+`connection-needs-a-person`. Either way,
+a connection that isn't there fails the call with `connection-missing`
+([Errors when a call uses a connection](../../connections/reference/#errors-when-a-call-uses-a-connection)).
+
+A connection's token goes only to the server it's for:
+
+- **The app's entry lists its MCP servers' origins.** Every URL of the
+  endpoint must be on one of them, or the registration is refused. So a
+  token never goes to another host.
+- **The server must name the app's sign-in.** When the endpoint is
+  registered, Kindgi reads the server's Protected Resource Metadata
+  (RFC 9728), and refuses the endpoint unless its `authorization_servers`
+  names the authorization server the app's entry lists.
+- **Each token is minted for that server's resource** (RFC 8707). Kindgi
+  keeps it for the connection, and if the server answers `401`, asks for a
+  new one and sends the request once more.
+
+A registration that doesn't fit is refused with `400 invalid-mcp-endpoint`,
+and its `details.reason` says why:
+
+| Reason | Why |
+| --- | --- |
+| `invalid-auth` | `auth.app` isn't an app's id, `auth.as` isn't `person` or `company`, or `auth.permissions` isn't 1 to 64 keys, each once. An older runtime refuses the `connection` scheme this way too. |
+| `catalog-connection-required` | A `connection` auth, without `catalogConnectionId`. |
+| `invalid-catalog-connection-id` | `catalogConnectionId` isn't a UUID. |
+| `catalog-connection-without-connection-auth` | `catalogConnectionId`, without a `connection` auth. |
+| `unknown-app` | The runtime has no such app, or serves no connections. |
+| `origin-not-listed` | The endpoint's URL isn't on an origin the app's entry lists, or its URLs are on more than one origin. |
+| `owner-not-allowed` | The app doesn't take that owner. |
+| `unknown-permission` | A permission isn't one of the app's. |
+| `catalog-connection-not-found` | No live connection to the app with that id, in the env the runtime serves: none, another app's, one that's removed or being removed, or another env's. |
+| `catalog-connection-not-yours` | Another person's connection. |
+| `resource-metadata-unreadable` | The server's Protected Resource Metadata couldn't be read: no answer, not `200`, not JSON, or no `authorization_servers`. |
+| `issuer-mismatch` | It names authorization servers, but not the app's. |
+
+An older runtime refuses `catalogConnectionId` as an unknown field.
+
 ### A secret that isn't set
 
-With any scheme, a secret that isn't set fails the tool call with
-`mcp-auth-unresolved`. The log names the secret and where it looked, never a
-value:
+With any scheme that names a secret, a secret that isn't set fails the tool
+call with `mcp-auth-unresolved`. The log names the secret and where it
+looked, never a value:
 
 ```text
 21:02:11.089 WARN  [mcp] MCP endpoint "cms-nosecret" sync failed: mcp-auth-unresolved: MCP endpoint "cms-nosecret": its auth client secret local/CMS_SECRET_NEVER_SET did not resolve: No secret "CMS_SECRET_NEVER_SET" for env "local" in .env, .env.local, .kindgi/secrets.env at … endpointId=cms-nosecret
@@ -663,8 +780,8 @@ registration with both is refused (`invalid-mcp-endpoint`, reason
 `auth-with-secret-ref`), and so is `auth` on a `stdio` endpoint
 (`auth-on-stdio`: a stdio server gets no headers). A header `auth` sends
 can't be in `config.headers` too:
-- `Authorization`, beside `basic` or `oauth2-client-credentials`
-  (`auth-with-authorization-header`);
+- `Authorization`, beside `basic`, `oauth2-client-credentials` or
+  `connection` (`auth-with-authorization-header`);
 - a name in `auth.headers` (`auth-header-in-config`):
 
   ```json
