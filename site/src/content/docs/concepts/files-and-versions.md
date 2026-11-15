@@ -58,7 +58,7 @@ version: the run holds the newest version with those bytes that isn't
 deleted or purged. A file value passed back in, with its `artifactId`,
 `fileId` and `version`, is taken only when that version's bytes are the
 artifact's. `artifactId` is one of the names
-[0.8.0 removes](#what-080-removes).
+[0.9.0 removes](#what-090-removes).
 
 A run takes Latest once, when it first takes the file, and holds that exact
 version from then on. A version added later reaches the run only if someone
@@ -165,9 +165,9 @@ An id `artifacts.upload` answered is its file's id, and a file stored
 before versions were kept reads as a file with one version, under the same
 id.
 
-## What 0.8.0 removes
+## What 0.9.0 removes
 
-0.8.0 removes the names below. Until then, each works as it did and says
+0.9.0 removes the names below. Until then, each works as it did and says
 what replaces it: the API marks its operations deprecated, and each of its
 answers carries a `Link` header with `rel="deprecation"` to this section.
 The clients mark their methods deprecated, Python's warn, and the CLI's

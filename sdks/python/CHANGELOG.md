@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: the deprecated `client.artifacts` methods and the old version calls are removed in 0.9.0, not 0.8.0: their deprecation warnings say so.
+
 ## 0.7.0
 
 - `kindgi`: **the client takes the URL and the token from the running

@@ -25,10 +25,10 @@ Cloud Storage bucket, or in an S3 bucket.
 - **A run's id,** to keep the file with that run.
 
 `kindgi files` takes the place of `kindgi artifacts`, and takes the same
-ids. 0.8.0 removes `kindgi artifacts`. Until then, each of its commands
+ids. 0.9.0 removes `kindgi artifacts`. Until then, each of its commands
 works as it did and names the one to use instead, such as
-`kindgi artifacts list is deprecated: use kindgi files list. Removed in 0.8.0.`
-[What 0.8.0 removes](../../../concepts/files-and-versions/#what-080-removes)
+`kindgi artifacts list is deprecated: use kindgi files list. Removed in 0.9.0.`
+[What 0.9.0 removes](../../../concepts/files-and-versions/#what-090-removes)
 lists each.
 
 ## Upload one
@@ -234,9 +234,9 @@ Without it, the runtime serves no files. `kindgi dev` keeps them in the
 pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
 cap, and `KINDGI_UNUSED_UPLOAD_TTL_MS` how long a `forRun` upload is kept
 when no run that names it starts, in milliseconds (24 hours by default). The
-startup output says where files go, or that they're off. 0.8.0 renames
+startup output says where files go, or that they're off. 0.9.0 renames
 `KINDGI_ARTIFACTS` and `KINDGI_ARTIFACT_MAX_BYTES`, as
-[What 0.8.0 removes](../../../concepts/files-and-versions/#what-080-removes)
+[What 0.9.0 removes](../../../concepts/files-and-versions/#what-090-removes)
 lists.
 [Choose where the runtime keeps files](../../../deploy/self-hosted/store-files/)
 has each one's settings and permissions, and what the runtime checks at

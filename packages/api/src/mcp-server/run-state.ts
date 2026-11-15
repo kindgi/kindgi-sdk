@@ -175,7 +175,7 @@ async function runFiles(call: V1Call, runId: string): Promise<readonly RunFile[]
   // serve `/v1/files`: an app with blob storage but no `fileVersions`, or a
   // runtime that keeps artifacts but no file versions. It lists them from
   // `/v1/artifacts` instead. This and the tools' `GET /v1/artifacts` go
-  // when 0.8.0 removes that route.
+  // when 0.9.0 removes that route.
   if (page.status !== 404) return [];
   const artifacts = await call('GET', '/v1/artifacts', { query });
   return artifacts.ok ? ((await artifacts.json()) as ArtifactPageJson).data : [];

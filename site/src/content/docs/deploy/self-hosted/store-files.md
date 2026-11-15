@@ -65,14 +65,14 @@ KINDGI_ARTIFACTS must be `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or `s
 
 The startup output says where files go, or that they're off. With
 `KINDGI_ARTIFACTS` set, the line under it says the setting's next name, as
-[What 0.8.0 removes](../../../concepts/files-and-versions/#what-080-removes)
+[What 0.9.0 removes](../../../concepts/files-and-versions/#what-090-removes)
 lists. `KINDGI_ARTIFACT_MAX_BYTES` gets a line of its own when it's set:
 
 ```text
   Artifacts: off (KINDGI_ARTIFACTS=local:<dir>, gcs:<bucket> or s3:<bucket> turns on /v1/files and /v1/artifacts)
   Artifacts: on, files under /var/lib/kindgi/artifacts
-  ⚠ KINDGI_ARTIFACTS becomes KINDGI_FILES in 0.8.0; with the old name set, 0.8.0 refuses to start
-  ⚠ KINDGI_ARTIFACT_MAX_BYTES becomes KINDGI_FILE_MAX_BYTES in 0.8.0; with the old name set, 0.8.0 refuses to start
+  ⚠ KINDGI_ARTIFACTS becomes KINDGI_FILES in 0.9.0; with the old name set, 0.9.0 refuses to start
+  ⚠ KINDGI_ARTIFACT_MAX_BYTES becomes KINDGI_FILE_MAX_BYTES in 0.9.0; with the old name set, 0.9.0 refuses to start
 ```
 
 ## A directory

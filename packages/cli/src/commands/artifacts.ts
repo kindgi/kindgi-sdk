@@ -26,7 +26,7 @@ import type { Command, CommandResult, LeafCommand } from './types.js';
  *
  * Deprecated: `kindgi files` takes its place. An artifact is one version
  * of a file, named there by the `fileId` and `version` that `list` and
- * `upload` answer. Until 0.8.0 removes it, each command does what it did
+ * `upload` answer. Until 0.9.0 removes it, each command does what it did
  * and says on stderr which one to use instead (`DEPRECATED_COMMANDS`).
  */
 
@@ -185,6 +185,6 @@ const del: LeafCommand = {
 export const artifactsCommand: Command = {
   kind: 'group',
   name: 'artifacts',
-  description: 'Deprecated: use kindgi files. Removed in 0.8.0.',
+  description: 'Deprecated: use kindgi files. Removed in 0.9.0.',
   subcommands: [list, get, upload, download, del],
 };

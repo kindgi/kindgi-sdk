@@ -23,19 +23,19 @@ export const DEPRECATED_COMMANDS: ReadonlyMap<
   string,
   { readonly use: string; readonly args?: string; readonly removedIn: string }
 > = new Map([
-  ['artifacts list', { use: 'files list', removedIn: '0.8.0' }],
-  ['artifacts get', { use: 'files get', args: '<file-id> <version>', removedIn: '0.8.0' }],
-  ['artifacts upload', { use: 'files upload', removedIn: '0.8.0' }],
+  ['artifacts list', { use: 'files list', removedIn: '0.9.0' }],
+  ['artifacts get', { use: 'files get', args: '<file-id> <version>', removedIn: '0.9.0' }],
+  ['artifacts upload', { use: 'files upload', removedIn: '0.9.0' }],
   [
     'artifacts download',
-    { use: 'files download', args: '<file-id> <version>', removedIn: '0.8.0' },
+    { use: 'files download', args: '<file-id> <version>', removedIn: '0.9.0' },
   ],
   [
     'artifacts delete',
     {
       use: 'files delete',
       args: '<file-id> <version>, which asks first unless --yes',
-      removedIn: '0.8.0',
+      removedIn: '0.9.0',
     },
   ],
 ]);

@@ -57,7 +57,7 @@ const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 
 /** The line every `kindgi artifacts download` run says first, on stderr. */
 const DEPRECATED =
-  'kindgi artifacts download is deprecated: use kindgi files download <file-id> <version>. Removed in 0.8.0.\n';
+  'kindgi artifacts download is deprecated: use kindgi files download <file-id> <version>. Removed in 0.9.0.\n';
 
 /** What the download answers: its body, made fresh for each call, and the name, size and hash its headers give. */
 interface Download {
