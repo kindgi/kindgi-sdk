@@ -720,9 +720,10 @@ A connection's token goes only to the server it's for:
 - **The app's entry lists its MCP servers' origins.** Every URL of the
   endpoint must be on one of them, or the registration is refused. So a
   token never goes to another host.
-- **The server must name the app's sign-in.** When the endpoint is
-  registered, Kindgi reads the server's Protected Resource Metadata
-  (RFC 9728), and refuses the endpoint unless its `authorization_servers`
+- **The server must be the app's, and name the app's sign-in.** When the
+  endpoint is registered, Kindgi reads the server's Protected Resource
+  Metadata (RFC 9728), and refuses the endpoint unless its `resource` is
+  the one the app's entry names, exactly, and its `authorization_servers`
   names the authorization server the app's entry lists.
 - **Each token is minted for that server's resource** (RFC 8707). Kindgi
   keeps it for the connection, and if the server answers `401`, asks for a
