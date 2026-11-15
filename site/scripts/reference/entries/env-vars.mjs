@@ -51,8 +51,7 @@ export const ENV_DEFAULTS = {
     'none: outside development mode the server refuses to start; development mode needs none',
   KINDGI_LICENSE_KEY_REF: 'none: expiry warnings print a placeholder in the renew command',
   KINDGI_LICENSE_RENEWER_REF: 'none: expiry warnings print a placeholder in the renew command',
-  KINDGI_ACCOUNT_KEY:
-    'none: the connections that sign in through Kindgi\'s own Meta app show "Needs a Kindgi account"',
+  KINDGI_ACCOUNT_KEY: 'none: no runtime release reads it',
   KINDGI_LICENSE_REPORT_URL:
     "`https://access.kindgi.com/v1/report`, also when it's empty: no setting here turns reports off, only a key that doesn't report",
   KINDGI_ENV:
@@ -248,7 +247,7 @@ export const ENV_EXAMPLES = {
     value: 'kgi_lk_<payload>.<signature>',
   },
   KINDGI_ACCOUNT_KEY: {
-    value: '<the account key Kindgi issued for this runtime>',
+    value: '<a Kindgi account key>',
   },
   KINDGI_PUBLIC_TOKEN_SIGNING_KEY: {
     value: '<base64 of an Ed25519 private key in PKCS#8 PEM>',

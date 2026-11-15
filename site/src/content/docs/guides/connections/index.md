@@ -1,6 +1,6 @@
 ---
 title: Connect your apps
-description: Let a tool act in Gmail, Outlook, GitHub or LinkedIn with an account someone connected, its token kept in your own secret store and handed to one call at a time.
+description: Let a tool act in Gmail, Outlook, GitHub, LinkedIn, HubSpot or Asana with an account someone connected, its token kept in your own secret store and handed to one call at a time.
 sidebar:
   order: 0
   label: Overview
@@ -53,10 +53,11 @@ runs as a service account and uses the company's
 ## How it fits together
 
 1. **An admin registers the app once,** for the company: your own Google
-   OAuth client, Microsoft Entra app, GitHub App or LinkedIn app. Its
-   secrets stay in your secret store, and Kindgi keeps only their names
+   OAuth client, Microsoft Entra app, GitHub App, LinkedIn app, HubSpot MCP
+   connector or Asana MCP app. Its secrets stay in your secret store, and
+   Kindgi keeps only their names
    ([Google](google/), [Microsoft](microsoft/), [GitHub](github/),
-   [LinkedIn](linkedin/)).
+   [LinkedIn](linkedin/), [HubSpot](hubspot/), [Asana](asana/)).
 2. **People connect** on the app's own sign-in page: from the console's
    **Connections** page, from a terminal with `kindgi connections connect`,
    or from a run that's waiting for them. Each connection has a name: the
@@ -65,7 +66,9 @@ runs as a service account and uses the company's
 3. **A tool says which app and which permissions it needs**
    ([Use a connection in a tool](use-a-connection/)). Before each call,
    Kindgi finds the connection and hands that call its current
-   short-lived token.
+   short-lived token. HubSpot's and Asana's tools come from their own MCP
+   servers instead, which sign in as a connection
+   ([Sign in as a connection](../tools/mcp-servers/#sign-in-as-a-connection)).
 4. **Approvals say whose account.** An approval for a call that uses a
    connection says whose it acts with: the company's by its account, such
    as `support@acme.example`, and a person's as "this person's Google
@@ -146,6 +149,8 @@ To connect an app there:
    - Microsoft: an Entra app. The portal's Redirect URIs box refuses an
      `http` address, so add it in the app's Manifest, to
      `replyUrlsWithType`, with the type `Web`.
+   - HubSpot: an MCP connector, and Asana: an MCP app. The URI is one of
+     its redirect URLs ([HubSpot](hubspot/), [Asana](asana/)).
 2. **Put its secrets in the pack's `.kindgi/secrets.env`,** or another
    `.env` file `kindgi dev` reads. A Google or Microsoft client has one,
    its client secret. A GitHub App has three: its client secret, its
@@ -197,6 +202,10 @@ What's different from a deployed runtime:
   a profile to post as.
 - [Texts](texts/): connect your business's WhatsApp number through your
   Telnyx account, and answer its texts.
+- [HubSpot](hubspot/): create your HubSpot MCP connector, register it, and
+  give your agents the tools of HubSpot's MCP server.
+- [Asana](asana/): create your Asana MCP app, register it, and give your
+  agents the tools of Asana's MCP server.
 - [Use a connection in a tool](use-a-connection/): declare what a tool
   needs, and read the token in its handler.
 - [Choose a connection](choose-a-connection/): name connections, and say

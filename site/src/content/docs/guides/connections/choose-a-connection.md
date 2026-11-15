@@ -120,6 +120,12 @@ about a main.
 connection only, and `kindgi connections list` marks it `(main)` after its
 name.
 
+HubSpot and Asana are different: Kindgi doesn't learn which account
+connected, so a person, and the company, each have one connection to them
+in an environment. Connecting again renews it, and there's no second
+account to make main
+([An app with its own MCP server](../add-an-app/#an-app-with-its-own-mcp-server)).
+
 ## Name a connection
 
 A connection's name is the one given at the connect, or else its account's,

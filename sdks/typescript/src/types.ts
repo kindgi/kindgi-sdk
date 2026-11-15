@@ -2776,11 +2776,12 @@ export interface RegisterMcpEndpointInput {
    */
   readonly readOnlyTools?: readonly string[];
   /**
-   * The connection the endpoint lists its server's tools with: the
-   * registrant's own (`as: 'person'`) or the company's (`as: 'company'`), to
-   * the auth's app, in the env the runtime serves. Required with a
-   * `connection` auth, refused without one. While it needs reconnecting, the
-   * endpoint keeps the tools it last listed.
+   * The connection the endpoint lists its server's tools with: a live
+   * connection to the auth's app, in the env the runtime serves, that's the
+   * registrant's own or the company's, whatever `as` is. Required with a
+   * `connection` auth, refused without one. Only the listing uses it: each
+   * tool call runs with its own run's connection. While it needs
+   * reconnecting, the endpoint keeps the tools it last listed.
    */
   readonly catalogConnectionId?: string;
   /** The scope the endpoint is registered in; authorization checks it. */
