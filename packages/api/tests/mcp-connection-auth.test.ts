@@ -208,8 +208,8 @@ describe('an MCP endpoint that signs in with a connection', () => {
     expect(res.status).toBe(201);
     expect(registered[0]?.mcpServer).toEqual({
       origin: 'https://mcp.asana.com',
-      resource: 'https://mcp.asana.com/v2',
-      issuer: 'https://mcp.asana.com',
+      resource: 'https://mcp.asana.com/v2/mcp',
+      issuer: 'https://app.asana.com',
     });
     expect(registered[0]?.endpoint.auth).toEqual({
       scheme: 'connection',

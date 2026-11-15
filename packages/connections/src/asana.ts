@@ -11,8 +11,11 @@ import { defineApp } from './define.js';
  * server as an MCP endpoint with
  * `auth: { scheme: 'connection', app: 'asana', as }`.
  *
- * - **Sign-in:** OAuth 2.0 with PKCE at Asana's MCP authorization server,
- *   with the client secret in the token request's body. Asana's MCP apps
+ * - **Sign-in:** OAuth 2.0 with PKCE at Asana's authorization server,
+ *   `https://app.asana.com`, which the v2 server's metadata names, with the
+ *   client secret in the token request's body. (`https://mcp.asana.com`'s
+ *   own authorization server is the older server's, which registers its
+ *   own clients.) Asana's MCP apps
  *   have no scopes to ask for, so the sign-in asks for none
  *   (`scopesFrom: 'registration'`), and the one permission is what the app
  *   is granted. The access token lasts an hour and is renewed with its
@@ -22,16 +25,16 @@ import { defineApp } from './define.js';
  *   connection per person, or one for the company.
  * - **Withdrawing:** a disconnect deletes Kindgi's tokens, and the person
  *   removes the app's access at Asana (the setup guide says where).
- * - **Tokens:** go to `https://mcp.asana.com` only, minted for the v2
- *   server's `resource`, `https://mcp.asana.com/v2`.
+ * - **Tokens:** go to `https://mcp.asana.com` only, minted for the
+ *   `resource` the v2 server's metadata names, `https://mcp.asana.com/v2/mcp`.
  */
 export const asana = defineApp({
   id: 'asana',
   name: 'Asana',
   signIn: {
     kind: 'oauth2',
-    authorizeUrl: 'https://mcp.asana.com/authorize',
-    tokenUrl: 'https://mcp.asana.com/token',
+    authorizeUrl: 'https://app.asana.com/-/oauth_authorize',
+    tokenUrl: 'https://app.asana.com/-/oauth_token',
     pkce: 'S256',
     scopesFrom: 'registration',
   },
@@ -49,8 +52,8 @@ export const asana = defineApp({
   mcpServers: [
     {
       origin: 'https://mcp.asana.com',
-      resource: 'https://mcp.asana.com/v2',
-      issuer: 'https://mcp.asana.com',
+      resource: 'https://mcp.asana.com/v2/mcp',
+      issuer: 'https://app.asana.com',
     },
   ],
 });

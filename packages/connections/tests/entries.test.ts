@@ -529,13 +529,13 @@ describe.each([
   {
     entry: asana,
     name: 'Asana',
-    authorizeUrl: 'https://mcp.asana.com/authorize',
-    tokenUrl: 'https://mcp.asana.com/token',
-    // The v2 server's own resource, as Asana's docs name it.
+    authorizeUrl: 'https://app.asana.com/-/oauth_authorize',
+    tokenUrl: 'https://app.asana.com/-/oauth_token',
+    // The v2 server's resource and authorization server, as its metadata names them.
     server: {
       origin: 'https://mcp.asana.com',
-      resource: 'https://mcp.asana.com/v2',
-      issuer: 'https://mcp.asana.com',
+      resource: 'https://mcp.asana.com/v2/mcp',
+      issuer: 'https://app.asana.com',
     },
   },
 ])('the $name entry', ({ entry, name, authorizeUrl, tokenUrl, server }) => {
