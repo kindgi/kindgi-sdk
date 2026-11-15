@@ -14557,7 +14557,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'destinations.redeliver',
     summary: 'Redeliver a message',
     description:
-      "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
+      "Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`, `project-deleted`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.",
     tags: ['destinations'],
     security: 'bearer',
     parameters: [DestinationIdPathParam, DestinationDeliveryIdPathParam, IdempotencyKeyParam],

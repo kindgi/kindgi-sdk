@@ -12722,7 +12722,7 @@ class DestinationsResource:
     ) -> _models.DestinationDelivery:
         """Redeliver a message. `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`
 
-        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
+        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`, `project-deleted`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
         """
         return self._client._request(
             _OPERATIONS["destinations.redeliver"],
@@ -24368,7 +24368,7 @@ class AsyncDestinationsResource:
     ) -> _models.DestinationDelivery:
         """Redeliver a message. `POST /v1/destinations/{destinationId}/deliveries/{deliveryId}/redeliver`
 
-        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
+        Queues the delivery again now, whatever its status: its attempts start over, and so does its retry window. It's checked again as when it was queued (`destination-removed`, `not-for-this-project`) and as when it's sent (`no-access`, `project-deleted`), so a delivery skipped for one of those is skipped again with that reason. One skipped for `rate-cap` goes.
         """
         return await self._client._request(
             _OPERATIONS["destinations.redeliver"],

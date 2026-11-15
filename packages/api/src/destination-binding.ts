@@ -74,8 +74,8 @@ export interface DestinationBinding {
    * Queue a delivery again now, whatever its status: attempts start over,
    * and so does its retry window. It's checked again as when it was queued
    * (`destination-removed`, `not-for-this-project`) and as when it's sent
-   * (`no-access`), so a delivery skipped for one of those is skipped again
-   * with that reason. One skipped for `rate-cap` goes.
+   * (`no-access`, `project-deleted`), so a delivery skipped for one of those
+   * is skipped again with that reason. One skipped for `rate-cap` goes.
    */
   redeliver(input: DestinationDeliveryRef): Promise<DestinationDeliveryOutcome>;
   /**
