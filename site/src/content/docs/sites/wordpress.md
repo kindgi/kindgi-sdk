@@ -157,9 +157,9 @@ the plugin that fits it.
 <!-- 0.4.0 is the floor of the plugin this release carries, as its readme.txt says: change them together. -->
 
 1. **Install it.** Download `kindgi-<version>.zip`, the plugin this version
-   of the docs describes, from release Kindgi SDK `{{kindgi.version}}` on the
-   SDK's [releases page](https://github.com/kindgi/kindgi-sdk/releases), and
-   upload it under
+   of the docs describes, from release
+   [Kindgi SDK `{{kindgi.version}}`](https://github.com/kindgi/kindgi-sdk/releases/tag/%40kindgi/sdk%400.7.0),
+   and upload it under
    **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before
    WordPress 6.8). The `.sha256` file next to it checks the
    download (`sha256sum -c`). Or copy the folder to
