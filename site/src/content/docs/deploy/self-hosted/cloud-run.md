@@ -1093,6 +1093,66 @@ Kindgi API server listening on http://localhost:4000 (reached at https://kindgi-
 
 What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
 
+## 8. Renew the license key
+
+The license key expires, and the server warns before it does: from 30 days
+before, or fewer if the key sets its own warning. The deployment renews its
+own key with `kindgi license renew`: by hand, from your own scheduler, or on
+a schedule the module adds. What renewing does and sends:
+[Renew the license key](../renew-the-license-key/).
+
+1. **Enroll the deployment, once.**
+   `terraform output -raw license_enroll_command` prints the command. Run it
+   with `--for` filled in: your GitHub login, or, for a key Kindgi issued,
+   its subject. It makes the deployment's renewer key and keeps it in
+   `$N-license-renewer` (`license_renewer_secret`), without printing it. The
+   module creates that secret empty, and only the renewal job may read it.
+   Outside Cloud Run, the command uses your gcloud credentials, which must
+   be able to add versions to that secret.
+2. **Add the renewer:** the command prints a line to add at
+   access.kindgi.com, signed in as that login. For a key Kindgi issued, send
+   the line to Kindgi instead.
+3. **Renew by hand, or from your own scheduler,** with
+   `$(terraform output -raw license_renew_command)`. It adds a version of
+   `$N-license-key` only when Kindgi answers with a new key, and prints
+   `renewed: …` or `unchanged: …`.
+4. **Or on a schedule:** set `license_renewal_schedule`, a cron in UTC, and
+   apply:
+
+   ```hcl
+   license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
+   ```
+
+With a schedule:
+
+- **The job:** `$N-license-renewal`, a Cloud Run job on the runtime image
+  that runs the same command, started by Cloud Scheduler. Where `region` has
+  no Cloud Scheduler, set `license_renewal_scheduler_region`; the job still
+  runs in `region`. Its runs:
+  `gcloud run jobs executions list --job $N-license-renewal --region <region>`.
+- **Its identity:** a service account of its own, `$N-renew`. It reads the
+  license key and the renewer key, may add versions to the license key, and
+  nothing else. It never restarts the server.
+- **Alerts:** a failed run, and a run that says the key is inside its
+  warning window (its line `⚠ It expires in <days> days`), so from 30 days
+  before the key expires, or fewer if the key sets its own warning. Each
+  opens an incident in Cloud Monitoring, and `alert_notification_channels`
+  sends them on.
+- **Counts of the deployment's use:** set `license_usage_key_secret` to a
+  secret holding a system key with `system:license` alone, made before the
+  apply that names it. The job then reads that secret too, and renews with
+  `--runtime` and `--runtime-token`. A non-production key's renewals carry
+  counts, and a third alert says when a run sent none. It needs a server
+  that takes calls without Cloud Run IAM (`server_public` or
+  `server_invoker_iam_disabled`), and the plan refuses it otherwise
+  ([A key for the counts](../renew-the-license-key/#a-key-for-the-counts)).
+
+The server uses a renewed key when Cloud Run next starts an instance: a new
+revision, or a new instance as it scales. A running instance keeps the key
+it started with, and never stops over its key. To stop renewing, unset
+`license_renewal_schedule`, or stop the renewer at access.kindgi.com. The
+module's README has the steps, the usage key's mint among them.
+
 ## Use Gemini
 
 The runtime can call Gemini on Vertex AI with its own service account, so
