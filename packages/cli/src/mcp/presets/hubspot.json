@@ -1,0 +1,8 @@
+{
+  "kind": "hubspot",
+  "description": "HubSpot's own MCP server: contacts, companies, deals, tickets, notes, tasks and more. Signs in as a HubSpot connection, each person's own or the company's.",
+  "auth": "connection",
+  "app": "hubspot",
+  "name": "HubSpot",
+  "url": "https://mcp.hubspot.com"
+}

@@ -29,6 +29,37 @@ export interface AppEntry {
   readonly rateLimits?: readonly AppRateLimit[];
   /** The docs page an admin follows to register the app: `'/guides/connections/google/'`. */
   readonly setupGuide: string;
+  /**
+   * The app's own MCP servers, which an MCP endpoint may sign in to with
+   * this app's connections (`auth: { scheme: 'connection', app }`). A
+   * connection's token is sent to these origins only: registration refuses
+   * an endpoint on any other. At least one, each origin once. Only with an
+   * `oauth2` sign-in. Absent: no MCP endpoint signs in with this app.
+   */
+  readonly mcpServers?: readonly AppMcpServer[];
+}
+
+/**
+ * An MCP server of the app's own, as its Protected Resource Metadata
+ * (RFC 9728) describes it.
+ */
+export interface AppMcpServer {
+  /** Where the server is, as an https origin only: `'https://mcp.hubspot.com'`. */
+  readonly origin: string;
+  /**
+   * The server's `resource` (RFC 8707), as its metadata names it: an https
+   * URL on `origin`, without a query, fragment or user. Each call's token
+   * is minted for it, and kept per connection and resource. Compared and
+   * sent exactly as written: `'https://mcp.asana.com/v2/mcp'`.
+   */
+  readonly resource: string;
+  /**
+   * The issuer of the server's authorization server (RFC 8414), an https
+   * URL without a query or fragment. Registration reads the server's
+   * metadata and refuses it unless its `authorization_servers` names this
+   * issuer.
+   */
+  readonly issuer: string;
 }
 
 /** Who owns a connection: one member, or the company (the workspace). */
@@ -65,6 +96,16 @@ export type ConnectionOwnerKind = 'member' | 'company';
  *     its access token ends, and then needs reconnecting. The token answer
  *     must say when it ends (`expires_in`): a grant without either is
  *     refused. One the app gives anyway is used as under `'required'`.
+ *   `scopesFrom` says where the scopes a connection is granted are set:
+ *   - `'sign-in'` (the default): the sign-in asks for them (`scope`), and
+ *     the server reads the ones the app answers it granted.
+ *   - `'registration'`: the app's registration at the app sets them, as
+ *     HubSpot's MCP connectors and Asana's MCP apps do. The sign-in asks
+ *     for none (no `scope` is sent), the app's answer of scopes isn't
+ *     read, and every connection holds each of the entry's permissions.
+ *     So each permission's `grants` is its own key, and the sign-in takes
+ *     no `scopes`, no `scopeResource`, no `openid` lookup and no profile
+ *     lookup's `scopes`.
  * - `github-app`: a GitHub App's installation, with its tokens made from
  *   the app's private key.
  * - `token`: an account's credential, kept on the registration by
@@ -84,6 +125,7 @@ export type SignIn =
       readonly scopeResource?: string;
       readonly tenant?: { readonly default?: string };
       readonly refreshToken?: 'required' | 'optional';
+      readonly scopesFrom?: 'sign-in' | 'registration';
     }
   | { readonly kind: 'github-app' }
   | {
@@ -136,6 +178,11 @@ export interface AppPermission {
  *   with the registration's credential. The provider's id for the number
  *   is the id, and the number in E.164 is its label. Only with a `token`
  *   sign-in, which takes no other.
+ * - `none`: the app names no account (an MCP server's token, for one).
+ *   The connection's account is its owner: its id is the person's user
+ *   id, or `company` for the company's, and its label is the app's name.
+ *   So an owner has one connection to the app per env, and connecting
+ *   again renews it. Only with an `oauth2` sign-in.
  */
 export type AccountLookup =
   | {
@@ -151,7 +198,8 @@ export type AccountLookup =
       readonly id: string;
       readonly label: readonly [string, ...string[]];
     }
-  | { readonly kind: 'number' };
+  | { readonly kind: 'number' }
+  | { readonly kind: 'none' };
 
 /** How access is withdrawn, and how the app tells the server it was. */
 export interface AppRemoval {

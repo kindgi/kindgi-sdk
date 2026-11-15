@@ -16,7 +16,13 @@ import { readFile as nodeReadFile, readdir as nodeReaddir } from 'node:fs/promis
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { Preset, PresetSummary } from './preset-types.js';
+import {
+  type ConnectionPreset,
+  type LaunchedPreset,
+  type Preset,
+  type PresetSummary,
+  isConnectionPreset,
+} from './preset-types.js';
 
 // Colocated with this loader — `src/mcp/presets/*.json` at source,
 // `dist/mcp/presets/*.json` at built time.
@@ -116,13 +122,23 @@ export function listPresetSummaries(
   presets: Readonly<Record<string, Preset>>,
 ): readonly PresetSummary[] {
   return Object.values(presets)
-    .map<PresetSummary>((p) => ({
-      kind: p.kind,
-      runtime: p.runtime,
-      package: p.package,
-      ...(p.description !== undefined && { description: p.description }),
-      audit: p.audit,
-    }))
+    .map<PresetSummary>((p) =>
+      isConnectionPreset(p)
+        ? {
+            kind: p.kind,
+            auth: p.auth,
+            app: p.app,
+            url: p.url,
+            ...(p.description !== undefined && { description: p.description }),
+          }
+        : {
+            kind: p.kind,
+            runtime: p.runtime,
+            package: p.package,
+            ...(p.description !== undefined && { description: p.description }),
+            audit: p.audit,
+          },
+    )
     .sort((a, b) => a.kind.localeCompare(b.kind));
 }
 
@@ -143,6 +159,62 @@ function validatePreset(input: unknown): ValidateResult {
   if (typeof kind !== 'string' || kind === '') {
     return { kind: 'err', message: 'preset.kind must be a non-empty string' };
   }
+  if (obj.auth !== undefined) return validateConnectionPreset(obj, kind);
+  return validateLaunchedPreset(obj, kind);
+}
+
+/** The id of an app's entry in `@kindgi/connections`, as `defineApp` takes it. */
+const APP_ID = /^[a-z][a-z0-9-]{1,31}$/;
+
+function validateConnectionPreset(obj: Record<string, unknown>, kind: string): ValidateResult {
+  if (obj.auth !== 'connection') {
+    return {
+      kind: 'err',
+      message: `preset.auth = "${String(obj.auth)}" unsupported (only "connection" is recognized)`,
+    };
+  }
+  for (const field of ['runtime', 'package', 'envMap', 'defaultArgs', 'hostRemap', 'audit']) {
+    if (obj[field] !== undefined) {
+      return {
+        kind: 'err',
+        message: `preset.${field} is for a preset the launcher runs; a "connection" preset has none`,
+      };
+    }
+  }
+  const app = obj.app;
+  if (typeof app !== 'string' || !APP_ID.test(app)) {
+    return { kind: 'err', message: "preset.app must be an app's entry id (`hubspot`)" };
+  }
+  const name = obj.name;
+  if (typeof name !== 'string' || name.trim() === '') {
+    return { kind: 'err', message: 'preset.name must be a non-empty string' };
+  }
+  const url = obj.url;
+  if (typeof url !== 'string' || !isHttpsUrl(url)) {
+    return { kind: 'err', message: 'preset.url must be an https URL' };
+  }
+  const description = typeof obj.description === 'string' ? obj.description : undefined;
+  const preset: ConnectionPreset = {
+    kind,
+    ...(description !== undefined && { description }),
+    auth: 'connection',
+    app,
+    name,
+    url,
+  };
+  return { kind: 'ok', preset };
+}
+
+function isHttpsUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' && url.username === '' && url.password === '';
+  } catch {
+    return false;
+  }
+}
+
+function validateLaunchedPreset(obj: Record<string, unknown>, kind: string): ValidateResult {
   const runtime = obj.runtime;
   if (runtime !== 'npx' && runtime !== 'docker') {
     return { kind: 'err', message: 'preset.runtime must be "npx" or "docker"' };
@@ -155,7 +227,7 @@ function validatePreset(input: unknown): ValidateResult {
   if (!Array.isArray(envMapRaw)) {
     return { kind: 'err', message: 'preset.envMap must be an array' };
   }
-  const envMap: Array<Preset['envMap'][number]> = [];
+  const envMap: Array<LaunchedPreset['envMap'][number]> = [];
   for (const [i, entry] of envMapRaw.entries()) {
     if (entry === null || typeof entry !== 'object') {
       return { kind: 'err', message: `preset.envMap[${i}] must be an object` };
@@ -185,7 +257,7 @@ function validatePreset(input: unknown): ValidateResult {
   }
   const defaultArgs = defaultArgsRaw as readonly string[];
   const hostRemapRaw = obj.hostRemap;
-  let hostRemap: Preset['hostRemap'];
+  let hostRemap: LaunchedPreset['hostRemap'];
   if (hostRemapRaw !== undefined) {
     if (hostRemapRaw !== 'docker-desktop') {
       return {
@@ -201,7 +273,7 @@ function validatePreset(input: unknown): ValidateResult {
 
   const description = typeof obj.description === 'string' ? obj.description : undefined;
 
-  const preset: Preset = {
+  const preset: LaunchedPreset = {
     kind,
     ...(description !== undefined && { description }),
     runtime,
@@ -215,7 +287,7 @@ function validatePreset(input: unknown): ValidateResult {
 }
 
 type ValidateAuditResult =
-  | { readonly kind: 'ok'; readonly audit: Preset['audit'] }
+  | { readonly kind: 'ok'; readonly audit: LaunchedPreset['audit'] }
   | { readonly kind: 'err'; readonly message: string };
 
 function validateAudit(input: unknown): ValidateAuditResult {

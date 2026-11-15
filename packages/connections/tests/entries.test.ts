@@ -4,8 +4,10 @@
 import { BUILT_IN_ONLY_APPS } from '@kindgi/tools';
 import { describe, expect, it } from 'vitest';
 
+import { asana } from '../src/asana.js';
 import { github } from '../src/github.js';
 import { google } from '../src/google.js';
+import { hubspot } from '../src/hubspot.js';
 import { SIGN_IN_TENANT_PATTERN, defineApp } from '../src/index.js';
 import { linkedin } from '../src/linkedin.js';
 import { microsoft } from '../src/microsoft.js';
@@ -509,5 +511,68 @@ describe('the Texts entry', () => {
       },
     });
     expect(texts.setupGuide).toBe('/guides/connections/texts/');
+  });
+});
+
+describe.each([
+  {
+    entry: hubspot,
+    name: 'HubSpot',
+    authorizeUrl: 'https://mcp.hubspot.com/oauth/authorize/user',
+    tokenUrl: 'https://mcp.hubspot.com/oauth/v3/token',
+    server: {
+      origin: 'https://mcp.hubspot.com',
+      resource: 'https://mcp.hubspot.com',
+      issuer: 'https://mcp.hubspot.com',
+    },
+  },
+  {
+    entry: asana,
+    name: 'Asana',
+    authorizeUrl: 'https://app.asana.com/-/oauth_authorize',
+    tokenUrl: 'https://app.asana.com/-/oauth_token',
+    // The v2 server's resource and authorization server, as its metadata names them.
+    server: {
+      origin: 'https://mcp.asana.com',
+      resource: 'https://mcp.asana.com/v2/mcp',
+      issuer: 'https://app.asana.com',
+    },
+  },
+])('the $name entry', ({ entry, name, authorizeUrl, tokenUrl, server }) => {
+  it('is a checked, frozen entry, set up from its own guide', () => {
+    expect(defineApp(entry)).toEqual(entry);
+    expect(Object.isFrozen(entry)).toBe(true);
+    expect(entry.name).toBe(name);
+    expect(entry.setupGuide).toBe(`/guides/connections/${entry.id}/`);
+  });
+
+  it("is a person's own account or the company's, signed in at its MCP authorization server", () => {
+    expect(entry.owners).toEqual(['member', 'company']);
+    expect(entry.signIn).toEqual({
+      kind: 'oauth2',
+      authorizeUrl,
+      tokenUrl,
+      pkce: 'S256',
+      // Its registration at the app sets the scopes: none is asked for, and a refresh token is needed.
+      scopesFrom: 'registration',
+    });
+  });
+
+  it("sends its tokens to its own MCP server only, minted for the server's resource", () => {
+    expect(entry.mcpServers).toEqual([server]);
+  });
+
+  it('has one permission, granted by its own key, that changes things', () => {
+    expect(Object.keys(entry.permissions)).toEqual(['mcp.tools']);
+    expect(entry.permissions['mcp.tools']).toMatchObject({ grants: 'mcp.tools', changes: true });
+  });
+
+  it("learns no account, so the connection is its owner's, and withdraws nothing at the app", () => {
+    expect(entry.account).toEqual({ kind: 'none' });
+    expect(entry.removal).toEqual({});
+  });
+
+  it('is not used only by tools built into Kindgi', () => {
+    expect(BUILT_IN_ONLY_APPS).not.toContain(entry.id);
   });
 });

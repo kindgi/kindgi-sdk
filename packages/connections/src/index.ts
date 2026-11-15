@@ -6,7 +6,8 @@
  * accounts at other apps, and `defineApp` to check one. The entries
  * themselves are subpaths: `@kindgi/connections/google`,
  * `@kindgi/connections/github`, `@kindgi/connections/microsoft`,
- * `@kindgi/connections/linkedin`, `@kindgi/connections/texts`.
+ * `@kindgi/connections/linkedin`, `@kindgi/connections/texts`,
+ * `@kindgi/connections/hubspot`, `@kindgi/connections/asana`.
  */
 
 export {
@@ -19,6 +20,7 @@ export {
 export type {
   AccountLookup,
   AppEntry,
+  AppMcpServer,
   AppPermission,
   AppRateLimit,
   AppRemoval,

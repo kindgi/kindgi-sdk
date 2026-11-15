@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { AccountLookup, AppEntry, AppRemoval, SignIn, TokenProvider } from './types.js';
+import type {
+  AccountLookup,
+  AppEntry,
+  AppMcpServer,
+  AppRemoval,
+  SignIn,
+  TokenProvider,
+} from './types.js';
 
 /** An entry's `id`. */
 export const APP_ID_PATTERN = /^[a-z][a-z0-9-]{1,31}$/;
@@ -48,7 +55,14 @@ const TOKEN_PROVIDER_SET: ReadonlySet<string> = new Set(TOKEN_PROVIDERS);
  * authorize and token URLs, or more than once in the revoke URL), a
  * `{tenant}` in the profile lookup's URL, a scope holding a space or a
  * comma, a rate limit that isn't a positive whole number, a cost that
- * isn't a whole number.
+ * isn't a whole number, a `scopesFrom` other than `sign-in` or
+ * `registration`, and with `registration` a permission whose `grants`
+ * isn't its own key, `signIn.scopes`, `signIn.scopeResource`, an `openid`
+ * lookup or a profile lookup's `scopes`; an `mcpServers` list that's empty,
+ * that names an origin twice, or that isn't on an `oauth2` sign-in, a
+ * server's `origin` that isn't exactly an https origin, its `resource`
+ * that isn't an https URL on that origin without a query, fragment or
+ * user, its `issuer` that isn't an https URL without a query or fragment.
  */
 export function defineApp(entry: AppEntry): AppEntry {
   if (typeof entry !== 'object' || entry === null) {
@@ -67,9 +81,13 @@ export function defineApp(entry: AppEntry): AppEntry {
   checkOwners(entry.owners, at);
   checkPermissions(entry.permissions, at);
   if (entry.signIn.kind === 'token') checkTokenGrants(entry.permissions, at);
+  if (entry.signIn.kind === 'oauth2' && entry.signIn.scopesFrom === 'registration') {
+    checkRegistrationScopes(entry, at);
+  }
   checkAccount(entry.account, entry.signIn, at);
   checkRemoval(entry.removal, entry.signIn, at);
   checkRateLimits(entry.rateLimits, at);
+  checkMcpServers(entry.mcpServers, entry.signIn, at);
   return deepFreeze(structuredClone(entry));
 }
 
@@ -79,6 +97,9 @@ function checkSignIn(signIn: SignIn, at: At): void {
   if (signIn?.kind === 'github-app' || signIn?.kind === 'token') {
     if ('refreshToken' in signIn) {
       throw new TypeError(at('signIn.refreshToken is for an "oauth2" sign-in'));
+    }
+    if ('scopesFrom' in signIn) {
+      throw new TypeError(at('signIn.scopesFrom is for an "oauth2" sign-in'));
     }
     if (signIn.kind === 'token') checkTokenProviders(signIn.providers, at);
     return;
@@ -101,6 +122,13 @@ function checkOAuth2SignIn(signIn: Extract<SignIn, { kind: 'oauth2' }>, at: At):
     signIn.refreshToken !== 'optional'
   ) {
     throw new TypeError(at('signIn.refreshToken must be "required" or "optional"'));
+  }
+  if (
+    signIn.scopesFrom !== undefined &&
+    signIn.scopesFrom !== 'sign-in' &&
+    signIn.scopesFrom !== 'registration'
+  ) {
+    throw new TypeError(at('signIn.scopesFrom must be "sign-in" or "registration"'));
   }
   for (const [name, value] of Object.entries(signIn.authorizeParams ?? {})) {
     if (typeof value !== 'string') {
@@ -233,6 +261,91 @@ function checkTokenGrants(permissions: AppEntry['permissions'], at: At): void {
   }
 }
 
+/**
+ * Scopes the app's registration sets (`scopesFrom: 'registration'`): the
+ * sign-in asks for none, and every connection holds each permission. So
+ * each permission grants its own key, and nothing else names a scope.
+ */
+function checkRegistrationScopes(entry: AppEntry, at: At): void {
+  const { signIn, account } = entry;
+  if (signIn.kind !== 'oauth2') return;
+  for (const [key, permission] of Object.entries(entry.permissions)) {
+    if (permission.grants !== key) {
+      throw new TypeError(
+        at(
+          `permissions[${JSON.stringify(key)}].grants must be ${JSON.stringify(key)}: with signIn.scopesFrom "registration", the app's registration sets the scopes, and each permission is granted by its own key`,
+        ),
+      );
+    }
+  }
+  const asked = scopeAskedFor(signIn, account);
+  if (asked !== undefined) {
+    throw new TypeError(
+      at(
+        `${asked} can't be given with signIn.scopesFrom "registration": the sign-in asks for no scope`,
+      ),
+    );
+  }
+}
+
+/** What else asks for a scope, besides the permissions, or `undefined`. */
+function scopeAskedFor(
+  signIn: Extract<SignIn, { kind: 'oauth2' }>,
+  account: AccountLookup,
+): string | undefined {
+  if (signIn.scopes !== undefined) return 'signIn.scopes';
+  if (signIn.scopeResource !== undefined) return 'signIn.scopeResource';
+  if (account?.kind === 'openid') {
+    return 'account.kind "openid", which asks for the "openid" scope,';
+  }
+  const profileScopes = account?.kind === 'profile' ? account.scopes : undefined;
+  return Array.isArray(profileScopes) && profileScopes.length > 0 ? 'account.scopes' : undefined;
+}
+
+/**
+ * The app's MCP servers: on an `oauth2` sign-in, at least one, each origin
+ * once; an https origin, a `resource` on it and an issuer, each exactly.
+ */
+function checkMcpServers(servers: AppEntry['mcpServers'], signIn: SignIn, at: At): void {
+  if (servers === undefined) return;
+  if (signIn.kind !== 'oauth2') {
+    throw new TypeError(at('mcpServers needs an "oauth2" sign-in'));
+  }
+  if (!Array.isArray(servers) || servers.length === 0) {
+    throw new TypeError(at('mcpServers must list at least one server'));
+  }
+  const origins = new Set<string>();
+  servers.forEach((server: AppMcpServer, i) => {
+    const field = `mcpServers[${i}]`;
+    if (typeof server !== 'object' || server === null) {
+      throw new TypeError(at(`${field} must be an object`));
+    }
+    const origin = httpsUrl(server.origin, at(`${field}.origin`));
+    if (origin.origin !== server.origin) {
+      throw new TypeError(
+        at(
+          `${field}.origin must be an https origin only, with no path or trailing "/": ${JSON.stringify(origin.origin)}`,
+        ),
+      );
+    }
+    const resource = httpsUrl(server.resource, at(`${field}.resource`));
+    if (resource.origin !== server.origin) {
+      throw new TypeError(at(`${field}.resource must be on ${server.origin}`));
+    }
+    if (/[?#]/.test(server.resource) || resource.username !== '' || resource.password !== '') {
+      throw new TypeError(at(`${field}.resource can't have a query, a fragment or a user`));
+    }
+    requireHttps(server.issuer, at(`${field}.issuer`));
+    if (/[?#]/.test(server.issuer)) {
+      throw new TypeError(at(`${field}.issuer can't have a query or a fragment`));
+    }
+    if (origins.has(server.origin)) {
+      throw new TypeError(at(`mcpServers lists ${server.origin} twice`));
+    }
+    origins.add(server.origin);
+  });
+}
+
 function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
   if (account?.kind === 'number') {
     if (signIn.kind !== 'token') {
@@ -254,11 +367,25 @@ function checkAccount(account: AccountLookup, signIn: SignIn, at: At): void {
     checkProfile(account, signIn, at);
     return;
   }
+  if (account?.kind === 'none') {
+    if (signIn.kind !== 'oauth2') {
+      throw new TypeError(at('account.kind "none" needs an "oauth2" sign-in'));
+    }
+    return;
+  }
   if (account?.kind !== 'openid') {
     throw new TypeError(
-      at('account.kind must be "openid", "github-installation", "profile" or "number"'),
+      at('account.kind must be "openid", "github-installation", "profile", "number" or "none"'),
     );
   }
+  checkOpenid(account, signIn, at);
+}
+
+function checkOpenid(
+  account: Extract<AccountLookup, { kind: 'openid' }>,
+  signIn: SignIn,
+  at: At,
+): void {
   if (signIn.kind !== 'oauth2') {
     throw new TypeError(at('account.kind "openid" needs an "oauth2" sign-in'));
   }
@@ -367,6 +494,10 @@ function requireScopes(values: unknown, field: string): void {
 }
 
 function requireHttps(value: unknown, field: string): void {
+  httpsUrl(value, field);
+}
+
+function httpsUrl(value: unknown, field: string): URL {
   requireText(value, field);
   let url: URL;
   try {
@@ -375,6 +506,7 @@ function requireHttps(value: unknown, field: string): void {
     throw new TypeError(`${field} must be an https URL`);
   }
   if (url.protocol !== 'https:') throw new TypeError(`${field} must be an https URL`);
+  return url;
 }
 
 function requireCount(value: unknown, field: string): void {
