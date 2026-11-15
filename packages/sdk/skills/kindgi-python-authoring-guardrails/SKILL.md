@@ -40,7 +40,7 @@ level in a file under `guardrails/` declares both. For an agent turn,
 the runtime evaluates every guardrail the agent lists once, on the final
 answer, before it is stored.
 
-`@guardrail(...)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a guardrail with its own check runs at the final answer only. One that names a built-in check takes `at=` (`built_in_guardrail`, below). The points are documented at https://docs.kindgi.com/v0.6/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+`@guardrail(...)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a guardrail with its own check runs at the final answer only. One that names a built-in check takes `at=` (`built_in_guardrail`, below). The points are documented at https://docs.kindgi.com/v0.7/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
 
 Ask what the rule should catch before writing one; the sample
 `response-not-empty` guardrail is a demonstration, not a template.
@@ -197,7 +197,7 @@ no_guarantees = built_in_guardrail(
 
 - **`check`** — a built-in's id (above); **`config`** — its settings,
   keyed as on the wire, which the runtime checks. Each built-in's
-  settings and points: https://docs.kindgi.com/v0.6/guides/guardrails/use-a-built-in-check/.
+  settings and points: https://docs.kindgi.com/v0.7/guides/guardrails/use-a-built-in-check/.
 - **`at`** — `"final-answer"` (default), `"before-tool"`, `"after-tool"`
   or `"model-step"`: one of the built-in's points. At `"before-tool"`,
   `never-call-tool`, `max-tool-calls` and `tool-order` stop a call before

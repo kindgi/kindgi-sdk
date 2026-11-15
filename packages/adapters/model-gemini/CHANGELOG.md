@@ -1,5 +1,24 @@
 # @kindgi/adapter-model-gemini
 
+## 0.7.0
+
+### Patch Changes
+
+- de37639: A Gemini call that gets nothing back (a dropped or refused connection, DNS, TLS) throws `ModelProviderError` with `kind: 'network'` and no `status`, as the other adapters' do, and says why. It used to throw the `@google/genai` client's own error, which said only `fetch failed` and left the reason in its `cause`. Its message is now the client's words, then what their causes add, masked as a tool error's are, for example `fetch failed; caused by AggregateError [ECONNREFUSED]: connect ECONNREFUSED ::1:443, connect ECONNREFUSED 127.0.0.1:443`, and the client's error is its `cause`. A connection the runtime refuses (its egress or body-size rule) says the refusal's own words. Code that checked the thrown error for a `TypeError`, or for the message `fetch failed`, checks `cause` instead. An abort, a response that refuses the call, and what is retried are unchanged.
+- 74d2fe7: The `gemini` and `gemini-api` provider presets price a cached prompt token at a tenth of the input price, as Google bills it on Vertex AI and the Gemini API, past `gemini-3.1-pro-preview`'s 200K-token threshold too. Before, they set no `cachedPromptMultiplier`, so a turn's `totalCostUsd` priced cached tokens at the Gemini adapter's default of a quarter, 2.5 times too high. The Gemini adapter's README example and the providers skill's Vertex AI example set it too. A provider already registered from either preset keeps the prices it was registered with: to take the new ones, unregister it, then register the preset. For one a pack's config declares, restart `kindgi dev`, which registers it again because the preset changed. Both presets' `pricesCheckedAt` is 2026-11-07.
+- Updated dependencies [dfaeea7]
+- Updated dependencies [2d279a5]
+- Updated dependencies [bb5bbf8]
+- Updated dependencies [1aba28d]
+- Updated dependencies [af5b037]
+- Updated dependencies [524e626]
+- Updated dependencies [439bffc]
+- Updated dependencies [00afa37]
+- Updated dependencies [25d902a]
+  - @kindgi/types@0.7.0
+  - @kindgi/capabilities@0.7.0
+  - @kindgi/adapter-model-shared@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

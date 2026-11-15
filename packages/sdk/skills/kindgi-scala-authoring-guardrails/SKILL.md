@@ -43,7 +43,7 @@ named like its file, in a `guardrails` package. For an agent turn, the
 runtime evaluates every guardrail the agent lists once, on the final answer,
 before it is stored.
 
-`Guardrail[C](…)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a guardrail with its own check runs at the final answer only. One that names a built-in check takes `set("at", …)` (`builtInCheck`, below). The points are documented at https://docs.kindgi.com/v0.6/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
+`Guardrail[C](…)` has no field for the other points a guardrail can run at (`at`, and a check's `points`), so a guardrail with its own check runs at the final answer only. One that names a built-in check takes `set("at", …)` (`builtInCheck`, below). The points are documented at https://docs.kindgi.com/v0.7/guides/guardrails/configure-a-guardrail/#where-in-the-turn-it-runs.
 
 Ask what the rule should catch before writing one. The sample
 `response-not-empty` guardrail is a demonstration, not a template.
@@ -200,7 +200,7 @@ val noGuarantees: Guardrail[Map[String, Any]] = Guardrail.json("acme.no-guarante
   `tool-order`, `required-substring`, `forbidden-substring`). The map is
   its settings, keyed as on the wire, which the runtime checks;
   `builtInCheck("must-cite")` takes its defaults. Each built-in's settings
-  and points: https://docs.kindgi.com/v0.6/guides/guardrails/use-a-built-in-check/.
+  and points: https://docs.kindgi.com/v0.7/guides/guardrails/use-a-built-in-check/.
 - **`set("at", …)`:** `final-answer` (default), `before-tool`,
   `after-tool` or `model-step`: one of the built-in's points. At
   `before-tool`, `never-call-tool`, `max-tool-calls` and `tool-order` stop
