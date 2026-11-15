@@ -1119,7 +1119,7 @@ a schedule the module adds. What renewing does and sends:
 4. **Or on a schedule:** set `license_renewal_schedule`, a cron in UTC, and
    apply:
 
-   ```hcl
+   ```hcl excerpt
    license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
    ```
 
