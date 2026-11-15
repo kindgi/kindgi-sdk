@@ -1,0 +1,8 @@
+{
+  "kind": "asana",
+  "description": "Asana's own MCP server: tasks, projects, comments and more. Signs in as an Asana connection, each person's own or the company's.",
+  "auth": "connection",
+  "app": "asana",
+  "name": "Asana",
+  "url": "https://mcp.asana.com/v2/mcp"
+}

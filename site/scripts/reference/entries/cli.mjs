@@ -270,12 +270,13 @@ export const CLI_DEFAULTS = {
     'runtime-token': 'none (give it with `--runtime`)',
   },
   'mcp add': {
-    env: '`local`',
-    path: 'the current directory',
+    as: '`person` (a connection preset only; refused for a preset the launcher runs)',
+    env: '`local`; for a connection preset, the env of the one connection its tools are listed with (required when there are such connections in more than one env)',
+    path: 'the current directory (refused for a connection preset)',
     scope: '`tenant`',
-    secret: 'required',
+    secret: 'required (refused for a connection preset)',
     'server-name':
-      'derived from `--secret` (lowercased, trailing `_url`/`_key`/`_token` etc. stripped)',
+      'derived from `--secret` (lowercased, trailing `_url`/`_key`/`_token` etc. stripped); for a connection preset, the preset kind (`hubspot`)',
   },
   'mcp list': {
     path: 'the current directory',
@@ -1639,6 +1640,18 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'List the local signing keys.',
       line: 'kindgi key list',
+    },
+  ],
+  'mcp add': [
+    {
+      purpose:
+        "Register HubSpot's own MCP server at the runtime. Each person's calls sign in as their own HubSpot connection, and its tools are listed with yours: connect first with `kindgi connections connect hubspot`.",
+      line: 'kindgi mcp add hubspot',
+    },
+    {
+      purpose:
+        "Register Asana's own MCP server for one project, signing in as the company's Asana connection, which a tenant admin connects with `kindgi connections connect asana --for-company`.",
+      line: 'kindgi mcp add asana --as=company --scope=project:<project-id>',
     },
   ],
   'mcp list': [

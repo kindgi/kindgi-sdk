@@ -19,6 +19,7 @@ import {
   listPresetSummaries,
   loadPresets,
 } from '../src/mcp/preset-loader.js';
+import { isConnectionPreset } from '../src/mcp/preset-types.js';
 
 let dir: string;
 
@@ -195,6 +196,70 @@ describe('loadPresets — validation', () => {
   });
 });
 
+const VALID_ACME = {
+  kind: 'acme',
+  description: "Acme's own MCP server",
+  auth: 'connection',
+  app: 'acme',
+  name: 'Acme',
+  url: 'https://mcp.acme.example/mcp',
+};
+
+describe('loadPresets — connection presets', () => {
+  test('loads one beside a launched preset, told apart by `auth`', async () => {
+    await drop('postgres.json', VALID_POSTGRES);
+    await drop('acme.json', VALID_ACME);
+    const result = await loadPresets(dir);
+    if (result.kind !== 'ok') throw new Error(result.message);
+    const acme = result.presets.acme;
+    expect(acme).toEqual(VALID_ACME);
+    expect(acme !== undefined && isConnectionPreset(acme)).toBe(true);
+    const pg = result.presets.postgres;
+    expect(pg !== undefined && isConnectionPreset(pg)).toBe(false);
+  });
+
+  test.each([
+    [{ auth: 'oauth2' }, 'preset.auth = "oauth2" unsupported'],
+    [{ app: 'Acme' }, 'preset.app'],
+    [{ app: undefined }, 'preset.app'],
+    [{ name: ' ' }, 'preset.name'],
+    [{ url: 'http://mcp.acme.example/mcp' }, 'preset.url must be an https URL'],
+    [{ url: 'https://u:p@mcp.acme.example/mcp' }, 'preset.url must be an https URL'],
+    [{ url: 'not a url' }, 'preset.url must be an https URL'],
+    [{ runtime: 'npx' }, 'preset.runtime is for a preset the launcher runs'],
+    [{ envMap: [] }, 'preset.envMap is for a preset the launcher runs'],
+    [{ audit: VALID_POSTGRES.audit }, 'preset.audit is for a preset the launcher runs'],
+  ])('refuses %j', async (change, message) => {
+    await drop('acme.json', { ...VALID_ACME, ...change });
+    const result = await loadPresets(dir);
+    if (result.kind !== 'err') throw new Error('expected a refusal');
+    expect(result.message).toContain(message);
+  });
+
+  test('a summary row names the app and URL, with no runtime or audit', async () => {
+    await drop('postgres.json', VALID_POSTGRES);
+    await drop('acme.json', VALID_ACME);
+    const result = await loadPresets(dir);
+    if (result.kind !== 'ok') throw new Error('setup');
+    expect(listPresetSummaries(result.presets)).toEqual([
+      {
+        kind: 'acme',
+        auth: 'connection',
+        app: 'acme',
+        url: 'https://mcp.acme.example/mcp',
+        description: "Acme's own MCP server",
+      },
+      {
+        kind: 'postgres',
+        runtime: 'docker',
+        package: 'crystaldba/postgres-mcp',
+        description: 'Postgres via crystaldba',
+        audit: VALID_POSTGRES.audit,
+      },
+    ]);
+  });
+});
+
 describe('getPreset', () => {
   test('returns the preset when kind exists', async () => {
     await drop('postgres.json', VALID_POSTGRES);
@@ -253,10 +318,28 @@ describe('shipped presets — real files load cleanly', () => {
     const result = await loadPresets(defaultPresetsRoot());
     if (result.kind !== 'ok') throw new Error('setup');
     const pg = result.presets.postgres;
-    expect(pg).toBeDefined();
-    expect(pg?.runtime).toBe('docker');
-    expect(pg?.package).toBe('crystaldba/postgres-mcp');
-    expect(pg?.envMap).toEqual([{ child: 'DATABASE_URI', from: '$SECRET' }]);
-    expect(pg?.hostRemap).toBe('docker-desktop');
+    if (pg === undefined || isConnectionPreset(pg))
+      throw new Error('postgres is a launched preset');
+    expect(pg.runtime).toBe('docker');
+    expect(pg.package).toBe('crystaldba/postgres-mcp');
+    expect(pg.envMap).toEqual([{ child: 'DATABASE_URI', from: '$SECRET' }]);
+    expect(pg.hostRemap).toBe('docker-desktop');
+  });
+
+  test('the checked-in `hubspot` and `asana` presets sign in as a connection to their app', async () => {
+    const result = await loadPresets(defaultPresetsRoot());
+    if (result.kind !== 'ok') throw new Error('setup');
+    expect(result.presets.hubspot).toMatchObject({
+      auth: 'connection',
+      app: 'hubspot',
+      name: 'HubSpot',
+      url: 'https://mcp.hubspot.com',
+    });
+    expect(result.presets.asana).toMatchObject({
+      auth: 'connection',
+      app: 'asana',
+      name: 'Asana',
+      url: 'https://mcp.asana.com/v2/mcp',
+    });
   });
 });

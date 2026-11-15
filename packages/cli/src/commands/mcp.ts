@@ -5,7 +5,9 @@
  * `kindgi mcp` — add / list / remove / presets subcommands that
  * manipulate `.mcp.json` at the pack root, plus the top-level
  * `kindgi mcp-launch` dispatcher that MCP clients (Claude Code,
- * Cursor, …) invoke as a subprocess.
+ * Cursor, …) invoke as a subprocess. `add` with a connection preset
+ * (`hubspot`, `asana`) instead registers the vendor's own MCP server at
+ * the runtime, signed in as a connection.
  *
  * See:
  *   - `packages/cli/src/mcp/launcher.ts` — the launcher itself
@@ -51,8 +53,16 @@ import {
   readPackEnv,
 } from '@kindgi/secrets-dotenv';
 
+import type {
+  Connection,
+  KindgiClient,
+  ListConnectionsFilter,
+  RegisterMcpEndpointInput,
+} from '@kindgi/client';
+
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
+import { extractKindgiError } from '../errors.js';
 import { runLauncher } from '../mcp/launcher.js';
 import {
   defaultPresetsRoot,
@@ -60,10 +70,15 @@ import {
   listPresetSummaries,
   loadPresets,
 } from '../mcp/preset-loader.js';
-import type { Preset } from '../mcp/preset-types.js';
+import {
+  type ConnectionPreset,
+  type LaunchedPreset,
+  type Preset,
+  isConnectionPreset,
+} from '../mcp/preset-types.js';
 import { renderJson, successNote } from '../output.js';
 import { type BinRunner, binCommand, detectBinRunner } from '../package-manager.js';
-import { requiredPositional, stringFlag } from './helpers.js';
+import { commandResultFromThrown, givenFlag, requiredPositional, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
 // ---------------------------------------------------------------------
@@ -164,7 +179,7 @@ function parseScopeShape(raw: string): ScopeShape | null {
  * from the CLI's strict argv parser (see design note at top of file).
  */
 export function buildMcpServerEntry(
-  preset: Preset,
+  preset: LaunchedPreset,
   secretName: string,
   envName: string,
   scope: ScopeShape,
@@ -197,36 +212,45 @@ export function buildMcpServerEntry(
 const addCmd: LeafCommand = {
   kind: 'leaf',
   name: 'add',
-  description: 'Add an MCP server entry to .mcp.json from a preset.',
+  description:
+    "Add an MCP server from a preset. A preset the launcher runs goes into .mcp.json, with its secret read at start. A connection preset (`hubspot`, `asana`) is the vendor's own server: it's registered at the runtime, and signs in as each person's own connection to the app, or the company's (`--as company`).",
   usage:
-    'kindgi mcp add <KIND> --secret=<name> [--env=<name>] [--scope=<kind>[:id]] [--server-name=<label>] [--path=<pack-dir>] [--force]',
+    'kindgi mcp add <KIND> [--secret=<name>] [--as=<person|company>] [--env=<name>] [--scope=<kind>[:id]] [--server-name=<label>] [--path=<pack-dir>] [--force]',
   optionSpec: {
     secret: {
       type: 'string' as const,
       description:
-        "The secret's name in the pack's env files for `--env`; the server gets its value at start, never `.mcp.json`. Required.",
+        "The secret's name in the pack's env files for `--env`; the server gets its value at start, never `.mcp.json`. Required for a preset the launcher runs; a connection preset has none.",
+    },
+    as: {
+      type: 'string' as const,
+      description:
+        "A connection preset's sign-in: `person`, each person's own connection to the app, or `company`, the company's. Its tools are listed with your own connection, or the company's. Only for a connection preset.",
     },
     env: {
       type: 'string' as const,
-      description: 'The environment whose env files hold the secret. Default: `local`.',
+      description:
+        "The environment whose env files hold the secret. Default: `local`. For a connection preset: the env of the connection its tools are listed with, needed only when there's one in more than one env.",
     },
     scope: {
       type: 'string' as const,
       description:
-        "The secret's scope, recorded in the entry: `tenant` (default), `org:<id>` or `project:<id>`.",
+        "The secret's scope, recorded in the entry, or a connection preset's endpoint's scope at the runtime: `tenant` (default), `org:<id>` or `project:<id>`.",
     },
     'server-name': {
       type: 'string' as const,
       description:
-        "The entry's name in `.mcp.json`. Default: derived from `--secret` (`MY_DB_URL` becomes `my_db`).",
+        "The entry's name in `.mcp.json`. Default: derived from `--secret` (`MY_DB_URL` becomes `my_db`). For a connection preset: the endpoint's id at the runtime, by default the preset's kind.",
     },
     path: {
       type: 'string' as const,
-      description: 'The pack root, where `.mcp.json` is. Default: the current directory.',
+      description:
+        'The pack root, where `.mcp.json` is. Default: the current directory. Not for a connection preset.',
     },
     force: {
       type: 'boolean' as const,
-      description: 'Replace an entry with the same name. By default `add` refuses.',
+      description:
+        'Replace an entry with the same name, or, for a connection preset, an endpoint with the same id. By default `add` refuses.',
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -236,6 +260,10 @@ const addCmd: LeafCommand = {
     } catch (err) {
       return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
     }
+    const resolved = await resolvePreset(ctx, kind);
+    if (resolved.kind === 'error') return resolved.result;
+    const { preset } = resolved;
+    if (isConnectionPreset(preset)) return addConnectionPreset(ctx, preset);
     const secretName = stringFlag(ctx, 'secret');
     if (secretName === undefined || secretName === '') {
       return {
@@ -251,20 +279,6 @@ const addCmd: LeafCommand = {
       return {
         kind: 'error',
         stderr: `Bad --scope "${scopeRaw}". Accepted: tenant | org:<id> | project:<id>.\n`,
-        exitCode: 2,
-      };
-    }
-
-    const presetsResult = await loadPresets();
-    if (presetsResult.kind === 'err') {
-      return { kind: 'error', stderr: `${presetsResult.message}\n`, exitCode: 1 };
-    }
-    const preset = getPreset(presetsResult.presets, kind);
-    if (preset === null) {
-      const available = Object.keys(presetsResult.presets).sort().join(', ');
-      return {
-        kind: 'error',
-        stderr: `No preset "${kind}". Available: ${available === '' ? '(none)' : available}.\n`,
         exitCode: 2,
       };
     }
@@ -356,6 +370,263 @@ const addCmd: LeafCommand = {
     };
   },
 };
+
+/**
+ * The preset `kind` names, or why `add` stops: no such preset, or `--as`
+ * given for a preset the launcher runs.
+ */
+async function resolvePreset(
+  ctx: CommandContext,
+  kind: string,
+): Promise<
+  | { readonly kind: 'ok'; readonly preset: Preset }
+  | { readonly kind: 'error'; readonly result: CommandResult }
+> {
+  const presetsResult = await loadPresets();
+  if (presetsResult.kind === 'err') {
+    return {
+      kind: 'error',
+      result: { kind: 'error', stderr: `${presetsResult.message}\n`, exitCode: 1 },
+    };
+  }
+  const { presets } = presetsResult;
+  const preset = getPreset(presets, kind);
+  if (preset === null) {
+    const available = Object.keys(presets).sort().join(', ');
+    return {
+      kind: 'error',
+      result: usageError(
+        `No preset "${kind}". Available: ${available === '' ? '(none)' : available}.`,
+      ),
+    };
+  }
+  if (ctx.options.as !== undefined && !isConnectionPreset(preset)) {
+    const connectionKinds = Object.values(presets)
+      .filter(isConnectionPreset)
+      .map((p) => p.kind)
+      .sort()
+      .join(', ');
+    return {
+      kind: 'error',
+      result: usageError(
+        `--as is only for a connection preset (${connectionKinds}). "${kind}" is run by the launcher with the secret you name with --secret.`,
+      ),
+    };
+  }
+  return { kind: 'ok', preset };
+}
+
+// ---------------------------------------------------------------------
+// `kindgi mcp add` with a connection preset
+// ---------------------------------------------------------------------
+
+type SignInAs = 'person' | 'company';
+
+/** The flags only a preset the launcher runs takes. */
+const LAUNCHED_ONLY_FLAGS = ['secret', 'path'] as const;
+
+function usageError(message: string): CommandResult {
+  return { kind: 'error', stderr: `${message}\n`, exitCode: 2 };
+}
+
+/**
+ * Register a connection preset's server at the runtime the CLI points at,
+ * with `auth: { scheme: 'connection', app, as }`, its tools listed with
+ * the caller's own connection to the app (`--as person`) or the
+ * company's (`--as company`). Nothing goes into `.mcp.json`: the runtime
+ * reaches the vendor's server, a local MCP client never does.
+ */
+async function addConnectionPreset(
+  ctx: CommandContext,
+  preset: ConnectionPreset,
+): Promise<CommandResult> {
+  for (const flag of LAUNCHED_ONLY_FLAGS) {
+    if (ctx.options[flag] !== undefined) {
+      return usageError(
+        `--${flag} is for a preset the launcher runs. "${preset.kind}" is ${preset.name}'s own server: it signs in as a ${preset.name} connection, and is registered at the runtime.`,
+      );
+    }
+  }
+  const asRaw = givenFlag(ctx, 'as') ?? 'person';
+  if (asRaw !== 'person' && asRaw !== 'company') {
+    return usageError(`Bad --as "${asRaw}". Accepted: person | company.`);
+  }
+  const as: SignInAs = asRaw;
+  const scopeRaw = stringFlag(ctx, 'scope') ?? 'tenant';
+  const scope = parseScopeShape(scopeRaw);
+  if (scope === null) {
+    return usageError(`Bad --scope "${scopeRaw}". Accepted: tenant | org:<id> | project:<id>.`);
+  }
+  const endpointId = givenFlag(ctx, 'server-name') ?? preset.kind;
+  const envName = givenFlag(ctx, 'env');
+  try {
+    const client = ctx.client();
+    const found = await catalogConnection(client, preset, as, envName);
+    if (found.kind === 'none') return { kind: 'error', stderr: `${found.message}\n`, exitCode: 1 };
+    const { connection } = found;
+    const registered = await registerEndpoint(
+      client,
+      {
+        endpointId,
+        name: preset.name,
+        transport: 'streamable-http',
+        config: { transport: 'streamable-http', url: preset.url },
+        auth: { scheme: 'connection', app: preset.app, as },
+        catalogConnectionId: connection.connectionId,
+        scope: scopeRef(scope),
+      },
+      ctx.options.force === true,
+    );
+    if (registered === 'already-registered') {
+      return {
+        kind: 'error',
+        stderr: `Endpoint "${endpointId}" is already registered. Re-run with --force to replace it, or pick a different --server-name.\n`,
+        exitCode: 1,
+      };
+    }
+    const rendered = renderJson(
+      {
+        endpointId,
+        preset: preset.kind,
+        app: preset.app,
+        as,
+        url: preset.url,
+        scope: scope.raw,
+        catalogConnectionId: connection.connectionId,
+        replaced: registered === 'replaced',
+      },
+      ctx.globals.format,
+    );
+    return {
+      kind: 'ok',
+      rendered: {
+        stdout: rendered.stdout,
+        stderr: successNote(ctx.globals.format, addedNote(preset, endpointId, as, connection)),
+      },
+    };
+  } catch (err) {
+    return commandResultFromThrown(err, ctx, 'mcp add');
+  }
+}
+
+function addedNote(
+  preset: ConnectionPreset,
+  endpointId: string,
+  as: SignInAs,
+  connection: Connection,
+): string {
+  const whose =
+    as === 'person'
+      ? `each person's own ${preset.name} connection`
+      : `the company's ${preset.name} connection`;
+  const listedWith = as === 'person' ? 'yours' : "the company's";
+  const reconnect =
+    connection.state === 'needs-reconnecting'
+      ? `\n  That connection needs reconnecting before its tools can be listed: kindgi connections connect ${preset.app} --reconnect=${connection.connectionId}${as === 'company' ? ' --for-company' : ''}`
+      : '';
+  return `\n  Registered "${endpointId}" (preset ${preset.kind}) at the runtime: it signs in as ${whose}.\n  Its tools are listed with ${listedWith} (${connection.connectionId}).${reconnect}\n\n`;
+}
+
+type FoundConnection =
+  | { readonly kind: 'found'; readonly connection: Connection }
+  | { readonly kind: 'none'; readonly message: string };
+
+/**
+ * The connection a connection preset's tools are listed with: the
+ * caller's own to the app (`person`) or the company's (`company`), one
+ * not being removed. An app whose entry reads no account has one per
+ * owner and env, so more than one is more than one env, and `--env`
+ * picks the runtime's.
+ */
+async function catalogConnection(
+  client: KindgiClient,
+  preset: ConnectionPreset,
+  as: SignInAs,
+  envName: string | undefined,
+): Promise<FoundConnection> {
+  const ownerKind = as === 'person' ? 'member' : 'company';
+  const listed = await listAllConnections(client, {
+    app: preset.app,
+    ...(as === 'person' && { owner: 'me' as const }),
+    ownerKind,
+  });
+  const usable = listed.filter(
+    (c) =>
+      c.app === preset.app &&
+      c.owner.kind === ownerKind &&
+      (c.state === 'working' || c.state === 'needs-reconnecting') &&
+      (envName === undefined || c.envName === envName),
+  );
+  const whose = as === 'person' ? 'of yours' : "of the company's";
+  const [only, ...more] = usable;
+  if (only === undefined) {
+    const connect = `kindgi connections connect ${preset.app}${as === 'company' ? ' --for-company' : ''}`;
+    const inEnv = envName !== undefined ? ` in env "${envName}"` : '';
+    return {
+      kind: 'none',
+      message: `No ${preset.name} connection ${whose}${inEnv} to list its tools with. Run \`${connect}\`${as === 'company' ? ' (a tenant admin)' : ''} first, then this again.`,
+    };
+  }
+  if (more.length === 0) return { kind: 'found', connection: only };
+  const envs = [...new Set(usable.map((c) => c.envName))].sort();
+  return {
+    kind: 'none',
+    message:
+      envs.length > 1
+        ? `More than one ${preset.name} connection ${whose}, in envs ${envs.join(', ')}. Name the runtime's env with --env=<name>.`
+        : `More than one ${preset.name} connection ${whose} in env "${envs[0]}": ${usable.map((c) => c.connectionId).join(', ')}. Disconnect the ones not used (\`kindgi connections disconnect <connection-id>\`), then this again.`,
+  };
+}
+
+/** Every connection `query` lists, page by page. */
+async function listAllConnections(
+  client: KindgiClient,
+  query: Omit<ListConnectionsFilter, 'limit' | 'cursor'>,
+): Promise<Connection[]> {
+  const listed: Connection[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await client.connections.list({
+      ...query,
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    listed.push(...page.data);
+    cursor = page.hasMore ? page.nextCursor : undefined;
+  } while (cursor !== undefined);
+  return listed;
+}
+
+/**
+ * Register the endpoint. One already registered under its id is
+ * `already-registered`, or, with `force`, unregistered and registered
+ * again: `replaced`.
+ */
+async function registerEndpoint(
+  client: KindgiClient,
+  input: RegisterMcpEndpointInput,
+  force: boolean,
+): Promise<'registered' | 'replaced' | 'already-registered'> {
+  try {
+    await client.mcp.endpoints.register(input);
+    return 'registered';
+  } catch (err) {
+    const wire = extractKindgiError(err);
+    const serverCode = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
+    if (serverCode !== 'mcp-endpoint-already-registered') throw err;
+    if (!force) return 'already-registered';
+  }
+  await client.mcp.endpoints.unregister(input.endpointId);
+  await client.mcp.endpoints.register(input);
+  return 'replaced';
+}
+
+function scopeRef(scope: ScopeShape): RegisterMcpEndpointInput['scope'] {
+  if (scope.kind === 'tenant' || scope.id === undefined) return { kind: 'tenant' };
+  return scope.kind === 'org'
+    ? { kind: 'org', orgId: scope.id }
+    : { kind: 'project', projectId: scope.id };
+}
 
 // ---------------------------------------------------------------------
 // `kindgi mcp list`
@@ -459,7 +730,8 @@ function removeKey<T extends Record<string, unknown>>(obj: T, key: keyof T): T {
 const presetsCmd: LeafCommand = {
   kind: 'leaf',
   name: 'presets',
-  description: 'List available MCP presets shipped with the CLI.',
+  description:
+    'List the MCP presets shipped with the CLI: the ones the launcher runs, and the connection presets (`auth: connection`).',
   usage: 'kindgi mcp presets',
   optionSpec: {},
   run: async (ctx): Promise<CommandResult> => {
@@ -487,7 +759,8 @@ const presetsCmd: LeafCommand = {
 export const mcpCommand: Command = {
   kind: 'group',
   name: 'mcp',
-  description: 'Manage MCP server entries in .mcp.json (add / list / remove / presets).',
+  description:
+    'Manage MCP servers: entries in .mcp.json (add / list / remove / presets), and connection presets registered at the runtime (add).',
   subcommands: [addCmd, listCmd, removeCmd, presetsCmd],
 };
 
