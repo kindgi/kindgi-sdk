@@ -1,5 +1,25 @@
 # @kindgi/agents
 
+## 0.8.1
+
+### Patch Changes
+
+- @kindgi/authz@0.8.1
+  - @kindgi/bounds@0.8.1
+  - @kindgi/capabilities@0.8.1
+  - @kindgi/compliance@0.8.1
+  - @kindgi/embedding@0.8.1
+  - @kindgi/flow@0.8.1
+  - @kindgi/guardrails@0.8.1
+  - @kindgi/handler@0.8.1
+  - @kindgi/memory@0.8.1
+  - @kindgi/policy-contract@0.8.1
+  - @kindgi/provenance@0.8.1
+  - @kindgi/runtime@0.8.1
+  - @kindgi/schema@0.8.1
+  - @kindgi/tools@0.8.1
+  - @kindgi/types@0.8.1
+
 ## 0.8.0
 
 ### Patch Changes

@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.8.1
+
+No Python changes; the version moves with the npm packages.
+
 ## 0.8.0
 
 - `kindgi`: **an MCP endpoint can sign in as a connection.** The client's

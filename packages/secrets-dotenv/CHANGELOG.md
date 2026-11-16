@@ -1,5 +1,14 @@
 # @kindgi/secrets-dotenv
 
+## 0.8.1
+
+### Patch Changes
+
+- @kindgi/api@0.8.1
+  - @kindgi/dotenv-file@0.8.1
+  - @kindgi/platform@0.8.1
+  - @kindgi/types@0.8.1
+
 ## 0.8.0
 
 ### Patch Changes
