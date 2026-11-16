@@ -1,5 +1,13 @@
 # @kindgi/capabilities
 
+## 0.8.1
+
+### Patch Changes
+
+- @kindgi/platform@0.8.1
+  - @kindgi/schema@0.8.1
+  - @kindgi/types@0.8.1
+
 ## 0.8.0
 
 ### Patch Changes
