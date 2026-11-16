@@ -16,8 +16,8 @@ that it came back healthy.
 - **Docker** and **curl**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token. The
   commands that take your API token read it from there.
-- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.8's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.8` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Restart the runtime
@@ -33,7 +33,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  registry.kindgi.com/kindgi/runtime:0.7.0
+  registry.kindgi.com/kindgi/runtime:0.8.0
 ```
 
 - `-t 30` gives the runtime 30 seconds to stop before Docker kills it.
@@ -141,7 +141,7 @@ curl -s http://localhost:4000/v1/runtime -H @<(printf 'Authorization: Bearer %s\
 ```
 
 ```text
-{"version":"0.7.0","tenancy":"single","development":false}
+{"version":"0.8.0","tenancy":"single","development":false}
 ```
 
 `version` is the release, or what the build gave otherwise (`dev` when it
@@ -286,7 +286,7 @@ Each repair is a line in its log:
 - **Another failure while starting:** it exits with code 1, and the log's
   first line starts with `kindgi-runtime: fatal:` and ends with the cause.
 - **A run that fails:** its `failureMessage`, in
-  `npx --yes @kindgi/cli@0.7 runs get <run id>`.
+  `npx --yes @kindgi/cli@0.8 runs get <run id>`.
 
 ## Next
 

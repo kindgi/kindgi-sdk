@@ -81,8 +81,8 @@ Who calls whom:
   write-only. Also the **Azure CLI**, **Docker** with `buildx`, **jq**, and
   your pack's `kindgi` CLI, 0.1.6 or later. The module needs the `azurerm`
   provider 5.9 or later, and its lock file pins it.
-- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.8's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.8` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build, `env plan` and deploy steps need the pack's folder, so they use
   `pnpm exec kindgi`.
@@ -200,8 +200,8 @@ digest, with every platform it was built for:
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}" --expose-token --only-show-errors --query accessToken -o tsv \
   | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
-docker buildx imagetools create --tag "$ACR/runtime:0.7.0" \
-  registry.kindgi.com/kindgi/runtime:0.7.0@sha256:03f70d48d5d340a0930d051d0efff07f9ce86a30d94bfb57ea1103a10079ee33
+docker buildx imagetools create --tag "$ACR/runtime:0.8.0" \
+  registry.kindgi.com/kindgi/runtime:0.8.0@sha256:f63d61e783e05c4b1d4bd529a4f901c8cb15b118d3fa78a3c76b54b7f663a1f3
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -476,7 +476,7 @@ pack's key, then deploy:
 ```sh
 URL=$(terraform output -raw server_url)
 export KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --query value -o tsv)
-npx --yes @kindgi/cli@0.7 key trust acme-dev --label dev --url "$URL"
+npx --yes @kindgi/cli@0.8 key trust acme-dev --label dev --url "$URL"
 ```
 
 It prints the key the runtime now trusts, then says so:
@@ -543,8 +543,8 @@ Check the runtime answers, lists your pack's tools, and runs a flow:
 
 ```sh
 curl "$URL/health"                                  # {"ok":true}
-npx --yes @kindgi/cli@0.7 tools list --url "$URL"   # your pack's tools
-npx --yes @kindgi/cli@0.7 runs start --flow=acme.greet-person --input='{"name":"Azure"}' --url "$URL"
+npx --yes @kindgi/cli@0.8 tools list --url "$URL"   # your pack's tools
+npx --yes @kindgi/cli@0.8 runs start --flow=acme.greet-person --input='{"name":"Azure"}' --url "$URL"
 ```
 
 `--flow` names the flow to run, and `--input` is its input, as JSON.

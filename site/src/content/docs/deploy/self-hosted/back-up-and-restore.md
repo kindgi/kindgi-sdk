@@ -30,8 +30,8 @@ restore its database, as below.
   have no `openfga.env` yet, write it as
   [An OpenFGA you already run](../../authorization/#an-openfga-you-already-run)
   says.
-- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.8's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.8` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead.
 
 ## Back up Postgres
@@ -254,7 +254,7 @@ Then [restart the runtime](../restart-and-check-health/#restart-the-runtime).
 A run from before the backup is there, where `<run id>` is its id:
 
 ```sh
-npx --yes @kindgi/cli@0.7 runs get <run id> --url http://localhost:4000
+npx --yes @kindgi/cli@0.8 runs get <run id> --url http://localhost:4000
 ```
 
 ```text
@@ -330,7 +330,7 @@ Then:
    with everything else:
 
    ```sh
-   npx --yes @kindgi/cli@0.7 memory erasures export --out=erasures-$(date +%F).json
+   npx --yes @kindgi/cli@0.8 memory erasures export --out=erasures-$(date +%F).json
    ```
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
@@ -348,7 +348,7 @@ Then:
    anyone. It erases again whoever the restored database holds:
 
    ```sh
-   npx --yes @kindgi/cli@0.7 memory erasures replay erasures-<date>.json
+   npx --yes @kindgi/cli@0.8 memory erasures replay erasures-<date>.json
    ```
 
    `erasures-<date>.json` is the latest export. Its answer sorts the
