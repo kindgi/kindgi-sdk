@@ -7,6 +7,7 @@ Each release's notes say what's new, fixed and changed in it, its known
 issues, and the steps to upgrade to it from the release before. Newest
 first:
 
+- [Kindgi 0.8.0](./0.8.0/), released November 16, 2026.
 - [Kindgi 0.7.0](./0.7.0/), released November 15, 2026.
 - [Kindgi 0.6.0](./0.6.0/), released November 11, 2026.
 - [Kindgi 0.5.0](./0.5.0/), released November 7, 2026.
