@@ -193,6 +193,54 @@ pnpm exec kindgi providers register --preset=anthropic
 If the pack's config declares the preset, restart `kindgi dev` instead: it
 registers the preset's new models in place of the old ones.
 
+## Through a gateway or a proxy
+
+To send Claude's calls through a gateway or a proxy that serves Anthropic's
+API, register the provider from a spec instead of the preset. Its
+`adapter_config.baseURL` is where the calls go, and its `secret_ref` names the
+key they carry: the one the gateway takes. Ask your coding agent to write the
+spec:
+
+```text
+I want Claude to go through our LLM gateway at https://llm-gateway.acme.example/anthropic. It takes a key of its own.
+```
+
+For reference, the spec it writes looks like this. Its `secret_ref` names
+the secret, `ACME_GATEWAY_KEY`:
+
+```json
+{
+  "adapter_id": "@kindgi/adapter-model-anthropic",
+  "adapter_config": { "baseURL": "https://llm-gateway.acme.example/anthropic" },
+  "secret_ref": { "envName": "local", "name": "ACME_GATEWAY_KEY" },
+  "metadata": {
+    "id": "anthropic-gateway",
+    "region": "unspecified",
+    "models": [
+      { "name": "claude-sonnet-5-5", "contextWindow": 1000000, "features": ["tool-use"],
+        "cost": { "promptUsdPer1kTokens": 0.002, "completionUsdPer1kTokens": 0.01 } }
+    ]
+  }
+}
+```
+
+Register it. `--spec=@anthropic-gateway.json` reads the spec from that file:
+
+```sh
+pnpm exec kindgi providers register --spec=@anthropic-gateway.json
+```
+
+- **`baseURL`** is the gateway's address for Anthropic's API, without `/v1`:
+  the adapter adds the API's path, `/v1/messages`. It must be `https`, since
+  the key goes with every call, or `http` on this machine (`localhost`,
+  `127.0.0.1`, `[::1]`, `host.docker.internal`, `host.containers.internal`)
+  for a gateway you run locally. It can't hold credentials, a query or a
+  fragment.
+- The key is sent as `x-api-key`, as to Anthropic, and read when the call is
+  made: a key you change is used from the next turn on.
+- `baseURL` is the only `adapter_config` key the adapter takes: a
+  registration with any other is refused, naming it.
+
 ## If it doesn't answer
 
 A wrong key fails the turn with Anthropic's own message:
