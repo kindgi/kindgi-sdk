@@ -223,6 +223,7 @@ export default defineConfig({
           label: 'Release notes',
           items: [
             { label: 'Overview', link: '/releases/' },
+            { label: '0.8.1', link: '/releases/0.8.1/' },
             { label: '0.8.0', link: '/releases/0.8.0/' },
             { label: '0.7.0', link: '/releases/0.7.0/' },
             { label: '0.6.0', link: '/releases/0.6.0/' },
