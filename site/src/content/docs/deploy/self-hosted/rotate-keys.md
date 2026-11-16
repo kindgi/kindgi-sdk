@@ -16,8 +16,8 @@ one stops working.
 - **Docker** and **OpenSSL**, on the machine that runs the containers.
 - **`KINDGI_API_TOKEN` exported in your shell** as the runtime's API token,
   where the `kindgi` commands read it.
-- **For `kindgi` commands:** Kindgi 0.7's CLI, which runs from any folder as
-  `npx --yes @kindgi/cli@0.7` ([Install](../../../start/install/)). Inside a
+- **For `kindgi` commands:** Kindgi 0.8's CLI, which runs from any folder as
+  `npx --yes @kindgi/cli@0.8` ([Install](../../../start/install/)). Inside a
   pack project, `pnpm exec kindgi` runs the project's pinned CLI instead. The
   build and deploy steps need the pack's folder, so they use `pnpm exec kindgi`.
 
@@ -141,7 +141,7 @@ key, signs builds that reach a project in production only by promotion
 1. Create a key:
 
    ```sh
-   npx --yes @kindgi/cli@0.7 key create acme-selfhost-2 --env prod
+   npx --yes @kindgi/cli@0.8 key create acme-selfhost-2 --env prod
    ```
 
    `acme-selfhost-2` is the new key's id. `--env prod` also prints the
@@ -183,7 +183,7 @@ key, signs builds that reach a project in production only by promotion
    Then trust it on the runtime:
 
    ```sh
-   npx --yes @kindgi/cli@0.7 key trust acme-selfhost-2 --url http://localhost:4000
+   npx --yes @kindgi/cli@0.8 key trust acme-selfhost-2 --url http://localhost:4000
    ```
 
    `--url` is the runtime's URL. It prints the trusted key as JSON, then
@@ -239,7 +239,7 @@ key, signs builds that reach a project in production only by promotion
 3. Revoke the old key:
 
    ```sh
-   npx --yes @kindgi/cli@0.7 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
+   npx --yes @kindgi/cli@0.8 key revoke acme-selfhost --reason "rotated to acme-selfhost-2" \
      --url http://localhost:4000
    ```
 

@@ -1,5 +1,13 @@
 # @kindgi/testing
 
+## 0.8.0
+
+### Patch Changes
+
+- Updated dependencies [309b73f]
+- Updated dependencies [716ae82]
+  - @kindgi/api@0.8.0
+
 ## 0.7.0
 
 ### Patch Changes

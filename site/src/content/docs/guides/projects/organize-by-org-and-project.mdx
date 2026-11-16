@@ -37,7 +37,7 @@ it's in: its `projectId`, with the runtime 0.1.6 or later. A pack
 
 ## Before you start
 
-- **A runtime,** such as `kindgi dev`, with Kindgi 0.7's client and CLI.
+- **A runtime,** such as `kindgi dev`, with Kindgi 0.8's client and CLI.
 - **Node 22.12 or later, Python 3.11 or later, or Java 17 or later,** for the
   client.
 - **`KINDGI_API_URL` and `KINDGI_API_TOKEN`** set, or a running
@@ -305,8 +305,8 @@ pack whose ids all start with its pack id, so two clients' packs never share
 an id:
 
 ```sh
-npx --yes @kindgi/cli@0.7 projects create --name="Acme shop"
-npx --yes @kindgi/cli@0.7 init acme-shop --template=woocommerce
+npx --yes @kindgi/cli@0.8 projects create --name="Acme shop"
+npx --yes @kindgi/cli@0.8 init acme-shop --template=woocommerce
 cd acme-shop
 pnpm install
 pnpm exec kindgi deploy --project acme-shop
