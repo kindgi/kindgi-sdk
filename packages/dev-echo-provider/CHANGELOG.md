@@ -1,5 +1,11 @@
 # @kindgi/dev-echo-provider
 
+## 0.8.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.8.1
+
 ## 0.8.0
 
 ### Patch Changes

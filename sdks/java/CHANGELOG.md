@@ -10,6 +10,10 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+## 0.8.1
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.8.0
 
 - `kindgi-models`, `kindgi-client`: **an MCP endpoint can sign in as a connection.** `MCPEndpointAuth` gains `MCPConnectionAuth` (`scheme` `connection`, with `app`, `as` and `permissions`): each call sends a token minted for the endpoint's server from the connection of the person the run acts for, or the company's, to an app whose entry lists the server, such as `hubspot` or `asana`. `MCPEndpoint` and `RegisterMCPEndpointBody` gain `catalogConnectionId`, the connection the endpoint lists its tools with, required with a `connection` auth.

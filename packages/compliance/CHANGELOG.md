@@ -1,5 +1,14 @@
 # @kindgi/compliance
 
+## 0.8.1
+
+### Patch Changes
+
+- @kindgi/audit-events@0.8.1
+  - @kindgi/log@0.8.1
+  - @kindgi/platform@0.8.1
+  - @kindgi/types@0.8.1
+
 ## 0.8.0
 
 ### Patch Changes

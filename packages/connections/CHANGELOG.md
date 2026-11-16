@@ -1,5 +1,13 @@
 # @kindgi/connections
 
+## 0.8.1
+
+### Patch Changes
+
+- @kindgi/capabilities@0.8.1
+  - @kindgi/tools@0.8.1
+  - @kindgi/types@0.8.1
+
 ## 0.8.0
 
 ### Minor Changes
