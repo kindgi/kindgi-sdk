@@ -35,7 +35,7 @@
     "dotenv-expand-10": "npm:dotenv-expand@10.0.0",
     "dotenv-expand-12": "npm:dotenv-expand@12.0.3",
     "typescript": "^5.7.3",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=22.12.0"
