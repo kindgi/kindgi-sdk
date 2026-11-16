@@ -1,5 +1,13 @@
 # @kindgi/env-schema
 
+## 0.8.0
+
+### Patch Changes
+
+- fb532ec: `KINDGI_ACCOUNT_KEY`'s description says what's so: no runtime release reads it, so setting it changes nothing. It said runtime 0.7.0 used it for connections through a Meta app, which no runtime release has.
+- 716ae82: The deprecated `artifacts` names and the old version calls are removed in 0.9.0, not 0.8.0: their notices say so.
+- @kindgi/types@0.8.0
+
 ## 0.7.0
 
 ### Patch Changes

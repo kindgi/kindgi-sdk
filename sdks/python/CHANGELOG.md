@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.8.0
+
 - `kindgi`: **an MCP endpoint can sign in as a connection.** The client's
   models gain `MCPConnectionAuth` (`scheme` `connection`, with `app`, `as_`
   and `permissions`), a variant of an endpoint's `auth`: each call sends a
