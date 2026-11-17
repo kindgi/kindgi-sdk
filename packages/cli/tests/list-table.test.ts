@@ -72,7 +72,9 @@ const client = {
           id: 'anthropic',
           region: 'unspecified',
           models: [{ name: 'claude-haiku-4-5' }, { name: 'claude-sonnet-5-5' }],
+          adapterId: '@kindgi/adapter-model-anthropic',
         },
+        // As an older server lists it: no adapterId.
         { id: 'dev-echo', region: 'unspecified', models: [{ name: 'echo' }], fallback: true },
       ],
       hasMore: false,
@@ -115,9 +117,12 @@ describe('--table', () => {
     expect(out.stderr).toBe('');
   });
 
-  test('providers list: models joined, fallbacks marked', async () => {
+  test('providers list: the adapter, models joined, fallbacks marked', async () => {
     const out = await run('providers', 'list', '--table');
-    expect(out.stdout).toContain('anthropic  unspecified  claude-haiku-4-5, claude-sonnet-5-5');
+    expect(out.stdout).toContain(
+      'anthropic  unspecified  @kindgi/adapter-model-anthropic  claude-haiku-4-5, claude-sonnet-5-5',
+    );
+    // No adapter listed: a blank cell.
     expect(out.stdout).toMatch(/dev-echo\s+unspecified\s+echo\s+yes/);
   });
 
