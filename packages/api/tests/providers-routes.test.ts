@@ -100,9 +100,12 @@ function descriptorFor(feature: string): CapabilityDescriptor {
 
 function makeInMemoryBinding(): ProviderRegistryBinding & {
   readonly registered: Parameters<ProviderRegistryBinding['register']>[0][];
+  /** Providers `resolveForRuntime` leaves out. */
+  readonly hidden: Set<string>;
 } {
   const store = new Map<string, ProviderMetadata>();
   const registered: Parameters<ProviderRegistryBinding['register']>[0][] = [];
+  const hidden = new Set<string>();
 
   function paginate(
     rows: readonly ProviderMetadata[],
@@ -126,6 +129,7 @@ function makeInMemoryBinding(): ProviderRegistryBinding & {
 
   return {
     registered,
+    hidden,
     async list({ limit, cursor, featureFilter }) {
       const sorted = [...store.values()].sort((a, b) => a.id.localeCompare(b.id));
       const filtered =
@@ -157,11 +161,17 @@ function makeInMemoryBinding(): ProviderRegistryBinding & {
       return m.models.flatMap((mi) => mi.features.map(descriptorFor));
     },
     async resolveForRuntime() {
-      // Stub — the in-memory binding used in these HTTP-route tests
-      // doesn't persist adapterId / secretRef. Runtime bridge
-      // behavior is exercised by the Postgres provider-registry
-      // integration tests, not here.
-      return [];
+      // The registrations this binding was given, less any `hidden` from
+      // it. Runtime bridge behavior is exercised by the Postgres
+      // provider-registry integration tests, not here.
+      return registered
+        .filter((r) => store.has(r.metadata.id) && !hidden.has(r.metadata.id))
+        .map((r) => ({
+          metadata: r.metadata,
+          adapterId: r.adapterId,
+          ...(r.secretRef !== undefined && { secretRef: r.secretRef }),
+          ...(r.adapterConfig !== undefined && { adapterConfig: r.adapterConfig }),
+        }));
     },
   };
 }
@@ -245,6 +255,127 @@ describe('API — providers list', () => {
   });
 });
 
+describe('API — providers show the adapter and its settings', () => {
+  const auth = { authorization: `Bearer ${TOKEN}` };
+
+  async function seed(binding: ReturnType<typeof makeInMemoryBinding>) {
+    await binding.register({
+      tenantId,
+      metadata: providerSpec({ id: 'acme:with-config' }),
+      adapterId: '@kindgi/adapter-model-openai-compat',
+      adapterConfig: { baseUrl: 'http://localhost:11434/v1', retries: 3, strict: true },
+      secretRef: { envName: 'local', name: 'ACME_KEY' },
+    });
+    await binding.register({
+      tenantId,
+      metadata: providerSpec({ id: 'acme:no-config' }),
+      adapterId: TEST_ADAPTER_ID,
+    });
+    await binding.register({
+      tenantId,
+      metadata: providerSpec({ id: 'acme:url-creds' }),
+      adapterId: TEST_ADAPTER_ID,
+      adapterConfig: {
+        baseUrl: 'https://alice:s3cret@models.acme.test/v1',
+        note: 'alice:s3cret@not-a-url',
+      },
+    });
+    await binding.register({
+      tenantId,
+      metadata: providerSpec({ id: 'acme:unresolved' }),
+      adapterId: TEST_ADAPTER_ID,
+      adapterConfig: { region: 'eu' },
+    });
+    binding.hidden.add('acme:unresolved');
+  }
+
+  type Item = { id: string; adapterId?: string; adapterConfig?: Record<string, unknown> };
+
+  test('list: the adapter and its settings, never the key pointer', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers', { headers: auth });
+    const text = await res.text();
+    const byId = new Map((JSON.parse(text) as { data: Item[] }).data.map((p) => [p.id, p]));
+    expect(byId.get('acme:with-config')?.adapterId).toBe('@kindgi/adapter-model-openai-compat');
+    expect(byId.get('acme:with-config')?.adapterConfig).toEqual({
+      baseUrl: 'http://localhost:11434/v1',
+      retries: 3,
+      strict: true,
+    });
+    expect(text).not.toContain('ACME_KEY');
+    expect(byId.get('acme:no-config')?.adapterId).toBe(TEST_ADAPTER_ID);
+    expect(byId.get('acme:no-config')).not.toHaveProperty('adapterConfig');
+  });
+
+  test('list: a URL value loses its user name and password', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers', { headers: auth });
+    const text = await res.text();
+    const item = (JSON.parse(text) as { data: Item[] }).data.find((p) => p.id === 'acme:url-creds');
+    expect(item?.adapterConfig).toEqual({
+      baseUrl: 'https://models.acme.test/v1',
+      note: 'alice:s3cret@not-a-url',
+    });
+    expect(text).not.toContain('s3cret@models');
+  });
+
+  test('list: a provider the registrations leave out has neither field', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers', { headers: auth });
+    const item = (await res.json()) as { data: Item[] };
+    const missing = item.data.find((p) => p.id === 'acme:unresolved');
+    expect(missing).toBeDefined();
+    expect(missing).not.toHaveProperty('adapterId');
+    expect(missing).not.toHaveProperty('adapterConfig');
+  });
+
+  test('get: the adapter and its settings', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers/acme:with-config', { headers: auth });
+    const text = await res.text();
+    const body = JSON.parse(text) as Item;
+    expect(body.adapterId).toBe('@kindgi/adapter-model-openai-compat');
+    expect(body.adapterConfig).toEqual({
+      baseUrl: 'http://localhost:11434/v1',
+      retries: 3,
+      strict: true,
+    });
+    expect(text).not.toContain('ACME_KEY');
+  });
+
+  test('get: no settings registered, none shown', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers/acme:no-config', { headers: auth });
+    const body = (await res.json()) as Item;
+    expect(body.adapterId).toBe(TEST_ADAPTER_ID);
+    expect(body).not.toHaveProperty('adapterConfig');
+  });
+
+  test('get: a URL value loses its user name and password', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers/acme:url-creds', { headers: auth });
+    const text = await res.text();
+    expect((JSON.parse(text) as Item).adapterConfig?.baseUrl).toBe('https://models.acme.test/v1');
+    expect(text).not.toContain('s3cret@models');
+  });
+
+  test('get: a provider the registrations leave out has neither field', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding);
+    const res = await app.request('/v1/providers/acme:unresolved', { headers: auth });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Item;
+    expect(body).not.toHaveProperty('adapterId');
+    expect(body).not.toHaveProperty('adapterConfig');
+  });
+});
+
 describe('API — providers register + get', () => {
   test('register + get roundtrip', async () => {
     const { app } = makeApp();
@@ -282,7 +413,7 @@ describe('API — providers register + get', () => {
     expect(m?.cost.promptUsdPer1kTokens).toBe(0.015);
   });
 
-  test("adapter_config reaches the binding as the adapter's settings, and get never returns it", async () => {
+  test("adapter_config reaches the binding as the adapter's settings, and get shows it in camelCase", async () => {
     const { app, binding } = makeApp();
     const register = await app.request('/v1/providers', {
       method: 'POST',
@@ -304,7 +435,7 @@ describe('API — providers register + get', () => {
     });
     const body = (await get.json()) as Record<string, unknown>;
     expect(body).not.toHaveProperty('adapter_config');
-    expect(body).not.toHaveProperty('adapterConfig');
+    expect(body.adapterConfig).toEqual({ project: 'acme-dev', retries: 2, preview: true });
   });
 
   test.each([

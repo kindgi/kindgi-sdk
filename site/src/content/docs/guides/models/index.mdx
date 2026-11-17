@@ -817,7 +817,9 @@ uv run kindgi providers unregister ollama
   feature, such as `structured-output` or `tool-use`.
 - `ollama` is the provider's id, its `metadata.id`.
 
-`list` and `get` show the metadata only, never `adapter_config` or the key.
+`list` and `get` show the metadata, the `adapterId` it was registered with and
+its `adapterConfig`, never the key. A URL's user name and password in
+`adapterConfig` are never shown. A server older than this leaves both fields out.
 
 A registration can't be edited. Registering an id that exists is refused:
 

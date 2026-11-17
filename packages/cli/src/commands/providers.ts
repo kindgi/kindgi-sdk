@@ -41,6 +41,7 @@ const PROVIDERS_TABLE: TableSpec<ProviderPage, Provider> = {
   columns: [
     { header: 'ID', get: (provider) => provider.id },
     { header: 'REGION', get: (provider) => provider.region },
+    { header: 'ADAPTER', get: (provider) => provider.adapterId ?? '' },
     { header: 'MODELS', get: (provider) => provider.models.map((m) => m.name).join(', ') },
     { header: 'FALLBACK', get: (provider) => (provider.fallback === true ? 'yes' : '') },
   ],

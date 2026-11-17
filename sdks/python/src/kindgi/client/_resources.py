@@ -6415,17 +6415,17 @@ class ProvidersResource:
 
     def get(
         self, provider_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.ProviderMetadata:
+    ) -> _models.ProviderDetail:
         """Fetch a provider. `GET /v1/providers/{providerId}`
 
-        Returns the wire-safe `ProviderMetadata` (routing metadata only — secrets never cross the wire).
+        Returns the provider's routing metadata, with the `adapterId` and `adapterConfig` it was registered with. The credential pointer (`secret_ref`) and secrets never cross the wire; a URL's user name and password in `adapterConfig` are removed.
         """
         return self._client._request(
             _OPERATIONS["providers.get"],
             path={"providerId": provider_id},
             query={},
             headers={},
-            response=_models.ProviderMetadata,
+            response=_models.ProviderDetail,
             timeout=timeout,
         )
 
@@ -18047,17 +18047,17 @@ class AsyncProvidersResource:
 
     async def get(
         self, provider_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.ProviderMetadata:
+    ) -> _models.ProviderDetail:
         """Fetch a provider. `GET /v1/providers/{providerId}`
 
-        Returns the wire-safe `ProviderMetadata` (routing metadata only — secrets never cross the wire).
+        Returns the provider's routing metadata, with the `adapterId` and `adapterConfig` it was registered with. The credential pointer (`secret_ref`) and secrets never cross the wire; a URL's user name and password in `adapterConfig` are removed.
         """
         return await self._client._request(
             _OPERATIONS["providers.get"],
             path={"providerId": provider_id},
             query={},
             headers={},
-            response=_models.ProviderMetadata,
+            response=_models.ProviderDetail,
             timeout=timeout,
         )
 

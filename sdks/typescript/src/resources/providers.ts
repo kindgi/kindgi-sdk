@@ -17,14 +17,14 @@ import type {
   ProviderCapabilitiesResult,
   ProviderCheckResult,
   ProviderCollectionPage,
-  ProviderMetadata,
+  ProviderDetail,
   RegisterProviderBody,
   RegisterProviderResult,
   UnregisterProviderResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
-export type Provider = ProviderMetadata;
+export type Provider = ProviderDetail;
 export type ProviderPage = ProviderCollectionPage;
 export type ProviderCapabilities = ProviderCapabilitiesResult;
 export type ProviderCheck = ProviderCheckResult;

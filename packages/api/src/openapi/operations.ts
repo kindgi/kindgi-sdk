@@ -7495,12 +7495,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.get',
     summary: 'Fetch a provider',
     description:
-      'Returns the wire-safe `ProviderMetadata` (routing metadata only — secrets never cross the wire).',
+      "Returns the provider's routing metadata, with the `adapterId` and `adapterConfig` it was registered with. The credential pointer (`secret_ref`) and secrets never cross the wire; a URL's user name and password in `adapterConfig` are removed.",
     tags: ['providers'],
     security: 'bearer',
     parameters: [ProviderIdPathParam],
     responses: {
-      '200': { description: 'Provider metadata.', schema: ref('ProviderMetadata') },
+      '200': { description: 'Provider.', schema: ref('ProviderDetail') },
       ...CommonAuthErrors,
       ...TenantSettingReadErrors,
       '404': ErrorResponse('No provider with that id under this workspace.'),

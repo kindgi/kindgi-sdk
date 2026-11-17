@@ -15115,6 +15115,92 @@
           }
         }
       },
+      "ProviderDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "region",
+          "models"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "region": {
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "type": "string",
+            "minLength": 1,
+            "description": "Region the connection routes to. All models on this provider share the region (the same models served from two clouds or regions are separate providers). `'unspecified'` when not region-scoped."
+          },
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            },
+            "description": "Models this connection exposes. Non-empty. `models[i].name` must be unique within the list."
+          },
+          "defaultModel": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it."
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Soft attributes for preference-ranking (`local`, `lower-cost`, `higher-accuracy`, ...). Matched by string equality against `Preference.feature`."
+          },
+          "description": {
+            "type": "string",
+            "description": "Short human description of the connection."
+          },
+          "capabilityKind": {
+            "type": "string",
+            "description": "Kind of resource this provider fulfils. Absent = `llm-inference`. Adapters for other kinds (embedding, gpu-compute, sandbox-exec, ...) set this explicitly."
+          },
+          "fallback": {
+            "type": "boolean",
+            "description": "A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`."
+          },
+          "labels": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "pattern": "^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "description": "Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`."
+          },
+          "adapterId": {
+            "type": "string",
+            "description": "Absent from older servers: the adapter that instantiates this provider, as it was registered (e.g. `@kindgi/adapter-model-gemini`)."
+          },
+          "adapterConfig": {
+            "type": "object",
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "Absent from older servers: the `adapter_config` the provider was registered with, as stored; absent when none was registered. A URL's user name and password are never shown."
+          }
+        }
+      },
       "ProviderCollectionPage": {
         "type": "object",
         "additionalProperties": false,
@@ -15126,7 +15212,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ProviderMetadata"
+              "$ref": "#/components/schemas/ProviderDetail"
             }
           },
           "nextCursor": {
@@ -59553,11 +59639,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Provider metadata.",
+            "description": "Provider.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProviderMetadata"
+                  "$ref": "#/components/schemas/ProviderDetail"
                 }
               }
             }
@@ -59623,7 +59709,7 @@
             }
           }
         },
-        "description": "Returns the wire-safe `ProviderMetadata` (routing metadata only — secrets never cross the wire).",
+        "description": "Returns the provider's routing metadata, with the `adapterId` and `adapterConfig` it was registered with. The credential pointer (`secret_ref`) and secrets never cross the wire; a URL's user name and password in `adapterConfig` are removed.",
         "parameters": [
           {
             "name": "providerId",
