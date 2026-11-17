@@ -1,5 +1,20 @@
 # @kindgi/sdk
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [b8ffc77]
+  - @kindgi/client@0.8.2
+  - @kindgi/agents@0.8.2
+  - @kindgi/crypto@0.8.2
+  - @kindgi/flow@0.8.2
+  - @kindgi/guardrails@0.8.2
+  - @kindgi/handler-runtime@0.8.2
+  - @kindgi/schema@0.8.2
+  - @kindgi/tools@0.8.2
+  - @kindgi/types@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes
