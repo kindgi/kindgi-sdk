@@ -6613,12 +6613,66 @@ class ProviderMetadata(BaseModel):
     """
 
 
+class ProviderDetail(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    region: Annotated[str, Field(min_length=1, pattern="^[a-z][a-z0-9-]{0,62}$")]
+    """
+    Region the connection routes to. All models on this provider share the region (the same models served from two clouds or regions are separate providers). `'unspecified'` when not region-scoped.
+    """
+    models: Annotated[list[ModelInfo], Field(min_length=1)]
+    """
+    Models this connection exposes. Non-empty. `models[i].name` must be unique within the list.
+    """
+    default_model: Annotated[str | None, Field(alias="defaultModel", min_length=1)] = None
+    """
+    The model to use when an agent doesn't choose: one of `models[].name`. When candidates rank equally, it comes before the provider's other models; without it, ties break by model name. A preset sets it. A runtime before 0.1.4 ignores it.
+    """
+    attributes: list[str] | None = None
+    """
+    Soft attributes for preference-ranking (`local`, `lower-cost`, `higher-accuracy`, ...). Matched by string equality against `Preference.feature`.
+    """
+    description: str | None = None
+    """
+    Short human description of the connection.
+    """
+    capability_kind: Annotated[str | None, Field(alias="capabilityKind")] = None
+    """
+    Kind of resource this provider fulfils. Absent = `llm-inference`. Adapters for other kinds (embedding, gpu-compute, sandbox-exec, ...) set this explicitly.
+    """
+    fallback: bool | None = None
+    """
+    A fallback serves a capability only when no other provider satisfies it (e.g. `kindgi dev`'s scripted `dev-echo`); an agent turn routed to one carries a `fallback-provider` warning. Absent = `false`.
+    """
+    labels: Annotated[
+        dict[constr(pattern=r"^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?$"), LabelsAdditionalProperty]
+        | None,
+        Field(max_length=32),
+    ] = None
+    """
+    Bookkeeping, such as who manages the provider; the router ignores labels. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. The convention key `kindgi.com/managed-by` names the manager (`kindgi-dev`, `kindgi-deploy:<environment>`). Out of bounds: `400 invalid-provider`, reason `invalid-labels`.
+    """
+    adapter_id: Annotated[str | None, Field(alias="adapterId")] = None
+    """
+    Absent from older servers: the adapter that instantiates this provider, as it was registered (e.g. `@kindgi/adapter-model-gemini`).
+    """
+    adapter_config: Annotated[
+        dict[str, str | float | bool] | None, Field(alias="adapterConfig")
+    ] = None
+    """
+    Absent from older servers: the `adapter_config` the provider was registered with, as stored; absent when none was registered. A URL's user name and password are never shown.
+    """
+
+
 class ProviderCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[ProviderMetadata]
+    data: list[ProviderDetail]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 

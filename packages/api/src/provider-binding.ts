@@ -79,8 +79,9 @@ export interface ProviderRegistryBinding {
    * (`secretRef`, optional).
    *
    * Consumed by the runtime at agent-turn start; separate from `list`
-   * because HTTP callers of `list` see only the wire-safe metadata,
-   * not the plumbing fields.
+   * because `list` returns only the metadata. The HTTP list and get
+   * routes join this by id to show `adapterId` and `adapterConfig`,
+   * never `secretRef`.
    */
   resolveForRuntime(
     input: ProviderResolveForRuntimeInput,
@@ -148,9 +149,11 @@ export interface ProviderSecretRef {
 
 /**
  * Runtime-side persistence view bundled for the runtime bridge.
- * `list`/`get` on the binding return the wire-safe `ProviderMetadata`
- * only; this shape adds the plumbing fields (`adapterId`,
- * `secretRef`) the runtime needs to instantiate a `ModelProvider`.
+ * `list`/`get` on the binding return `ProviderMetadata` only; this
+ * shape adds the plumbing fields (`adapterId`, `secretRef`,
+ * `adapterConfig`) the runtime needs to instantiate a `ModelProvider`.
+ * The HTTP list and get routes show `adapterId` and `adapterConfig`
+ * from it (a URL's credentials removed), never `secretRef`.
  *
  * Consumed by the runtime at agent-turn start via
  * `resolveForRuntime`.

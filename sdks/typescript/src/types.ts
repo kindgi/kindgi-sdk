@@ -1743,13 +1743,13 @@ export interface RouteResult {
   }[];
 }
 
-// The provider as the API sends it (generated `ProviderMetadata`), for the
+// The provider as the API sends it (generated `ProviderDetail`), for the
 // deprecated alias below.
 import type { Provider } from './resources/providers.js';
 
 /**
  * The provider the deprecated `client.capabilities.providers` sub-client
- * returns: the API's own (`@kindgi/api/openapi.json#ProviderMetadata`),
+ * returns: the API's own (`@kindgi/api/openapi.json#ProviderDetail`),
  * with its models under `models[]`.
  *
  * @deprecated Use `Provider`, as `client.providers` returns it.

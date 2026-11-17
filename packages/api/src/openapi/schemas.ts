@@ -9035,6 +9035,32 @@ export const ProviderMetadataSchema: JsonSchema = {
   },
 };
 
+/**
+ * `GET /v1/providers` and `GET /v1/providers/{providerId}`: a provider's
+ * routing metadata plus the adapter and connection settings it was
+ * registered with. Response only: the `POST /v1/providers` body's
+ * `metadata` takes `ProviderMetadata`'s own keys and nothing else.
+ */
+export const ProviderDetailSchema: JsonSchema = {
+  ...ProviderMetadataSchema,
+  properties: {
+    ...(ProviderMetadataSchema as { properties: Record<string, JsonSchema> }).properties,
+    adapterId: {
+      type: 'string',
+      description:
+        'Absent from older servers: the adapter that instantiates this provider, as it was registered (e.g. `@kindgi/adapter-model-gemini`).',
+    },
+    adapterConfig: {
+      type: 'object',
+      additionalProperties: {
+        anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }],
+      },
+      description:
+        "Absent from older servers: the `adapter_config` the provider was registered with, as stored; absent when none was registered. A URL's user name and password are never shown.",
+    },
+  },
+};
+
 export const ProviderCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -9042,7 +9068,7 @@ export const ProviderCollectionPageSchema: JsonSchema = {
   properties: {
     data: {
       type: 'array',
-      items: { $ref: '#/components/schemas/ProviderMetadata' },
+      items: { $ref: '#/components/schemas/ProviderDetail' },
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
@@ -9053,7 +9079,8 @@ export const ProviderCollectionPageSchema: JsonSchema = {
  * `POST /v1/providers`: the provider's routing metadata, the adapter
  * that instantiates it, and that adapter's plumbing — a pointer to its
  * credential and its connection settings. The plumbing is stored with
- * the provider and handed to the runtime; `list` / `get` never return it.
+ * the provider and handed to the runtime; `list` / `get` return the
+ * adapter and its settings (`ProviderDetail`), never the credential pointer.
  */
 export const RegisterProviderBodySchema: JsonSchema = {
   type: 'object',
@@ -20438,6 +20465,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProviderCost', ProviderCostSchema],
   ['ModelInfo', ModelInfoSchema],
   ['ProviderMetadata', ProviderMetadataSchema],
+  ['ProviderDetail', ProviderDetailSchema],
   ['ProviderCollectionPage', ProviderCollectionPageSchema],
   ['RegisterProviderBody', RegisterProviderBodySchema],
   ['RegisterProviderResult', RegisterProviderResultSchema],

@@ -133,14 +133,20 @@ export function providersRouter(
 
     const cursorRaw = c.req.query('cursor');
     const featureRaw = c.req.query('feature');
-    const page = await binding.list({
-      tenantId,
-      limit,
-      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-      ...(featureRaw !== undefined && featureRaw.length > 0 && { featureFilter: featureRaw }),
-    });
+    const [page, entries] = await Promise.all([
+      binding.list({
+        tenantId,
+        limit,
+        ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+        ...(featureRaw !== undefined && featureRaw.length > 0 && { featureFilter: featureRaw }),
+      }),
+      binding.resolveForRuntime({ tenantId }),
+    ]);
     return c.json({
-      data: page.data.map(serializeProvider),
+      data: page.data.map((m) => ({
+        ...serializeProvider(m),
+        ...registrationFields(entries.find((e) => e.metadata.id === m.id)),
+      })),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -152,7 +158,10 @@ export function providersRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const providerId = c.req.param('providerId');
 
-    const provider = await binding.get({ tenantId, providerId });
+    const [provider, entries] = await Promise.all([
+      binding.get({ tenantId, providerId }),
+      binding.resolveForRuntime({ tenantId }),
+    ]);
     if (provider === null) {
       c.status(statusFor('provider-not-found') as never);
       return c.json(
@@ -166,7 +175,10 @@ export function providersRouter(
         ),
       );
     }
-    return c.json(serializeProvider(provider));
+    return c.json({
+      ...serializeProvider(provider),
+      ...registrationFields(entries.find((e) => e.metadata.id === providerId)),
+    });
   });
 
   // ---------- GET /:providerId/capabilities (sub-resource) ----------
@@ -500,6 +512,41 @@ export function providersRouter(
   });
 
   return r;
+}
+
+/**
+ * The adapter and `adapter_config` a provider was registered with, for
+ * `list` and `get`. A URL value loses its user name and password; the
+ * credential pointer (`secretRef`) is never shown.
+ */
+function registrationFields(entry: ProviderRuntimeEntry | undefined): {
+  adapterId?: string;
+  adapterConfig?: Record<string, string | number | boolean>;
+} {
+  if (entry === undefined) return {};
+  const config = entry.adapterConfig;
+  return {
+    adapterId: entry.adapterId,
+    ...(config !== undefined && {
+      adapterConfig: Object.fromEntries(
+        Object.entries(config).map(([key, value]) => [key, withoutUrlCredentials(value)]),
+      ),
+    }),
+  };
+}
+
+function withoutUrlCredentials<T>(value: T): T | string {
+  if (typeof value !== 'string') return value;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  if (url.username === '' && url.password === '') return value;
+  url.username = '';
+  url.password = '';
+  return url.toString();
 }
 
 function serializeProvider(m: ProviderMetadata): Record<string, unknown> {
