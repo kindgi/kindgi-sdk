@@ -1,5 +1,12 @@
 # @kindgi/pack-conformance
 
+## 0.8.2
+
+### Patch Changes
+
+- @kindgi/flow@0.8.2
+  - @kindgi/specs@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes
