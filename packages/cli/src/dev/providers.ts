@@ -542,7 +542,7 @@ async function removeUndeclared(
   client: ProvidersClient,
 ): Promise<{ readonly outcome?: ProviderOutcome; readonly keep?: OwnedProvider }> {
   if (current === undefined) return {};
-  if (hashOf(current) !== before.registered) return { outcome: { id, kind: 'released' } };
+  if (listedHashOf(current) !== before.registered) return { outcome: { id, kind: 'released' } };
   try {
     await client.unregister(id);
     return { outcome: { id, kind: 'removed' } };
@@ -569,7 +569,7 @@ async function recordRegistered(
   for (const provider of registered) {
     const listed = after.get(provider.id);
     if (listed !== undefined) {
-      owned[provider.id] = { declared: hashOf(provider.input), registered: hashOf(listed) };
+      owned[provider.id] = { declared: hashOf(provider.input), registered: listedHashOf(listed) };
     }
   }
   return owned;
@@ -592,7 +592,8 @@ async function reconcileDeclared(
   const { id } = provider;
   const before = inputs.owned[id];
   // This pack's: registered by it, and as it registered it.
-  const mine = current !== undefined && before?.registered === hashOf(current) ? before : undefined;
+  const mine =
+    current !== undefined && before?.registered === listedHashOf(current) ? before : undefined;
   if (current !== undefined && mine === undefined) {
     return {
       outcome: { id, kind: covers(provider.input.metadata, current) ? 'present' : 'conflict' },
@@ -699,6 +700,12 @@ export function describeReconcile(
     { text: `Providers from ${inputs.file}:`, problem: lines.some((l) => l.problem) },
     ...lines,
   ];
+}
+
+// The registration fields a newer runtime lists don't count, so a record made against an older runtime still matches.
+function listedHashOf(listed: Provider): string {
+  const { adapterId: _adapterId, adapterConfig: _adapterConfig, ...rest } = listed;
+  return hashOf(rest);
 }
 
 function hashOf(value: unknown): string {

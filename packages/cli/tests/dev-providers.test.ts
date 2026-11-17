@@ -291,6 +291,28 @@ describe('reconcileProviders', () => {
     expect(runtime.calls).toEqual(['register gemini']);
   });
 
+  test('a record made against a runtime that did not list the registration fields still counts', async () => {
+    const runtime = fakeRuntime();
+    const declared = ok([{ preset: 'anthropic' }]);
+    const first = await run(runtime, declared);
+    // The runtime is upgraded: its listing now carries the adapter and its settings.
+    const listed = runtime.providers.get('anthropic') as Provider;
+    runtime.providers.set('anthropic', {
+      ...listed,
+      adapterId: '@kindgi/adapter-model-anthropic',
+      adapterConfig: { retries: 2 },
+    } as Provider);
+
+    runtime.calls.length = 0;
+    const same = await run(runtime, declared, first.owned);
+    expect(same.outcomes).toEqual([{ id: 'anthropic', kind: 'unchanged' }]);
+    expect(runtime.calls).toEqual([]);
+
+    const gone = await run(runtime, [], first.owned);
+    expect(gone.outcomes).toEqual([{ id: 'anthropic', kind: 'removed' }]);
+    expect(runtime.calls).toEqual(['unregister anthropic']);
+  });
+
   test('no longer declared: unregistered when it is as this pack registered it, else left', async () => {
     const runtime = fakeRuntime([HAND_REGISTERED]);
     const first = await run(
