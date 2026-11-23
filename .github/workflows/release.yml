@@ -293,8 +293,9 @@ jobs:
           node-version: "22"
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
-      # pnpm publishes itself, trusted publishing included; npm runs only
-      # `npm view` below.
+      # pnpm publishes itself, trusted publishing included. npm packs the
+      # tarballs attw checks (check:publish) and runs `npm view` below: the
+      # same npm as the release that set trusted publishing up.
       - run: npm install -g npm@^11.5.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
@@ -314,14 +315,16 @@ jobs:
         run: pnpm -r publish --dry-run --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
       # From a public repository, pnpm 12 adds provenance whatever its
       # provenance settings say, and the registry refuses it for a package
-      # without `repository`.
+      # without `repository`. Asked when the step runs, not read from the
+      # dispatch, so a re-run after the repository goes private publishes.
       - name: The repository is private
         if: ${{ !inputs.dry-run }}
         env:
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "$REPOSITORY_PRIVATE" != "true" ]]; then
-            echo "::error::$GITHUB_REPOSITORY is public: npm would refuse the provenance pnpm adds. Publish once it's private."
+          private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)
+          if [[ "$private" != "true" ]]; then
+            echo "::error::$GITHUB_REPOSITORY is public: npm would refuse the provenance pnpm adds. Re-run this job once it's private."
             exit 1
           fi
       - name: Publish
