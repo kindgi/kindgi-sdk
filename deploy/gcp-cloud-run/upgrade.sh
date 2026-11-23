@@ -102,14 +102,16 @@
 #                      a server-only release such as 0.4.0.1: a server fix for
 #                      0.4.0, with no SDK release of its own. The module here
 #                      is 0.4.0's, which needs the 0.4.0 runtime or later: to
-#                      an earlier release, use this script as of that
-#                      release's @kindgi/sdk@<version> tag (for X.Y.Z.N,
-#                      X.Y.Z's tag), and below 0.2.0, which isn't on
-#                      registry.kindgi.com, as of the @kindgi/sdk@0.1.10 tag.
+#                      an earlier release, use the upgrade.sh in that
+#                      release's kindgi-gcp-cloud-run-<version>.zip (for
+#                      X.Y.Z.N, X.Y.Z's), and below 0.2.0, which isn't on
+#                      registry.kindgi.com, the one in
+#                      kindgi-gcp-cloud-run-0.1.10.zip.
 #                      This script knows the steps up to 0.7.0; for a later
-#                      release, use this script as of that release's
-#                      @kindgi/sdk@<version> tag or, before that release is
-#                      out, its newest @kindgi/sdk@<version>-rc.N tag.
+#                      release, use the upgrade.sh in that release's
+#                      kindgi-gcp-cloud-run-<version>.zip or, before that
+#                      release is out, its newest
+#                      kindgi-gcp-cloud-run-<version>-rc.N.zip.
 #   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
 #                      when it can't be read from the deployment (no version
 #                      tag on the running image).
@@ -231,12 +233,12 @@ ver_num() {
 # A server-only release has no rc.
 is_version() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|\.[1-9][0-9]*)?$ ]]; }
 is_server_fix() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; }
-# The release a version belongs to, whose @kindgi/sdk@ tag has the upgrade.sh
-# for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
+# The release a version belongs to, whose module zip has the upgrade.sh for
+# it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
 release_of() { [[ $1 =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"; }
-# The tags whose upgrade.sh is a release's own ($1, X.Y.Z), as the docs name
-# them: an rc's tag stands for the release until it's out.
-sdk_tag() { printf 'the @kindgi/sdk@%s tag or, before that release is out, its newest @kindgi/sdk@%s-rc.N tag' "$1" "$1"; }
+# Where a release's own upgrade.sh is ($1, X.Y.Z), as the docs name it: the
+# release's module zip, and an rc's until the release is out.
+sdk_tag() { printf "the upgrade.sh in %s's module zip or, before that release is out, in its newest release candidate's (%s-rc.N)" "$1" "$1"; }
 # The release line a version belongs to, X.Y: the CLI of a final is
 # @kindgi/cli@X.Y, as the CLI names itself (publishedCliSpec, in
 # packages/cli/src/package-manager.ts).
@@ -397,8 +399,8 @@ EOT
 EOT
   l="${letters:0:1}"; letters="${letters:1}"
   cat <<EOT
-    ${l}. In this directory, put the module's .tf files as of the
-       @kindgi/sdk@${from} tag (deploy/gcp-cloud-run) in place of these.
+    ${l}. In this directory, put the module's .tf files from
+       kindgi-gcp-cloud-run-${from}.zip in place of these.
        Keep .terraform/, the state and your var files.
 EOT
   l="${letters:0:1}"; letters="${letters:1}"
@@ -542,17 +544,17 @@ BUCKET_ONLY="${BACKUP_BUCKET#gs://}"; BUCKET_ONLY="${BUCKET_ONLY%%/*}"
 is_version "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.2.0, 0.2.0-rc.0 or 0.2.0.1."
 TARGET_RELEASE="$(release_of "$TARGET")"
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
-  || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
+  || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use the upgrade.sh in kindgi-gcp-cloud-run-0.1.10.zip."
 # >>> same in both modules: target-release
 # A later release may need steps this copy doesn't have, so it isn't run past
 # the newest release it knows (an rc counts as its final). A server-only
-# release has no SDK tag of its own: its release's script runs it.
+# release has no module zip of its own: its release's script runs it.
 NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 if [[ "$(ver_num "$TARGET_RELEASE")" -gt "$(ver_num "$NEWEST_KNOWN")" ]]; then
   if is_server_fix "$TARGET"; then
-    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE, which comes out after its final: use this script as of the @kindgi/sdk@$TARGET_RELEASE tag."
+    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE, which comes out after its final: use the upgrade.sh in $TARGET_RELEASE's module zip."
   fi
-  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
+  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use $(sdk_tag "$TARGET_RELEASE")."
 fi
 if is_server_fix "$TARGET" && [[ " ${KNOWN_RELEASES[*]} " != *" $TARGET_RELEASE "* ]]; then
   die "--to $TARGET: a server fix for $TARGET_RELEASE, which isn't a release this script knows (${KNOWN_RELEASES[*]})."
@@ -561,7 +563,7 @@ if [[ -n $FROM_OVERRIDE ]]; then is_version "$FROM_OVERRIDE" || die "--from \"$F
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 # <<<
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$MODULE_RUNTIME_FLOOR")" ]] \
-  || die "--to $TARGET: the module here is ${MODULE_RUNTIME_FLOOR}'s, which needs the ${MODULE_RUNTIME_FLOOR} runtime or later. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
+  || die "--to $TARGET: the module here is ${MODULE_RUNTIME_FLOOR}'s, which needs the ${MODULE_RUNTIME_FLOOR} runtime or later. Use $(sdk_tag "$TARGET_RELEASE")."
 
 # >>> same in both modules: target-checks
 # The checks this run makes: each of CHECKS that the target's runtime has.
@@ -940,7 +942,7 @@ for r in "${KNOWN_RELEASES[@]}"; do
 done
 # <<<
 if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$NEWEST_KNOWN")" ]]; then
-  warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use this script as of $(sdk_tag "$TARGET_RELEASE")."
+  warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use $(sdk_tag "$TARGET_RELEASE")."
 fi
 
 # A run from a release before 0.4.0 moves the deployment to 0.4.0's packs. An

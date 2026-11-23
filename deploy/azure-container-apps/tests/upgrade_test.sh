@@ -1069,7 +1069,7 @@ reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.8.0
 assert_rc 1 "a later target refused"
 assert_out "knows the steps up to 0.7.0"
-assert_out "as of the @kindgi/sdk@0.8.0 tag"
+assert_out "Use the upgrade.sh in 0.8.0's module zip"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_COPY" "copy"
 assert_varfile_unchanged
@@ -1080,7 +1080,7 @@ reset_env; export STUB_TAGS="0.1.9"
 run "yes" --to 0.8.0-rc.1
 assert_rc 1 "a later rc refused"
 assert_out "knows the steps up to 0.7.0"
-assert_out "as of the @kindgi/sdk@0.8.0 tag or, before that release is out, its newest @kindgi/sdk@0.8.0-rc.N tag."
+assert_out "Use the upgrade.sh in 0.8.0's module zip or, before that release is out, in its newest release candidate's (0.8.0-rc.N)."
 assert_absent "$STUB_MARKER_COPY" "copy"
 
 # 24. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
@@ -1358,13 +1358,13 @@ assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_varfile_unchanged
 
 # 41. A server fix of a release past the newest this script knows: the refusal
-# names its release's SDK tag, since a server-only release has none.
+# names its release's module zip, since a server-only release has none.
 case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.2.0"
 run "yes" --to 0.8.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.7.0. 0.8.0.1 is a server fix for 0.8.0, which comes out after its final: use this script as of the @kindgi/sdk@0.8.0 tag."
-if grep -q "@kindgi/sdk@0.8.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_out "knows the steps up to 0.7.0. 0.8.0.1 is a server fix for 0.8.0, which comes out after its final: use the upgrade.sh in 0.8.0's module zip."
+if grep -qF "0.8.0.1's module zip" "$OUT"; then fail "the refusal names a module zip a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_COPY" "copy"
 assert_varfile_unchanged

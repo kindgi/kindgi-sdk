@@ -81,6 +81,8 @@ export const REFERENCES = [
   { path: 'reference/api/', label: 'HTTP API' },
   { path: 'reference/typescript/', label: 'TypeScript SDK' },
   { path: 'reference/packages/', label: 'Packages' },
+  { path: 'reference/java/', label: 'Java SDK' },
+  { path: 'reference/scala/', label: 'Scala packs' },
   { path: 'reference/terraform/', label: 'Terraform modules' },
 ];
 

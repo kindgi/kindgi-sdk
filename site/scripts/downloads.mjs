@@ -6,20 +6,23 @@
  * no other place to fetch it from. Each file has a `.sha256` beside it, as
  * `sha256sum` writes it, so `sha256sum -c <file>.sha256` checks a download.
  *
- *   kindgi-<plugin version>.zip    the WordPress plugin, as the newest release
- *                                  has it (`scripts/wordpress-plugin-zip.mjs`,
- *                                  run in a checkout of the release's tag)
- *   kindgi-latest.zip              the same bytes, at an address that stays
- *                                  the same; its checksum line names it
+ *   kindgi-wordpress-<version>.zip  a release's WordPress plugin, for every
+ *                                  release built and the pre-release whose
+ *                                  tag has `scripts/wordpress-plugin-zip.mjs`
+ *                                  (run in a checkout of the tag)
+ *   kindgi-latest.zip              the newest release's plugin, the same bytes,
+ *                                  at an address that stays the same; its
+ *                                  checksum line names it
  *   kindgi-<module>-<version>.zip  a release's Terraform module (`deploy/<module>/`)
  *                                  for every release built and the pre-release:
- *                                  one directory, `kindgi-<module>-<version>/`
+ *                                  one directory, `kindgi-<module>-<version>/`,
+ *                                  with the tag's LICENSE and NOTICE in it
  *
  * A module's zip is read straight from the tag (`git archive` of its
  * `deploy/<module>` tree: nothing checked out), each entry dated the tag's
- * commit, in UTC: a release always gives the same bytes, so its checksum
- * holds from one deploy of the site to the next. A release whose tag has no
- * such module has no zip for it.
+ * commit, in UTC: the same git gives a release the same bytes, so its
+ * checksum holds from one deploy of the site to the next. A release whose
+ * tag has no such module has no zip for it.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -38,6 +41,11 @@ export function moduleZipName(module, version) {
   return `kindgi-${module}-${version}.zip`;
 }
 
+/** A release's WordPress plugin: `kindgi-wordpress-0.8.1.zip`. */
+export function pluginZipName(version) {
+  return `kindgi-wordpress-${version}.zip`;
+}
+
 /** The checksum file's line, as `sha256sum` writes it. */
 export function checksumLine(name, bytes) {
   return `${createHash('sha256').update(bytes).digest('hex')}  ${name}\n`;
@@ -52,8 +60,9 @@ const has = (repo, object) =>
 
 /**
  * Writes `<tag>:deploy/<module>` as `kindgi-<module>-<version>.zip`, and its
- * checksum, into `dir`. Returns the zip's name, or undefined when the tag
- * has no such module.
+ * checksum, into `dir`, with the tag's LICENSE and NOTICE beside the
+ * module's files (unless the module has its own). Returns the zip's name,
+ * or undefined when the tag has no such module.
  */
 export function writeModuleZip(repo, { tag, version }, module, dir) {
   const tree = `${tag}:deploy/${module}`;
@@ -62,14 +71,21 @@ export function writeModuleZip(repo, { tag, version }, module, dir) {
   const time = git(repo, ['log', '-1', '--format=%ct', `${tag}^{commit}`]).trim();
   mkdirSync(dir, { recursive: true });
   const zip = join(dir, name);
+  const prefix = `${name.slice(0, -'.zip'.length)}/`;
+  // The license files at the tag's root, read from the tag and dated like the
+  // rest. A virtual file's path is its whole path: --prefix doesn't apply.
+  const legal = ['LICENSE', 'NOTICE']
+    .filter((file) => has(repo, `${tag}:${file}`) && !has(repo, `${tree}/${file}`))
+    .map((file) => `--add-virtual-file=${prefix}${file}:${git(repo, ['show', `${tag}:${file}`])}`);
   // A zip keeps local times: UTC, so every machine writes the same bytes.
   execFileSync(
     'git',
     [
       'archive',
       '--format=zip',
-      `--prefix=${name.slice(0, -'.zip'.length)}/`,
+      `--prefix=${prefix}`,
       `--mtime=@${time}`,
+      ...legal,
       '-o',
       zip,
       tree,
@@ -81,32 +97,34 @@ export function writeModuleZip(repo, { tag, version }, module, dir) {
 }
 
 /**
- * Writes the WordPress plugin's zip as `tag` has it, and its checksum, into
- * `dir`, with `kindgi-latest.zip` (and its checksum) the same bytes. The
- * tag's own script builds it, in a temporary checkout of the tag, so the
- * zip is the one the release ships. Returns the names written.
+ * Writes the WordPress plugin's zip as `tag` has it, as
+ * `kindgi-wordpress-<version>.zip`, and its checksum, into `dir`. The tag's
+ * own script builds it, in a temporary checkout of the tag, so the zip is
+ * the one the release ships. Returns the zip's name, or undefined when the
+ * tag has no such script.
  */
-export function writePluginZips(repo, tag, dir) {
-  if (!has(repo, `${tag}:${PLUGIN_SCRIPT}`)) {
-    throw new Error(`downloads: ${tag} has no ${PLUGIN_SCRIPT}, so no WordPress plugin to offer`);
-  }
-  const checkout = mkdtempSync(join(tmpdir(), 'kindgi-downloads-'));
-  const built = mkdtempSync(join(tmpdir(), 'kindgi-plugin-'));
-  execFileSync('git', ['worktree', 'add', '--quiet', '--detach', checkout, tag], { cwd: repo });
+export function writePluginZip(repo, { tag, version }, dir) {
+  if (!has(repo, `${tag}:${PLUGIN_SCRIPT}`)) return undefined;
+  const name = pluginZipName(version);
+  const work = mkdtempSync(join(tmpdir(), 'kindgi-plugin-'));
+  const checkout = join(work, 'checkout');
+  const built = join(work, 'built');
   try {
-    execFileSync('node', [PLUGIN_SCRIPT, built], { cwd: checkout, stdio: 'ignore' });
-    mkdirSync(dir, { recursive: true });
-    const names = readdirSync(built).sort();
-    for (const name of names) writeFileSync(join(dir, name), readFileSync(join(built, name)));
-    const zip = names.find((name) => name.endsWith('.zip'));
+    execFileSync('git', ['worktree', 'add', '--quiet', '--detach', checkout, tag], { cwd: repo });
+    try {
+      execFileSync('node', [PLUGIN_SCRIPT, built], { cwd: checkout, stdio: 'ignore' });
+    } finally {
+      execFileSync('git', ['worktree', 'remove', '--force', checkout], { cwd: repo });
+    }
+    const zip = readdirSync(built).find((file) => file.endsWith('.zip'));
     if (zip === undefined) throw new Error(`downloads: ${PLUGIN_SCRIPT} at ${tag} wrote no zip`);
-    const bytes = readFileSync(join(dir, zip));
-    writeFileSync(join(dir, LATEST_PLUGIN), bytes);
-    writeFileSync(join(dir, `${LATEST_PLUGIN}.sha256`), checksumLine(LATEST_PLUGIN, bytes));
-    return [...names, LATEST_PLUGIN, `${LATEST_PLUGIN}.sha256`];
+    const bytes = readFileSync(join(built, zip));
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, name), bytes);
+    writeFileSync(join(dir, `${name}.sha256`), checksumLine(name, bytes));
+    return name;
   } finally {
-    execFileSync('git', ['worktree', 'remove', '--force', checkout], { cwd: repo });
-    rmSync(built, { recursive: true, force: true });
+    rmSync(work, { recursive: true, force: true });
   }
 }
 
@@ -122,12 +140,23 @@ export function writePluginZips(repo, tag, dir) {
 export function writeDownloads(repo, builds, dir) {
   const [newest] = builds;
   if (newest === undefined) throw new Error('downloads: no release to take them from');
-  const names = writePluginZips(repo, newest.tag, dir);
+  if (!has(repo, `${newest.tag}:${PLUGIN_SCRIPT}`)) {
+    throw new Error(
+      `downloads: ${newest.tag} has no ${PLUGIN_SCRIPT}, so no WordPress plugin to offer`,
+    );
+  }
+  const names = [];
   for (const build of builds) {
+    const plugin = writePluginZip(repo, build, dir);
+    if (plugin !== undefined) names.push(plugin, `${plugin}.sha256`);
     for (const module of MODULES) {
       const name = writeModuleZip(repo, build, module, dir);
       if (name !== undefined) names.push(name, `${name}.sha256`);
     }
   }
+  const bytes = readFileSync(join(dir, pluginZipName(newest.version)));
+  writeFileSync(join(dir, LATEST_PLUGIN), bytes);
+  writeFileSync(join(dir, `${LATEST_PLUGIN}.sha256`), checksumLine(LATEST_PLUGIN, bytes));
+  names.push(LATEST_PLUGIN, `${LATEST_PLUGIN}.sha256`);
   return names.sort();
 }

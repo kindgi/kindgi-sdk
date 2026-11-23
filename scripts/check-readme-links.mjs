@@ -10,7 +10,10 @@
  * `https://docs.kindgi.com/...` URL (the site turns it back into a link
  * within each version's docs), to another package its reference page there,
  * and the license is its `https://www.apache.org/licenses/LICENSE-2.0`. An
- * anchor in the README itself (`#usage`) is fine.
+ * anchor in the README itself (`#usage`) is fine. A link into this
+ * repository on GitHub (`https://github.com/kindgi/kindgi-sdk/...`) is
+ * flagged too: it shows the repository as it is now, not the release the
+ * reader installed, so link the docs page, which is the release's.
  *
  * Which READMEs: each `packages/*`, `packages/adapters/*` and `sdks/*`
  * package whose `package.json` isn't `"private": true`, and each `sdks/*`
@@ -70,12 +73,16 @@ const DEFINITION = /^ {0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)/;
 
 /** A whole URL (`https:`, `mailto:`), or an anchor in the document itself. */
 const isWhole = (target) => /^(?:[a-z][a-z0-9+.-]*:|#|\/\/)/i.test(target);
+/** A link into this repository on GitHub. */
+const REPOSITORY = /^(?:https?:)?\/\/(?:www\.)?github\.com\/kindgi\/kindgi-sdk(?:[/#?]|\.git|$)/i;
+const fine = (target) => isWhole(target) && !REPOSITORY.test(target);
 
 /**
- * The relative links in `markdown` (outside code), as `{ line, target }`,
- * the line 1-based.
+ * The links in `markdown` (outside code) that a registry's reader can't
+ * follow to the right place: relative ones, and ones into this repository on
+ * GitHub. As `{ line, target }`, the line 1-based.
  */
-export function relativeLinks(markdown) {
+export function linksToFix(markdown) {
   const found = [];
   let close;
   markdown.split('\n').forEach((text, index) => {
@@ -93,12 +100,12 @@ export function relativeLinks(markdown) {
     const line = index + 1;
     const definition = DEFINITION.exec(text);
     if (definition) {
-      if (!isWhole(definition[1])) found.push({ line, target: definition[1] });
+      if (!fine(definition[1])) found.push({ line, target: definition[1] });
       return;
     }
     for (const match of text.matchAll(LINK)) {
       const target = match[2] ?? match[3];
-      if (target !== undefined && !isWhole(target)) found.push({ line, target });
+      if (target !== undefined && !fine(target)) found.push({ line, target });
     }
   });
   return found;
@@ -108,13 +115,13 @@ function main() {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
   const readmes = publishedReadmes(root);
   const problems = readmes.flatMap((file) =>
-    relativeLinks(readFileSync(join(root, file), 'utf8')).map(
+    linksToFix(readFileSync(join(root, file), 'utf8')).map(
       ({ line, target }) => `${file}:${line}: ${target}`,
     ),
   );
   if (problems.length > 0) {
     console.error(
-      `A README npm or PyPI shows has relative links, which go nowhere there: link the docs (https://docs.kindgi.com/...), or keep the text.\n${problems.map((p) => `  ${p}`).join('\n')}`,
+      `A README npm or PyPI shows has relative links, which go nowhere there, or links into this repository on GitHub, which show it as it is now: link the docs (https://docs.kindgi.com/...), or keep the text.\n${problems.map((p) => `  ${p}`).join('\n')}`,
     );
     process.exit(1);
   }

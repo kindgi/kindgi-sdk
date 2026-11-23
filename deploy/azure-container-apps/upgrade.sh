@@ -107,10 +107,10 @@
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
 #                      script knows the steps up to 0.7.0; for a later
-#                      release, use this script as of that release's
-#                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
-#                      or, before that release is out, its newest
-#                      @kindgi/sdk@<version>-rc.N tag.
+#                      release, use the upgrade.sh in that release's
+#                      kindgi-azure-container-apps-<version>.zip (for
+#                      X.Y.Z.N, X.Y.Z's) or, before that release is out, its
+#                      newest kindgi-azure-container-apps-<version>-rc.N.zip.
 #                      Below 0.4.0, the plan still makes this module's
 #                      changes up to 0.4.0, with the older runtime. This
 #                      script first came with 0.4.0, so to keep the module at
@@ -162,7 +162,7 @@ readonly POLL_INTERVAL=10
 readonly POLL_TRIES=90
 # <<<
 # The first release with this script. A run to an earlier one plans this
-# copy's module, and no earlier tag has a script to keep the module there.
+# copy's module, and no earlier release has a script to keep the module there.
 readonly FIRST_RELEASE="0.4.0"
 
 # How long a check job's run may take: the job's replica timeout, plus the
@@ -217,12 +217,12 @@ ver_num() {
 # A server-only release has no rc.
 is_version() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+|\.[1-9][0-9]*)?$ ]]; }
 is_server_fix() { [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[1-9][0-9]*$ ]]; }
-# The release a version belongs to, whose @kindgi/sdk@ tag has the upgrade.sh
-# for it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
+# The release a version belongs to, whose module zip has the upgrade.sh for
+# it: X.Y.Z for X.Y.Z, X.Y.Z-rc.N and X.Y.Z.N.
 release_of() { [[ $1 =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]] && printf '%s' "${BASH_REMATCH[1]}"; }
-# The tags whose upgrade.sh is a release's own ($1, X.Y.Z), as the docs name
-# them: an rc's tag stands for the release until it's out.
-sdk_tag() { printf 'the @kindgi/sdk@%s tag or, before that release is out, its newest @kindgi/sdk@%s-rc.N tag' "$1" "$1"; }
+# Where a release's own upgrade.sh is ($1, X.Y.Z), as the docs name it: the
+# release's module zip, and an rc's until the release is out.
+sdk_tag() { printf "the upgrade.sh in %s's module zip or, before that release is out, in its newest release candidate's (%s-rc.N)" "$1" "$1"; }
 # The release line a version belongs to, X.Y: the CLI of a final is
 # @kindgi/cli@X.Y, as the CLI names itself (publishedCliSpec, in
 # packages/cli/src/package-manager.ts).
@@ -490,13 +490,13 @@ TARGET_RELEASE="$(release_of "$TARGET")"
 # >>> same in both modules: target-release
 # A later release may need steps this copy doesn't have, so it isn't run past
 # the newest release it knows (an rc counts as its final). A server-only
-# release has no SDK tag of its own: its release's script runs it.
+# release has no module zip of its own: its release's script runs it.
 NEWEST_KNOWN="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 if [[ "$(ver_num "$TARGET_RELEASE")" -gt "$(ver_num "$NEWEST_KNOWN")" ]]; then
   if is_server_fix "$TARGET"; then
-    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE, which comes out after its final: use this script as of the @kindgi/sdk@$TARGET_RELEASE tag."
+    die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. $TARGET is a server fix for $TARGET_RELEASE, which comes out after its final: use the upgrade.sh in $TARGET_RELEASE's module zip."
   fi
-  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
+  die "--to $TARGET: this script knows the steps up to $NEWEST_KNOWN. Use $(sdk_tag "$TARGET_RELEASE")."
 fi
 if is_server_fix "$TARGET" && [[ " ${KNOWN_RELEASES[*]} " != *" $TARGET_RELEASE "* ]]; then
   die "--to $TARGET: a server fix for $TARGET_RELEASE, which isn't a release this script knows (${KNOWN_RELEASES[*]})."
@@ -791,7 +791,7 @@ for r in "${KNOWN_RELEASES[@]}"; do
 done
 # <<<
 if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$NEWEST_KNOWN")" ]]; then
-  keep="use this script as of $(sdk_tag "$TARGET_RELEASE")"
+  keep="use $(sdk_tag "$TARGET_RELEASE")"
   if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$FIRST_RELEASE")" ]]; then
     keep="upgrade by hand: this script first came with $FIRST_RELEASE"
   fi

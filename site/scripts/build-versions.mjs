@@ -26,10 +26,10 @@
  *                (`tutorials-overlay.mjs`)
  *   *.md         every page's Markdown, for coding agents, at the root and
  *                under every version: never indexed, UTF-8 (`/_headers`)
- *   /downloads/  the newest release's WordPress plugin (`kindgi-latest.zip`
- *                too), and every release's and the pre-release's Terraform
- *                modules, read from their tags, each with its `.sha256`
- *                (`downloads.mjs`)
+ *   /downloads/  every release's and the pre-release's WordPress plugin and
+ *                Terraform modules, from their tags, and the newest
+ *                release's plugin as `kindgi-latest.zip` too, each with its
+ *                `.sha256` (`downloads.mjs`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a

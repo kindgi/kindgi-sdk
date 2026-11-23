@@ -149,8 +149,9 @@ and `kindgi sites update <site-id>` changes it later:
 ## Install and connect the plugin
 
 Each SDK release carries the plugin as `kindgi-<version>.zip`, where
-`<version>` is the plugin's own. The docs site serves the newest release's
-plugin as `kindgi-latest.zip`.
+`<version>` is the plugin's own. The docs site serves each release's
+plugin as `kindgi-wordpress-<release>.zip`, and the newest release's as
+`kindgi-latest.zip` too.
 This page is for release `{{kindgi.version}}`, whose plugin needs runtime
 0.4.0 or later, WordPress 6.4 or later and PHP 7.4 or later. For an older
 runtime, read this page in the docs for the runtime's own version: it names
@@ -158,13 +159,13 @@ the plugin that fits it.
 <!-- 0.4.0 is the floor of the plugin this release carries, as its readme.txt says: change them together. -->
 
 1. **Install it.** Download
-   [`kindgi-latest.zip`](https://docs.kindgi.com/downloads/kindgi-latest.zip)
+   [`kindgi-wordpress-{{kindgi.version}}.zip`](https://docs.kindgi.com/downloads/kindgi-wordpress-{{kindgi.version}}.zip)
    and upload it under
    **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before
    WordPress 6.8). Its checksum,
-   [`kindgi-latest.zip.sha256`](https://docs.kindgi.com/downloads/kindgi-latest.zip.sha256),
+   [`kindgi-wordpress-{{kindgi.version}}.zip.sha256`](https://docs.kindgi.com/downloads/kindgi-wordpress-{{kindgi.version}}.zip.sha256),
    checks the download: save it next to the zip and run
-   `sha256sum -c kindgi-latest.zip.sha256`. Or unzip it into
+   `sha256sum -c kindgi-wordpress-{{kindgi.version}}.zip.sha256`. Or unzip it into
    `wp-content/plugins/`: it holds one directory, `kindgi`. Then activate it.
 2. **Connect.** An administrator, under **Kindgi → Settings**, pastes the
    one-time code and the Kindgi URL this server reaches, then chooses

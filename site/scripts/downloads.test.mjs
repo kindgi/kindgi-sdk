@@ -12,8 +12,10 @@ import {
   LATEST_PLUGIN,
   checksumLine,
   moduleZipName,
+  pluginZipName,
   writeDownloads,
   writeModuleZip,
+  writePluginZip,
 } from './downloads.mjs';
 
 /** A file's name, built so check-refs doesn't read it as a document reference. */
@@ -32,7 +34,7 @@ after(() => {
 });
 
 // A repository with two releases: 0.1.0 has the Cloud Run module only, 0.2.0
-// both modules and a newer plugin. Each commit at a fixed time.
+// both modules and a newer plugin (0.1.1). Each commit at a fixed time.
 const tag = (version) => `@kindgi/sdk@${version}`;
 const COMMITTED = { '0.1.0': 1767225600, '0.2.0': 1767312001 };
 let repo;
@@ -105,10 +107,8 @@ describe('writeDownloads', () => {
     names = writeDownloads(repo, builds, dir);
   });
 
-  test("the newest release's plugin, under its version and as kindgi-latest.zip, and every release's modules", () => {
+  test("every release's plugin and modules, and the newest release's plugin as kindgi-latest.zip", () => {
     assert.deepEqual(names, [
-      'kindgi-0.1.1.zip',
-      'kindgi-0.1.1.zip.sha256',
       'kindgi-azure-container-apps-0.2.0.zip',
       'kindgi-azure-container-apps-0.2.0.zip.sha256',
       'kindgi-gcp-cloud-run-0.1.0.zip',
@@ -117,12 +117,25 @@ describe('writeDownloads', () => {
       'kindgi-gcp-cloud-run-0.2.0.zip.sha256',
       'kindgi-latest.zip',
       'kindgi-latest.zip.sha256',
+      'kindgi-wordpress-0.1.0.zip',
+      'kindgi-wordpress-0.1.0.zip.sha256',
+      'kindgi-wordpress-0.2.0.zip',
+      'kindgi-wordpress-0.2.0.zip.sha256',
     ]);
   });
 
-  test('kindgi-latest.zip is the same bytes as the versioned plugin zip, its checksum naming it', () => {
+  test("a release's plugin zip is the plugin as its tag has it", () => {
+    const php = (version) =>
+      execFileSync('unzip', ['-p', join(dir, pluginZipName(version)), 'kindgi/kindgi.php'], {
+        encoding: 'utf8',
+      });
+    assert.match(php('0.1.0'), /Version: 0\.1\.0\n/);
+    assert.match(php('0.2.0'), /Version: 0\.1\.1\n/);
+  });
+
+  test("kindgi-latest.zip is the same bytes as the newest release's plugin zip, its checksum naming it", () => {
     const latest = readFileSync(join(dir, LATEST_PLUGIN));
-    assert.deepEqual(latest, readFileSync(join(dir, 'kindgi-0.1.1.zip')));
+    assert.deepEqual(latest, readFileSync(join(dir, pluginZipName('0.2.0'))));
     assert.equal(
       readFileSync(join(dir, `${LATEST_PLUGIN}.sha256`), 'utf8'),
       checksumLine(LATEST_PLUGIN, latest),
@@ -130,13 +143,18 @@ describe('writeDownloads', () => {
     assert.ok(listing(join(dir, LATEST_PLUGIN)).includes('kindgi/kindgi.php'));
   });
 
-  test("a module's zip holds its tag's module, under one directory named for it", () => {
+  test("a module's zip holds its tag's module and license files, under one directory named for it", () => {
     const zip = join(dir, moduleZipName('gcp-cloud-run', '0.2.0'));
-    assert.deepEqual(listing(zip), [
+    assert.deepEqual(listing(zip).sort(), [
       'kindgi-gcp-cloud-run-0.2.0/',
+      'kindgi-gcp-cloud-run-0.2.0/LICENSE',
+      'kindgi-gcp-cloud-run-0.2.0/NOTICE',
       `kindgi-gcp-cloud-run-0.2.0/${README}`,
       'kindgi-gcp-cloud-run-0.2.0/main.tf',
     ]);
+    const entry = (path) => execFileSync('unzip', ['-p', zip, path], { encoding: 'utf8' });
+    assert.equal(entry('kindgi-gcp-cloud-run-0.2.0/LICENSE'), 'Apache License\n');
+    assert.equal(entry('kindgi-gcp-cloud-run-0.2.0/NOTICE'), 'Kindgi\n');
     const main = execFileSync('unzip', ['-p', zip, 'kindgi-gcp-cloud-run-0.2.0/main.tf'], {
       encoding: 'utf8',
     });
@@ -187,7 +205,7 @@ describe('writeModuleZip', () => {
       .split('\n')
       .map((line) => /\s(\d{8}\.\d{6})\s/.exec(line)?.[1])
       .filter((date) => date !== undefined);
-    assert.equal(dates.length, 3);
+    assert.equal(dates.length, 5);
     assert.equal(new Set(dates).size, 1);
     assert.ok(want.includes(dates[0]), `${dates[0]} is not one of ${want.join(', ')}`);
   });
@@ -206,14 +224,30 @@ describe('writeModuleZip', () => {
   });
 });
 
-test('writeDownloads needs a release with the plugin script', () => {
+describe('writePluginZip', () => {
+  test('a second build of a release writes the same bytes', () => {
+    const first = temp('kindgi-downloads-plugin-');
+    const second = temp('kindgi-downloads-plugin-');
+    const name = writePluginZip(repo, builds[1], first);
+    writePluginZip(repo, builds[1], second);
+    assert.equal(name, 'kindgi-wordpress-0.1.0.zip');
+    assert.deepEqual(readFileSync(join(first, name)), readFileSync(join(second, name)));
+  });
+});
+
+test('writeDownloads needs a newest release with the plugin script; an older one may lack it', () => {
   const dir = temp('kindgi-downloads-none-');
   assert.throws(() => writeDownloads(repo, [], dir), /no release/);
   git(['rm', '--quiet', '-r', 'scripts']);
   git(['commit', '--quiet', '-m', 'no script']);
   git(['tag', 'bare']);
+  const bare = { tag: 'bare', version: '0.0.1' };
+  assert.equal(writePluginZip(repo, bare, dir), undefined);
   assert.throws(
-    () => writeDownloads(repo, [{ tag: 'bare', version: '0.3.0' }], dir),
+    () => writeDownloads(repo, [{ ...bare, version: '0.3.0' }], dir),
     /has no scripts\/wordpress-plugin-zip\.mjs/,
   );
+  const names = writeDownloads(repo, [builds[0], bare], join(dir, 'older'));
+  assert.ok(!names.includes(pluginZipName('0.0.1')));
+  assert.ok(names.includes(moduleZipName('gcp-cloud-run', '0.0.1')));
 });

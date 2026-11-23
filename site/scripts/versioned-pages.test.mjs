@@ -49,6 +49,16 @@ test('fillVersion fills every token', () => {
   );
 });
 
+test("fillVersion fills a link's URL, where the token is percent-encoded", () => {
+  assert.equal(
+    fillVersion(
+      '<a href="https://docs.kindgi.com/downloads/kindgi-wordpress-%7B%7Bkindgi.version%7D%7D.zip"><code>kindgi-wordpress-{{kindgi.version}}.zip</code></a>',
+      '0.8.1',
+    ),
+    '<a href="https://docs.kindgi.com/downloads/kindgi-wordpress-0.8.1.zip"><code>kindgi-wordpress-0.8.1.zip</code></a>',
+  );
+});
+
 test('the code plugin fills a code block before highlighting', () => {
   const lines = [
     '<version>{{kindgi.version}}</version>',

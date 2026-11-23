@@ -13,13 +13,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, test } from 'node:test';
 
-import { publishedReadmes, relativeLinks } from './check-readme-links.mjs';
+import { linksToFix, publishedReadmes } from './check-readme-links.mjs';
 
 /** A file's name, built so check-refs doesn't read it as a document reference. */
 const README = `README${'.md'}`;
 const DOCS = `DOCS${'.md'}`;
 
-describe('relativeLinks', () => {
+describe('linksToFix', () => {
   test('finds inline links, images, definitions and HTML links that go to a file', () => {
     const markdown = [
       '# x',
@@ -28,7 +28,7 @@ describe('relativeLinks', () => {
       '[ref]: ../types/',
       '<a href="examples/">examples</a> <img src="logo.svg">',
     ].join('\n');
-    assert.deepEqual(relativeLinks(markdown), [
+    assert.deepEqual(linksToFix(markdown), [
       { line: 2, target: '../specs/' },
       { line: 2, target: './LICENSE' },
       { line: 3, target: 'docs/flow.png' },
@@ -45,7 +45,22 @@ describe('relativeLinks', () => {
       'Jump to [usage](#usage).',
       '[ref]: https://docs.kindgi.com/',
     ].join('\n');
-    assert.deepEqual(relativeLinks(markdown), []);
+    assert.deepEqual(linksToFix(markdown), []);
+  });
+
+  test("links into this repository on GitHub, whole or not; other repositories' are fine", () => {
+    const markdown = [
+      '[source](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java) [repo](https://github.com/kindgi/kindgi-sdk)',
+      '<a href="https://www.github.com/Kindgi/kindgi-sdk#readme">x</a>',
+      '[ref]: https://github.com/kindgi/kindgi-sdk/blob/main/LICENSE',
+      '[other](https://github.com/kindgi/kindgi-sdk-extras) [elsewhere](https://github.com/acme/kindgi-sdk/)',
+    ].join('\n');
+    assert.deepEqual(linksToFix(markdown), [
+      { line: 1, target: 'https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java' },
+      { line: 1, target: 'https://github.com/kindgi/kindgi-sdk' },
+      { line: 2, target: 'https://www.github.com/Kindgi/kindgi-sdk#readme' },
+      { line: 3, target: 'https://github.com/kindgi/kindgi-sdk/blob/main/LICENSE' },
+    ]);
   });
 
   test('code is not read: fenced blocks and inline spans', () => {
@@ -59,7 +74,7 @@ describe('relativeLinks', () => {
       '~~~',
       'After [the fence](../d/).',
     ].join('\n');
-    assert.deepEqual(relativeLinks(markdown), [{ line: 8, target: '../d/' }]);
+    assert.deepEqual(linksToFix(markdown), [{ line: 8, target: '../d/' }]);
   });
 });
 

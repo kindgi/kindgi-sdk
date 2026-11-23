@@ -32,9 +32,12 @@ export function docsVersion() {
   return JSON.parse(readFileSync(cli, 'utf8')).version;
 }
 
-/** `text` with every `{{kindgi.version}}` replaced by `version`. */
+/**
+ * `text` with every `{{kindgi.version}}` replaced by `version`, in a link's
+ * URL too, where the Markdown renderer writes it percent-encoded.
+ */
 export function fillVersion(text, version) {
-  return text.replaceAll(VERSION_TOKEN, version);
+  return text.replaceAll(VERSION_TOKEN, version).replaceAll(encodeURI(VERSION_TOKEN), version);
 }
 
 const MAIN_LINK = /https:\/\/github\.com\/kindgi\/kindgi-sdk\/(tree|blob)\/main(?=[/"'#?)\s<&]|$)/g;

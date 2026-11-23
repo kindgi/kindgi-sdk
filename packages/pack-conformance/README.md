@@ -54,9 +54,11 @@ packs against them and starts the service through its launcher. Without a JDK or
 the build it's skipped, saying why; under CI it fails instead.
 
 The Scala target runs the same service and indexer on the fixture packs in Scala
-(`kindgi-pack-scala`, `sdks/scala`). sbt builds each against the layer
-from source: with kindgi-pack installed (`./mvnw -pl kindgi-pack -am install
--DskipTests`), `sbt writeClasspath` in `fixtures/scala-pack` and in
+(`kindgi-pack-scala`, `sdks/scala`). sbt builds each against the Scala layer
+from source, on the published Java layer, `com.kindgi:kindgi-pack`
+([Java packs](https://docs.kindgi.com/reference/java/kindgi-pack/)), from
+Maven Central (or the local Maven repository first, when it has that
+version): `sbt writeClasspath` in `fixtures/scala-pack` and in
 `fixtures/scala-invalid-flow-pack` writes its `target/classpath.txt` (Scala 3;
 `sbt "++2.13.18!" writeClasspath` for 2.13, in both). Without them, or with the
 two built on different Scala versions, the target is skipped, saying why. The
