@@ -1,5 +1,25 @@
 # @kindgi/cli
 
+## 0.8.2
+
+### Patch Changes
+
+- b8ffc77: `GET /v1/providers` and `GET /v1/providers/{providerId}` show each provider's `adapterId` and `adapterConfig`, and `kindgi providers list --table` shows the adapter.
+- Updated dependencies [30bc50c]
+- Updated dependencies [b8ffc77]
+  - @kindgi/sdk@0.8.2
+  - @kindgi/client@0.8.2
+  - @kindgi/secrets-dotenv@0.8.2
+  - @kindgi/agents@0.8.2
+  - @kindgi/crypto@0.8.2
+  - @kindgi/dotenv-file@0.8.2
+  - @kindgi/env-schema@0.8.2
+  - @kindgi/flow@0.8.2
+  - @kindgi/handler-runtime@0.8.2
+  - @kindgi/log@0.8.2
+  - @kindgi/platform@0.8.2
+  - @kindgi/types@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes

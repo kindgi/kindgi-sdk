@@ -1,5 +1,11 @@
 # @kindgi/client
 
+## 0.8.2
+
+### Patch Changes
+
+- b8ffc77: `GET /v1/providers` and `GET /v1/providers/{providerId}` show each provider's `adapterId` and `adapterConfig`, and `kindgi providers list --table` shows the adapter.
+
 ## 0.8.1
 
 No changes in this release.

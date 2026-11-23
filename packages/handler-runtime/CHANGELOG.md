@@ -1,5 +1,17 @@
 # @kindgi/handler-runtime
 
+## 0.8.2
+
+### Patch Changes
+
+- @kindgi/env-schema@0.8.2
+  - @kindgi/flow@0.8.2
+  - @kindgi/log@0.8.2
+  - @kindgi/sandbox@0.8.2
+  - @kindgi/schema@0.8.2
+  - @kindgi/tools@0.8.2
+  - @kindgi/types@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes

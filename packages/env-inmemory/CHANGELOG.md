@@ -1,5 +1,17 @@
 # @kindgi/env-inmemory
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [b8ffc77]
+  - @kindgi/api@0.8.2
+  - @kindgi/audit-events@0.8.2
+  - @kindgi/compliance@0.8.2
+  - @kindgi/log@0.8.2
+  - @kindgi/platform@0.8.2
+  - @kindgi/types@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes

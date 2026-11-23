@@ -1,5 +1,21 @@
 # @kindgi/sdk
 
+## 0.8.2
+
+### Patch Changes
+
+- 30bc50c: The packages name the docs site, https://docs.kindgi.com, as their homepage and take bug reports at contact@kindgi.com, and no longer name a source repository. The getting-started skills link the Cloud Run page's "Operate it" section for `upgrade.sh`.
+- Updated dependencies [b8ffc77]
+  - @kindgi/client@0.8.2
+  - @kindgi/agents@0.8.2
+  - @kindgi/crypto@0.8.2
+  - @kindgi/flow@0.8.2
+  - @kindgi/guardrails@0.8.2
+  - @kindgi/handler-runtime@0.8.2
+  - @kindgi/schema@0.8.2
+  - @kindgi/tools@0.8.2
+  - @kindgi/types@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes
