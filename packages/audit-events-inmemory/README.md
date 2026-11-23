@@ -1,7 +1,7 @@
 # @kindgi/audit-events-inmemory
 
 Reference in-memory implementation of the `AuditEventBinding` contract
-from [`@kindgi/audit-events`](../audit-events). Use it in tests and local
+from [`@kindgi/audit-events`](https://docs.kindgi.com/reference/packages/audit-events/). Use it in tests and local
 development; production deployments plug a durable adapter.
 
 ## Purpose

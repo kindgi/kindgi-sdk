@@ -3,22 +3,24 @@
 /**
  * One reference page per public `@kindgi/*` package, from its README.
  *
- * Links in a README are written for the repository. Here, a link to
- * another public package goes to that package's page; a link to any other
- * file or directory in the repository becomes its text, since the
- * repository is private and a reader couldn't open it.
+ * A README's links are rewritten for its page (`readme-links.mjs`): a link
+ * to the docs becomes relative, so each version's page links within its
+ * version; a link to another rendered README goes to its page; a link to
+ * any other file in the repository becomes its text.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { rewriteLinks } from './readme-links.mjs';
+
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const README = `README${'.md'}`;
 
-/** Public `@kindgi/*` packages: `{ name, dir, slug }`. */
-function publicPackages() {
+/** Public `@kindgi/*` packages: `{ name, description, dir, slug, pageSlug }`. */
+export function publicPackages() {
   const dirs = [];
-  for (const parent of ['packages', join('packages', 'adapters')]) {
+  for (const parent of ['packages', join('packages', 'adapters'), 'sdks']) {
     for (const entry of readdirSync(join(REPO, parent))) {
       const dir = join(REPO, parent, entry);
       if (statSync(dir).isDirectory() && existsSync(join(dir, 'package.json'))) dirs.push(dir);
@@ -33,28 +35,9 @@ function publicPackages() {
       description: manifest.description ?? '',
       dir,
       slug: manifest.name.slice('@kindgi/'.length),
+      pageSlug: `reference/packages/${manifest.name.slice('@kindgi/'.length)}`,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function rewriteLinks(markdown, pkg, bySlugDir) {
-  return markdown.replace(
-    /(!?)\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g,
-    (whole, bang, text, target, rest) => {
-      if (/^(?:[a-z]+:|#|\/\/)/i.test(target)) return whole; // a URL, an anchor
-      const [path, hash = ''] = target.split('#');
-      const absolute = resolve(pkg.dir, path);
-      const anchor = hash ? `#${hash}` : '';
-      // Another public package (its directory or its README): its page.
-      const packageDir = absolute.endsWith(README) ? dirname(absolute) : absolute;
-      const other = bySlugDir.get(packageDir);
-      if (other && !bang) {
-        const self = other.slug === pkg.slug;
-        return `[${text}](${self ? '' : `../${other.slug}/`}${anchor}${rest})`;
-      }
-      return text; // the private repository: nowhere a reader can open
-    },
-  );
 }
 
 /** A TypeScript fence, and a first line that names a whole file (`// src/index.ts`). */
@@ -86,14 +69,19 @@ export function markFragments(markdown) {
   return lines.join('\n');
 }
 
-export function packagePages() {
+/**
+ * The packages' pages and their overview. `links`: the page of every
+ * rendered README, by its directory (`readmeLinks()`); by default, the
+ * packages' own.
+ */
+export function packagePages(links) {
   const packages = publicPackages();
-  const bySlugDir = new Map(packages.map((pkg) => [pkg.dir, pkg]));
-  const pages = packages.map((pkg) => {
+  const pages = links ?? new Map(packages.map((pkg) => [pkg.dir, pkg.pageSlug]));
+  const rendered = packages.map((pkg) => {
     const readme = readFileSync(join(pkg.dir, README), 'utf8').replace(/^# .*\n+/, '');
-    const body = markFragments(rewriteLinks(readme, pkg, bySlugDir));
+    const body = markFragments(rewriteLinks(readme, { slug: pkg.pageSlug, dir: pkg.dir, pages }));
     return {
-      slug: `reference/packages/${pkg.slug}`,
+      slug: pkg.pageSlug,
       content: [
         '---',
         `title: ${JSON.stringify(pkg.name)}`,
@@ -123,5 +111,5 @@ export function packagePages() {
     ...packages.map((pkg) => `- [\`${pkg.name}\`](${pkg.slug}/): ${pkg.description}`),
     '',
   ];
-  return [{ slug: 'reference/packages/index', content: overview.join('\n') }, ...pages];
+  return [{ slug: 'reference/packages/index', content: overview.join('\n') }, ...rendered];
 }

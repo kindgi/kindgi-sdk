@@ -3,9 +3,9 @@
 Write a Kindgi pack's **tools** and **guardrail checks** in Python — agents
 and flows are data, declared next to them — and call the Kindgi API from
 Python. The Kindgi runtime calls your code over
-[pack protocol v2](../../packages/specs/schemas/pack-protocol.schema.json) —
+[pack protocol v2](https://docs.kindgi.com/reference/schemas/pack-protocol/) —
 the contract its Node pack service speaks, checked by the same
-[conformance suite](../../packages/pack-conformance/).
+[conformance suite](https://docs.kindgi.com/reference/packages/pack-conformance/).
 
 ```sh
 uv add kindgi        # or: pip install kindgi
@@ -269,7 +269,7 @@ record = Flow(
 )
 ```
 
-Flows follow [`flow.schema.json`](../../packages/specs/schemas/flow.schema.json);
+Flows follow [`flow.schema.json`](https://docs.kindgi.com/reference/schemas/flow/);
 the indexer checks them against it.
 
 ## Imports inside a pack
@@ -334,7 +334,7 @@ logged once (`{"kind": "missing-env", …}`) and `/v1/info` lists them in
 ## Calling the Kindgi API
 
 `kindgi.client` covers every operation of the API — generated from
-[`openapi.json`](../../packages/api/openapi.json), so it can't fall behind it.
+[`openapi.json`](https://docs.kindgi.com/reference/api/), so it can't fall behind it.
 An operation id `approvals.reviewers.list` is `client.approvals.reviewers.list()`.
 
 ```python
@@ -487,8 +487,8 @@ then edit its line.
 `@kindgi/pack-conformance` runs its suite against this package's `.venv`.
 
 The version is the npm packages' (`scripts/sync-python-version.mjs`
-moves it); changes go in [`CHANGELOG.md`](./CHANGELOG.md).
+moves it); changes go in [`CHANGELOG.md`](https://docs.kindgi.com/releases/).
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](https://www.apache.org/licenses/LICENSE-2.0).

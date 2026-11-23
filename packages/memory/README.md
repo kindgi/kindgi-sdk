@@ -4,7 +4,7 @@ Type contract for Kindgi memory: typed, versioned facts, the hash-chained run lo
 
 ## Purpose
 
-Give agent code, tools, and storage backends one shared vocabulary for memory, so that code that reads facts (for example the retrieval step in [`@kindgi/agents`](../agents/)) depends only on an interface and never on a database client. Every operation is workspace-scoped: callers pass `tenantId` on each call, and the binding implementation enforces isolation.
+Give agent code, tools, and storage backends one shared vocabulary for memory, so that code that reads facts (for example the retrieval step in [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/)) depends only on an interface and never on a database client. Every operation is workspace-scoped: callers pass `tenantId` on each call, and the binding implementation enforces isolation.
 
 ## Exports
 
@@ -15,12 +15,12 @@ Give agent code, tools, and storage backends one shared vocabulary for memory, s
   - **`Source`**, **`SourceFreshness`**, **`SourceRefresh`** — external-source metadata for Kind B facts: the source `kind` (`http-api`, `blob`, `mcp-tool`, `external-db`, `user-input`) and `uri`, freshness data (`ttlSeconds`, `lastVerifiedAt`, `etag`, `sourceVersion`), and the refresh `strategy` (`on-read`, `background`, `manual`) with an optional registered `handler` id.
 - **Log**
   - **`LogEntry`** — one immutable entry in a run's append-only log, ordered by `sequence` within `(tenantId, runId)`. Each entry stores `prevHash` and `entryHash`, so changing an earlier entry breaks every later link in the chain.
-  - **`LOG_KINDS`** / **`LogKind`** — the closed set of entry kinds (`user-message`, `agent-message`, `system-message`, `tool-call`, `tool-result`, `internal-thought`, `retrieval`, `artifact-produced`, `event-emitted`, `event-received`, `guardrail-triggered`, `wait-suspended`, `wait-resumed`), matching the enum in `memory.schema.json` from [`@kindgi/specs`](../specs/).
+  - **`LOG_KINDS`** / **`LogKind`** — the closed set of entry kinds (`user-message`, `agent-message`, `system-message`, `tool-call`, `tool-result`, `internal-thought`, `retrieval`, `artifact-produced`, `event-emitted`, `event-received`, `guardrail-triggered`, `wait-suspended`, `wait-resumed`), matching the enum in `memory.schema.json` from [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/).
 - **`RetrievalHit<TContent>`** — a `fact` plus a numeric `score`. Keyword scores are unbounded positive ranks; semantic scores are cosine similarity in [-1, 1]. Higher is better in both cases.
 - **`MemoryQueryBinding`** — the data-access interface, implemented by a runtime adapter. Every method returns `Promise<Result<…, MemoryError>>`.
   - `listFacts(input: ListFactsInput)` — facts filtered by `type` and a partial `scope`, capped by `limit`; `latestOnly` selects the latest version of each fact.
   - `searchByKeyword(input: SearchByKeywordInput)` — full-text search over facts, returning up to `topK` hits.
-  - `searchBySemantic(input: SearchBySemanticInput)` — embeds `query` through the caller-supplied `embeddingRegistry` from [`@kindgi/embedding`](../embedding/) (pinned to `embeddingModel`, or the registry's only provider when omitted) and runs a vector search.
+  - `searchBySemantic(input: SearchBySemanticInput)` — embeds `query` through the caller-supplied `embeddingRegistry` from [`@kindgi/embedding`](https://docs.kindgi.com/reference/packages/embedding/) (pinned to `embeddingModel`, or the registry's only provider when omitted) and runs a vector search.
   - `appendLog(input: AppendLogInput)` — appends one entry. The implementation assigns `sequence` and the hash chain and returns the stored `LogEntry`.
   - `readLog(input: ReadLogInput)` — the entries for `(tenantId, runId)` in order, optionally narrowed with `sinceSequence`.
 - **Errors** — **`MemoryError`**, a union of `InvalidLogEntryError`, `InvalidFactError`, `FactNotFoundError`, `LogNotFoundError`, `RefreshHandlerMissingError`, `RetentionViolationError` (`reason`: `legal-hold`, `keep-until` or `keep-days`), `PersistenceError`, and the `EmbeddingError` variants from `@kindgi/embedding`. Every variant carries a `code` for matching.
@@ -88,7 +88,7 @@ export async function findClauses(
 
 ## Related
 
-- [`@kindgi/agents`](../agents/) — takes a `MemoryQueryBinding` and uses it for the retrieval step of each agent turn.
-- [`@kindgi/embedding`](../embedding/) — the embedding provider registry used by `searchBySemantic`.
-- [`@kindgi/specs`](../specs/) — `memory.schema.json`, the wire schema for facts and log entries.
-- [`@kindgi/types`](../types/) — branded ids (`FactId`, `LogEntryId`, `RunId`, …) and `Result`.
+- [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) — takes a `MemoryQueryBinding` and uses it for the retrieval step of each agent turn.
+- [`@kindgi/embedding`](https://docs.kindgi.com/reference/packages/embedding/) — the embedding provider registry used by `searchBySemantic`.
+- [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/) — `memory.schema.json`, the wire schema for facts and log entries.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — branded ids (`FactId`, `LogEntryId`, `RunId`, …) and `Result`.

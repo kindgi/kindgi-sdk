@@ -1,18 +1,18 @@
 # `@kindgi/pack-conformance`
 
 The conformance suite for pack services. A Kindgi runtime runs a pack's code
-by calling a **pack service** over [pack protocol v2](../specs/schemas/pack-protocol.schema.json),
-and learns the pack from its [index](../specs/schemas/pack-index.schema.json).
+by calling a **pack service** over [pack protocol v2](https://docs.kindgi.com/reference/schemas/pack-protocol/),
+and learns the pack from its [index](https://docs.kindgi.com/reference/schemas/pack-index/).
 Any language can implement both; this suite is how an implementation proves it.
 
 It checks, from the outside:
 
-- **the index** the implementation's indexer writes for the [fixture pack](./FIXTURE.md):
+- **the index** the implementation's indexer writes for the fixture pack:
   valid against the spec, the right ids, canonical bytes (sorted keys, two-space
   indent, trailing newline), the same bytes on a second build, and every flow
   passing the graph checks every index goes through (`flowGraphProblem`, from
   `@kindgi/flow`);
-- **a flow with a cycle**, in the [invalid-flow pack](./FIXTURE.md#the-invalid-flow-pack):
+- **a flow with a cycle**, in the invalid-flow pack:
   refused, either by the indexer (a `manifest-validation-failed` file error
   naming its module) or by those graph checks on the index it wrote;
 - **the process contract**: `--index` / `--module-root` / `--host`,
@@ -70,7 +70,7 @@ invalid-flow case skipped, saying so.
 ## Adding an implementation
 
 1. Write the fixture pack in your language under `fixtures/<name>-pack/`, and the
-   invalid-flow pack under `fixtures/<name>-invalid-flow-pack/` ([FIXTURE.md](./FIXTURE.md)).
+   invalid-flow pack under `fixtures/<name>-invalid-flow-pack/`.
 2. Add `tests/<name>.test.ts`:
 
 ```ts
@@ -93,4 +93,4 @@ describePackServiceConformance({
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](https://www.apache.org/licenses/LICENSE-2.0).

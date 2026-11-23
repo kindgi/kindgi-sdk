@@ -102,5 +102,5 @@ async function invokeJsonStdio(
 
 ## Related
 
-- [`@kindgi/handler-runtime`](../handler-runtime/) — dispatches tool handlers through a `SandboxProvider`.
-- [`@kindgi/types`](../types/) — `TenantId`, `RunId`, `ArtifactId`, `Result`.
+- [`@kindgi/handler-runtime`](https://docs.kindgi.com/reference/packages/handler-runtime/) — dispatches tool handlers through a `SandboxProvider`.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — `TenantId`, `RunId`, `ArtifactId`, `Result`.

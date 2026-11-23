@@ -11,6 +11,11 @@ import { basename } from 'node:path';
 
 /** A link to docs.kindgi.com, up to the first character that ends a URL in prose or code. */
 export const DOCS_URL = /https:\/\/docs\.kindgi\.com\/[^\s)>`'"]*/g;
+/**
+ * The site's downloads (`/downloads/`, site/scripts/downloads.mjs): at its
+ * root, for every release line, so a link to one names no line.
+ */
+export const DOWNLOADS = 'https://docs.kindgi.com/downloads/';
 /** A link's release line part: `https://docs.kindgi.com/v<major>.<minor>/`. */
 export const LINE_LINK = /https:\/\/docs\.kindgi\.com\/v\d+\.\d+\//g;
 /** What a package or SDK ships from its `src/`, any file type, its tests aside. */

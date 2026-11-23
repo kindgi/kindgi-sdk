@@ -26,6 +26,10 @@
  *                (`tutorials-overlay.mjs`)
  *   *.md         every page's Markdown, for coding agents, at the root and
  *                under every version: never indexed, UTF-8 (`/_headers`)
+ *   /downloads/  the newest release's WordPress plugin (`kindgi-latest.zip`
+ *                too), and every release's and the pre-release's Terraform
+ *                modules, read from their tags, each with its `.sha256`
+ *                (`downloads.mjs`)
  *
  * Only releases are public: readers install a release, so the site
  * describes what they have. What's merged but not released is checked in a
@@ -52,6 +56,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { writeDownloads } from './downloads.mjs';
 import {
   TUTORIALS,
   missingImports,
@@ -234,6 +239,15 @@ for (const build of builds) {
     }
   }
 }
+const downloads = writeDownloads(
+  repo,
+  [...releases, ...(next ? [next] : [])].map(({ tag, parsed }) => ({
+    tag,
+    version: parsed.version,
+  })),
+  join(out, 'downloads'),
+);
+console.log(`build-versions: /downloads/ has ${downloads.join(', ')}`);
 writeFileSync(join(out, 'versions.json'), `${JSON.stringify(menu(planned), null, 2)}\n`);
 writeFileSync(
   join(out, '_redirects'),

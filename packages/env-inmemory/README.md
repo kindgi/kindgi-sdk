@@ -1,6 +1,6 @@
 # `@kindgi/env-inmemory`
 
-Reference in-memory implementation of the `EnvBinding` contract from [`@kindgi/api`](../api/): the store for non-sensitive, per-environment configuration values keyed by `(scope, envName, name)`. Use it in tests and local development. It refuses to start under `NODE_ENV=production`; deployed environments use a durable `EnvBinding` implemented by the Kindgi runtime.
+Reference in-memory implementation of the `EnvBinding` contract from [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/): the store for non-sensitive, per-environment configuration values keyed by `(scope, envName, name)`. Use it in tests and local development. It refuses to start under `NODE_ENV=production`; deployed environments use a durable `EnvBinding` implemented by the Kindgi runtime.
 
 ## Purpose
 
@@ -71,7 +71,7 @@ const events = await audit.query({ tenantId }); // env-set, env-resolved, env-se
 
 ## Related
 
-- [`@kindgi/api`](../api/) — the `EnvBinding` contract and `ResolveContext`.
-- [`@kindgi/platform`](../platform/) — the `Scope` union.
-- [`@kindgi/types`](../types/) — `EnvName` and the `makeEnvName` validator.
-- [`@kindgi/audit-events-inmemory`](../audit-events-inmemory/) — in-memory `AuditEventBinding` for the emitted events.
+- [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) — the `EnvBinding` contract and `ResolveContext`.
+- [`@kindgi/platform`](https://docs.kindgi.com/reference/packages/platform/) — the `Scope` union.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — `EnvName` and the `makeEnvName` validator.
+- [`@kindgi/audit-events-inmemory`](https://docs.kindgi.com/reference/packages/audit-events-inmemory/) — in-memory `AuditEventBinding` for the emitted events.

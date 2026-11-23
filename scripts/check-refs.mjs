@@ -31,6 +31,8 @@
  *      it); a link on no line, or on a patch version's, stays failing.
  *      A program builds its links with `@kindgi/client`'s `docsUrl(path, version)`
  *      (the CLI passes its own version), which follows the release on its own.
+ *      A download (`https://docs.kindgi.com/downloads/…`) is on no line: the
+ *      site serves them at its root.
  *      Which files: scripts/lib/docs-line.mjs, shared with that script.
  *
  * A reference to `.claude/skills/<name>/SKILL.md` or
@@ -45,7 +47,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join, normalize } from 'node:path';
 
-import { DOCS_URL, docsLineOf, isShipped, isSkill } from './lib/docs-line.mjs';
+import { DOCS_URL, DOWNLOADS, docsLineOf, isShipped, isSkill } from './lib/docs-line.mjs';
 import { NAME_HIT, PUBLIC_TEXT_FILE, fileTextProblems, nameHits } from './text-scan.mjs';
 
 /** The files whose Markdown references must resolve. */
@@ -118,7 +120,7 @@ for (const file of tracked) {
   }
   if (skill || shipped) {
     for (const url of text.match(DOCS_URL) ?? []) {
-      if (!url.startsWith(docsLine))
+      if (!url.startsWith(docsLine) && !url.startsWith(DOWNLOADS))
         problems.push(
           skill
             ? `${file}: links ${url}; a skill links this release line's docs (${docsLine}…; node scripts/sync-docs-line.mjs moves a link on another line)`

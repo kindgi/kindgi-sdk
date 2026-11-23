@@ -32,7 +32,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 ## Install and connect
 
-1. **Install the plugin.** Download `kindgi-<version>.zip` from the Kindgi SDK [release](https://github.com/kindgi/kindgi-sdk/releases) of your runtime's version and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8); the `.sha256` file next to it checks the download (`sha256sum -c`). Or copy this folder to `wp-content/plugins/kindgi`. Then activate it. From a checkout, `node scripts/wordpress-plugin-zip.mjs <out dir>` builds the same zip.
+1. **Install the plugin.** Download [`kindgi-latest.zip`](https://docs.kindgi.com/downloads/kindgi-latest.zip), the newest release's plugin, and upload it under **Plugins → Add Plugin → Upload Plugin** (**Add New Plugin** before WordPress 6.8); its checksum, [`kindgi-latest.zip.sha256`](https://docs.kindgi.com/downloads/kindgi-latest.zip.sha256), checks the download (`sha256sum -c kindgi-latest.zip.sha256`). Or copy this directory to `wp-content/plugins/kindgi`. Then activate it. From a checkout, `node scripts/wordpress-plugin-zip.mjs <out dir>` builds the same zip.
 2. **Read this site's two addresses** under **Kindgi → Settings**: its origin, and its approvals URL (`…/wp-admin/admin.php?page=kindgi&approval={approvalId}`).
 3. **Register the site in Kindgi**, on the project its staff will use. A tenant admin does this (on Kindgi Cloud, with the CLI signed in there with an Admin key for every project it can reach):
 

@@ -334,7 +334,7 @@ test('every page, the generated reference included; a whole run needs it generat
     page('start/install');
     page('guides/tools/write-a-tool', 'mdx');
     page('reference/index');
-    page('contributing/repository');
+    page('security');
     writeFileSync(join(root, 'reference', 'openapi.json'), '{}');
     assert.deepEqual(missingGenerated(root), [
       'reference/cli',
@@ -352,12 +352,12 @@ test('every page, the generated reference included; a whole run needs it generat
         .map((path) => relative(root, path))
         .sort(),
       [
-        'contributing/repository',
         'guides/tools/write-a-tool',
         'reference/cli/runs',
         'reference/index',
         'reference/python/client',
         'reference/typescript/sdk/client/index',
+        'security',
         'start/install',
       ].map((slug) => (slug.startsWith('guides/') ? `${slug}.mdx` : `${slug}.md`)),
     );

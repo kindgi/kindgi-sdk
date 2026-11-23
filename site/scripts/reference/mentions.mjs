@@ -6,8 +6,8 @@
  * they name in code spans. The reference's examples and "see also" links
  * come from here, so they follow the guides as they change.
  *
- * Generated pages (everything under `reference/`) and the contributing
- * pages are left out: a reference entry links to the guides, not to itself.
+ * Generated pages (everything under `reference/`) are left out: a
+ * reference entry links to the guides, not to itself.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -34,7 +34,7 @@ export function handWrittenPages(docs) {
           .split(sep)
           .join('/')
           .replace(/\.mdx?$/, '');
-        if (slug.startsWith('reference/') || slug.startsWith('contributing/')) continue;
+        if (slug.startsWith('reference/')) continue;
         const text = readFileSync(path, 'utf8');
         const title = text.match(/^title:\s*(.+)$/m)?.[1].replace(/^['"]|['"]$/g, '') ?? slug;
         pages.push({ slug, title, text });

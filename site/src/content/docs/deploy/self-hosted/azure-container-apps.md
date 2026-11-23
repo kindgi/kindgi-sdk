@@ -104,9 +104,20 @@ Who calls whom:
 ## 1. The foundation
 
 This step creates everything the two apps need, before their images and
-secrets exist. The module is `deploy/azure-container-apps/` in the
-kindgi-sdk repository:
-copy the folder from the release you run. Its `README.md` lists every
+secrets exist. The module is a zip on the docs site, one for each
+release: `kindgi-azure-container-apps-<version>.zip`. Download the one for
+the release you run, check it, and work in the directory it unzips to. For
+this release:
+
+```sh
+curl -fLO https://docs.kindgi.com/downloads/kindgi-azure-container-apps-{{kindgi.version}}.zip
+curl -fLO https://docs.kindgi.com/downloads/kindgi-azure-container-apps-{{kindgi.version}}.zip.sha256
+sha256sum -c kindgi-azure-container-apps-{{kindgi.version}}.zip.sha256
+unzip kindgi-azure-container-apps-{{kindgi.version}}.zip
+cd kindgi-azure-container-apps-{{kindgi.version}}
+```
+
+The module's [README](../../../reference/terraform/azure-container-apps/) lists every
 variable.
 
 Terraform's state goes in a storage container of its own:
@@ -753,11 +764,11 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
 
 The module's `upgrade.sh` runs these steps for you: a deployment of the
 module on runtime 0.1.8 or later, in either network shape, can run it to
-0.2.0 or later. Use the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag
-of the release you're upgrading to: it knows the steps up to its own
-release. It first came with the `@kindgi/sdk@0.4.0` tag, so to keep the
+0.2.0 or later. Use the `upgrade.sh` in the module zip of the release you're
+upgrading to, `kindgi-azure-container-apps-<version>.zip`: it knows the
+steps up to its own release. Its first release is 0.4.0, so to keep the
 module at an earlier release, upgrade by hand. The module's README has
-what it checks and changes, under "Upgrading",
+what it checks and changes, under [Upgrading](../../../reference/terraform/azure-container-apps/#upgrading),
 and `./upgrade.sh --help` lists its options.
 
 Upgrade by hand instead if you'd rather: run these steps on a staging
@@ -820,7 +831,7 @@ identity that deploys the module. `<rg>` is the resource group, and
    Don't set it before the secret has that version: the server's new
    revision wouldn't start. A deployment whose `server_secret_env` sets
    `KINDGI_PAGINATION_KEY` itself is refused at plan. The module's README
-   has the steps that keep its key, under "Upgrading".
+   has the steps that keep its key, under [Upgrading](../../../reference/terraform/azure-container-apps/#upgrading).
 
    The plan holds your variables' values: `umask 077` keeps it readable by
    you alone, and you delete it once it's applied.

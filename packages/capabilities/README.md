@@ -14,7 +14,7 @@ Keep agent definitions independent of any one model vendor. Agents state require
   - **`Preference`** — `{ feature, weight }`; `feature` is a `Feature` or a provider attribute such as `'lower-cost'`. Weights add up per candidate and may be negative.
   - **`FEATURES`** / **`Feature`** — the closed feature set: `structured-output`, `vision`, `audio-input`, `audio-output`, `tool-use`, `parallel-tool-use`, `thinking`, `long-context`, `code-execution`, `web-search`, `file-search`, `streaming`, `batch`. `structured-output` means the model can follow a JSON schema natively (`ModelCallInput.structuredOutput`, where its adapter maps it); an agent's typed output doesn't use that yet, and on every provider is checked by parse and repair.
   - **`Budget`** — `maxCostUsd`, `maxTokens`, `maxDurationMs`.
-  - **`defineCapability(spec)`** — validates a declaration against the bundled `capability.schema.json` (the same file as in [`@kindgi/specs`](../specs/); its `$id` is exported as `CAPABILITY_SCHEMA_URI`) and returns `Result<Capability, InvalidCapabilityError>`. The schema accepts `needs`, `prefer` and `budget` with every requirement except `models`, so a declaration that sets `kind` or uses a `models` requirement is rejected here even though the type and the router accept it.
+  - **`defineCapability(spec)`** — validates a declaration against the bundled `capability.schema.json` (the same file as in [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/); its `$id` is exported as `CAPABILITY_SCHEMA_URI`) and returns `Result<Capability, InvalidCapabilityError>`. The schema accepts `needs`, `prefer` and `budget` with every requirement except `models`, so a declaration that sets `kind` or uses a `models` requirement is rejected here even though the type and the router accept it.
 - **Providers**
   - **`ModelProvider`** — `metadata` plus `invoke(input: ModelCallInput): Promise<ModelCallResult>`.
   - **`ProviderMetadata`** — `id`, `region` (`'unspecified'` if not region-scoped), `models`, and optional `attributes`, `description`, `capabilityKind`. One provider is one connection that can expose several models.
@@ -100,14 +100,14 @@ console.log(reply.message.content, reply.costUsd);
 
 ## Non-goals
 
-- **No vendor adapters.** Concrete `ModelProvider` implementations live in adapter packages such as those under [`packages/adapters`](../adapters/).
+- **No vendor adapters.** Concrete `ModelProvider` implementations live in adapter packages, such as the `@kindgi/adapter-*` ones in the [Packages reference](https://docs.kindgi.com/reference/packages/).
 - **No cost metering.** `Budget` and `BudgetExceededError` describe limits; nothing in this package tracks spend or enforces them.
 - **No retries or failover.** `route` returns ranked `alternates`; retrying with the next candidate is up to the caller.
 - **No persistence.** Both registries are in-memory. Implementations backed by storage plug in through `ProviderRegistry.hydrate` and `invalidate`.
 
 ## Related
 
-- [`@kindgi/agents`](../agents/) — routes an agent's capability declaration with `route` at the start of every turn.
-- [`@kindgi/specs`](../specs/) — `capability.schema.json`, the wire schema `defineCapability` validates against.
-- [`@kindgi/dev-echo-provider`](../dev-echo-provider/) — a `ModelProvider` for local development.
-- [`@kindgi/types`](../types/) — `TenantId` and `Result`.
+- [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) — routes an agent's capability declaration with `route` at the start of every turn.
+- [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/) — `capability.schema.json`, the wire schema `defineCapability` validates against.
+- [`@kindgi/dev-echo-provider`](https://docs.kindgi.com/reference/packages/dev-echo-provider/) — a `ModelProvider` for local development.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — `TenantId` and `Result`.

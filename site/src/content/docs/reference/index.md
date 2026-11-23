@@ -32,9 +32,10 @@ schemas), so they match the release they document.
 - **[Python](python/):** the `kindgi` package: authoring (`kindgi`), the API
   client (`kindgi.client`) with every `client.<resource>` and the API's
   models, `kindgi.webhooks`, and `python -m kindgi.pack`.
-- **Java and Scala (preview):** the README of `com.kindgi:kindgi-client`,
-  the API client for Java and Scala apps, and `kindgi-pack`'s, for packs.
-  See also [Call Kindgi from a Java app](../start/java-app/).
+- **Java and Scala (preview):** [`com.kindgi:kindgi-client`](java/), the
+  API client for Java and Scala apps; [`kindgi-pack`](java/kindgi-pack/), for
+  packs in Java; and [`kindgi-pack-scala`](scala/), for packs in Scala. See
+  also [Call Kindgi from a Java app](../start/java-app/).
 - **[CLI](cli/):** every `kindgi` command, its flags and its subcommands.
 - **[Environment variables](env-vars/):** every `KINDGI_*` variable the
   runtime and the pack service read.
@@ -45,3 +46,7 @@ schemas), so they match the release they document.
   and how to use it.
 - **[JSON Schemas](schemas/):** the documents Kindgi reads and writes (the
   pack index, the pack protocol, flows, tools, events, …), field by field.
+- **Terraform modules:** [Google Cloud Run](terraform/gcp-cloud-run/) and
+  [Azure Container Apps](terraform/azure-container-apps/), each one's
+  variables and steps. Each release's module is a download (see
+  [Deploy on Google Cloud Run](../deploy/self-hosted/cloud-run/)).

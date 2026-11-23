@@ -144,10 +144,10 @@ test("_redirects: the next line's pre-release gets its own 302", () => {
   );
 });
 
-test('_headers: every Markdown page is noindex, and the Markdown and text files say UTF-8', () => {
+test('_headers: every Markdown page is noindex, and the Markdown, text and checksum files say UTF-8', () => {
   assert.equal(
     headers(),
-    '/*.md\n  Content-Type: text/markdown; charset=utf-8\n  X-Robots-Tag: noindex\n/*.txt\n  Content-Type: text/plain; charset=utf-8\n',
+    '/*.md\n  Content-Type: text/markdown; charset=utf-8\n  X-Robots-Tag: noindex\n/*.txt\n  Content-Type: text/plain; charset=utf-8\n/downloads/*.sha256\n  Content-Type: text/plain; charset=utf-8\n',
   );
   // Matched as Cloudflare documents a splat: greedily, any characters, slashes too.
   const literal = (part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -155,7 +155,7 @@ test('_headers: every Markdown page is noindex, and the Markdown and text files 
     .split('\n')
     .filter((line) => line.startsWith('/'))
     .map((pattern) => new RegExp(`^${pattern.split('*').map(literal).join('.*')}$`));
-  const [markdown, text] = rules;
+  const [markdown, text, checksum] = rules;
   for (const path of [
     '/index.md',
     '/start/install.md',
@@ -176,7 +176,19 @@ test('_headers: every Markdown page is noindex, and the Markdown and text files 
     assert.ok(text.test(path), path);
     assert.ok(!markdown.test(path), path);
   }
-  for (const path of ['/start/install/', '/v0.1.7/', '/versions.json']) {
+  for (const path of [
+    '/downloads/kindgi-latest.zip.sha256',
+    '/downloads/kindgi-gcp-cloud-run-0.8.1.zip.sha256',
+  ]) {
+    assert.ok(checksum.test(path), path);
+    assert.ok(!markdown.test(path) && !text.test(path), path);
+  }
+  for (const path of [
+    '/start/install/',
+    '/v0.1.7/',
+    '/versions.json',
+    '/downloads/kindgi-latest.zip',
+  ]) {
     assert.ok(!rules.some((rule) => rule.test(path)), path);
   }
 });

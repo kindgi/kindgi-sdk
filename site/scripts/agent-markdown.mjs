@@ -81,7 +81,7 @@ export const REFERENCES = [
   { path: 'reference/api/', label: 'HTTP API' },
   { path: 'reference/typescript/', label: 'TypeScript SDK' },
   { path: 'reference/packages/', label: 'Packages' },
-  { path: 'contributing/', label: 'Contributing to the SDK' },
+  { path: 'reference/terraform/', label: 'Terraform modules' },
 ];
 
 const ASIDE_TYPES = { note: 'Note', tip: 'Tip', caution: 'Caution', danger: 'Danger' };

@@ -35,7 +35,7 @@ Record what went into a run's output (inputs, prompts, retrievals, model calls, 
   - **`signProvenance(provenance, keyProvider)`** — signs with `keyProvider.signingKey(tenantId)` and returns the record with the signature attached, replacing any earlier signature. Fails with `signing-not-supported` when the key has no private part.
   - **`verifyProvenance(provenance, keyProvider)`** — looks the key up by the signature's `keyId` rather than by workspace, so records signed with an older key still verify while the provider knows that key.
   - **`verifyExported(provenance, base64PublicKey)`** — verifies against a public key alone, with no `KeyProvider`.
-  - **`signingBytes(provenance)`** — the bytes that are signed: every field except `signature`, serialized with `canonicalize` from [`@kindgi/schema`](../schema/) (sorted keys, `undefined` omitted). Changing this projection invalidates existing signatures.
+  - **`signingBytes(provenance)`** — the bytes that are signed: every field except `signature`, serialized with `canonicalize` from [`@kindgi/schema`](https://docs.kindgi.com/reference/packages/schema/) (sorted keys, `undefined` omitted). Changing this projection invalidates existing signatures.
 - **Export** — **`exportProvenance(provenance)`** returns the full record, signature included, as a canonical JSON string; **`importProvenance(json)`** parses it back (a `JSON.parse` wrapper with no validation).
 - **Persistence** — **`ProvenanceEmitBinding`**, implemented by a runtime adapter: `emit(provenance): Promise<Result<void, PersistenceError>>`, idempotent on `(tenantId, id)`.
 - **Payload envelope** — **`wrap`**, **`unwrap`**, **`unwrapOrThrow`**, **`CURRENT_PROVENANCE_PAYLOAD_VERSION`**, the **`EnvelopeThrown`** error class, and **`EnvelopeError`** (`UnsupportedPayloadVersionError`, `MalformedEnvelopeError`): a `{ v, doc }` version envelope for stored JSON payloads.
@@ -104,7 +104,7 @@ console.log(verifyExported(tampered, key.publicKey).kind); // 'err'
 
 ## Related
 
-- [`@kindgi/agents`](../agents/) — builds, signs, and emits a provenance record for each agent turn when its provenance bindings are set.
-- [`@kindgi/schema`](../schema/) — `canonicalize`, the serialization that `signingBytes` and `exportProvenance` use.
-- [`@kindgi/specs`](../specs/) — `provenance.schema.json`, the wire schema this package's node and edge kinds match.
-- [`@kindgi/types`](../types/) — branded ids (`ProvenanceId`, `RunId`, `TenantId`), `Timestamp`, and `Result`.
+- [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) — builds, signs, and emits a provenance record for each agent turn when its provenance bindings are set.
+- [`@kindgi/schema`](https://docs.kindgi.com/reference/packages/schema/) — `canonicalize`, the serialization that `signingBytes` and `exportProvenance` use.
+- [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/) — `provenance.schema.json`, the wire schema this package's node and edge kinds match.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — branded ids (`ProvenanceId`, `RunId`, `TenantId`), `Timestamp`, and `Result`.

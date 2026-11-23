@@ -1,6 +1,6 @@
 # `@kindgi/embedding`
 
-Embedding provider interface and an in-memory provider registry for Kindgi. An embedding provider turns text into a fixed-length vector; adapters implement `EmbeddingProvider`, a deployment registers them once at boot, and consumers such as semantic search in [`@kindgi/memory`](../memory/) and agent retrieval in [`@kindgi/agents`](../agents/) take the registry and resolve a provider from it instead of receiving one per call.
+Embedding provider interface and an in-memory provider registry for Kindgi. An embedding provider turns text into a fixed-length vector; adapters implement `EmbeddingProvider`, a deployment registers them once at boot, and consumers such as semantic search in [`@kindgi/memory`](https://docs.kindgi.com/reference/packages/memory/) and agent retrieval in [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) take the registry and resolve a provider from it instead of receiving one per call.
 
 ## Purpose
 
@@ -64,10 +64,10 @@ console.log(vector.length === resolved.value.dimensions()); // true
 - **No bundled provider.** Semantic embedding is opt-in; register an adapter at boot. The Kindgi runtime offers a self-hosted local-model provider.
 - **No replacement or re-dimensioning in place.** To change a model's dimensions, register it under a new `model` and migrate existing vectors separately.
 - **No per-workspace model policy.** The registry is process-global; which model a workspace may use is a separate concern.
-- **No vector storage or similarity search.** Storing and querying vectors belongs to the consuming layer, such as [`@kindgi/memory`](../memory/).
+- **No vector storage or similarity search.** Storing and querying vectors belongs to the consuming layer, such as [`@kindgi/memory`](https://docs.kindgi.com/reference/packages/memory/).
 
 ## Related
 
-- [`@kindgi/memory`](../memory/) — `searchBySemantic` takes an `EmbeddingProviderRegistry` and an optional `embeddingModel`.
-- [`@kindgi/agents`](../agents/) — `runRetrievals` takes the registry (`RetrievalBindings.embeddingRegistry`) for semantic retrieval intents.
-- [`@kindgi/types`](../types/) — `Result`.
+- [`@kindgi/memory`](https://docs.kindgi.com/reference/packages/memory/) — `searchBySemantic` takes an `EmbeddingProviderRegistry` and an optional `embeddingModel`.
+- [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) — `runRetrievals` takes the registry (`RetrievalBindings.embeddingRegistry`) for semantic retrieval intents.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — `Result`.
