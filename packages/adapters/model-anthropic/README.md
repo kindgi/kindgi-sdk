@@ -1,6 +1,6 @@
 # `@kindgi/adapter-model-anthropic`
 
-Anthropic `ModelProvider` for [`@kindgi/capabilities`](../../capabilities/). Wraps the official `@anthropic-ai/sdk` client behind the framework's provider-neutral interface and calls the Anthropic Messages API. One provider exposes every model listed in its `metadata.models[]`; `ModelCallInput.model` picks the model per call.
+Anthropic `ModelProvider` for [`@kindgi/capabilities`](https://docs.kindgi.com/reference/packages/capabilities/). Wraps the official `@anthropic-ai/sdk` client behind the framework's provider-neutral interface and calls the Anthropic Messages API. One provider exposes every model listed in its `metadata.models[]`; `ModelCallInput.model` picks the model per call.
 
 ## Purpose
 
@@ -93,6 +93,6 @@ A single-key deployment passes `apiKey: process.env.ANTHROPIC_API_KEY` (checked 
 
 ## Related
 
-- [`@kindgi/capabilities`](../../capabilities/) — `ModelProvider`, `ProviderMetadata`, and the provider registry.
-- [`@kindgi/adapter-model-openai-compat`](../model-openai-compat/) — the same interface for OpenAI-compatible endpoints.
-- [`@kindgi/adapter-model-in-process`](../model-in-process/) — local models inside the Node.js process.
+- [`@kindgi/capabilities`](https://docs.kindgi.com/reference/packages/capabilities/) — `ModelProvider`, `ProviderMetadata`, and the provider registry.
+- [`@kindgi/adapter-model-openai-compat`](https://docs.kindgi.com/reference/packages/adapter-model-openai-compat/) — the same interface for OpenAI-compatible endpoints.
+- [`@kindgi/adapter-model-in-process`](https://docs.kindgi.com/reference/packages/adapter-model-in-process/) — local models inside the Node.js process.

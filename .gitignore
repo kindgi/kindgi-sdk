@@ -86,8 +86,9 @@ site/src/content/docs/reference/schemas/
 site/src/content/docs/reference/packages/
 site/src/content/docs/reference/typescript/
 site/src/content/docs/reference/python/
-site/src/content/docs/contributing/*
-!site/src/content/docs/contributing/index.md
+site/src/content/docs/reference/java/
+site/src/content/docs/reference/scala/
+site/src/content/docs/reference/terraform/
 site/generated/
 site/dist-versions/
 site/dist-preview/

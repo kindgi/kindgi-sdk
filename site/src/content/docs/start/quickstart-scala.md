@@ -279,5 +279,5 @@ declare it in `kindgi.config.json` (`"providers": [{"preset": "<preset>"}]`):
   your app's own classes as tools.
 - [Guides](../../guides/): one task at a time.
 - [Concepts](../../concepts/): packs, runs and the journal, security.
-- kindgi-pack-scala's README:
+- [kindgi-pack-scala's reference](../../reference/scala/):
   schemas from Scala's types, guardrails, flows, futures and the limits.

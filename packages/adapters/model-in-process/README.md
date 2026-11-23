@@ -1,6 +1,6 @@
 # `@kindgi/adapter-model-in-process`
 
-In-process `ModelProvider` for [`@kindgi/capabilities`](../../capabilities/). Runs small instruction-tuned models inside the Node.js process through `@huggingface/transformers` (ONNX runtime): no API key, no external process, no network once the weights are cached, and zero USD cost. Intended as the cheapest routing tier — classification, extraction, routing, smoke tests — not as a replacement for hosted models on reasoning tasks.
+In-process `ModelProvider` for [`@kindgi/capabilities`](https://docs.kindgi.com/reference/packages/capabilities/). Runs small instruction-tuned models inside the Node.js process through `@huggingface/transformers` (ONNX runtime): no API key, no external process, no network once the weights are cached, and zero USD cost. Intended as the cheapest routing tier — classification, extraction, routing, smoke tests — not as a replacement for hosted models on reasoning tasks.
 
 ## Purpose
 
@@ -71,6 +71,6 @@ console.log(result.message.content, result.usage); // costUsd is always 0
 
 ## Related
 
-- [`@kindgi/capabilities`](../../capabilities/) — `ModelProvider`, the provider registry, and `AdapterFactoryEntry`.
-- [`@kindgi/adapter-model-openai-compat`](../model-openai-compat/) — for local runners that expose an OpenAI-compatible HTTP endpoint instead.
-- [`@kindgi/dev-echo-provider`](../../dev-echo-provider/) — deterministic scripted provider for tests.
+- [`@kindgi/capabilities`](https://docs.kindgi.com/reference/packages/capabilities/) — `ModelProvider`, the provider registry, and `AdapterFactoryEntry`.
+- [`@kindgi/adapter-model-openai-compat`](https://docs.kindgi.com/reference/packages/adapter-model-openai-compat/) — for local runners that expose an OpenAI-compatible HTTP endpoint instead.
+- [`@kindgi/dev-echo-provider`](https://docs.kindgi.com/reference/packages/dev-echo-provider/) — deterministic scripted provider for tests.

@@ -1,6 +1,6 @@
 # `@kindgi/blob-binding`
 
-Storage contract for Kindgi artifacts (blobs). `BlobStorageBinding` is the interface a storage adapter implements and [`@kindgi/api`](../api/) consumes through its `blobStorage` input; it backs both the `/v1/artifacts/*` surface and the S3-compatible `/s3/*` surface. This package contains types only and has no runtime code.
+Storage contract for Kindgi artifacts (blobs). `BlobStorageBinding` is the interface a storage adapter implements and [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) consumes through its `blobStorage` input; it backs both the `/v1/artifacts/*` surface and the S3-compatible `/s3/*` surface. This package contains types only and has no runtime code.
 
 ## Purpose
 
@@ -22,7 +22,7 @@ Contract rules adapters follow:
 - **Inputs**
   - **`BlobPutInput`** — `name`, `contentType`, `bytes` (`ReadableStream<Uint8Array>` or `Uint8Array`), `size?`, `tags?`, `ownerRunId?`, `expectedHash?`, `forRun?` (an upload for a run that hasn't started, deleted if no run that names it starts in time).
   - **`MultipartInitiateInput`** — `contentType`, `tags?`, `ownerRunId?`.
-  - **`BlobFilter`** — `ownerRunId`, `contentType`, `tags` (all must match), `scope` (a `Scope` from [`@kindgi/platform`](../platform/)), and `inherit` (no effect here: blobs always live at project level).
+  - **`BlobFilter`** — `ownerRunId`, `contentType`, `tags` (all must match), `scope` (a `Scope` from [`@kindgi/platform`](https://docs.kindgi.com/reference/packages/platform/)), and `inherit` (no effect here: blobs always live at project level).
 - **Results** — **`BlobMeta`** (`blobId`, `tenantId`, `name`, `contentType`, `size`, `hash`, `tags`, `ownerRunId?`, `createdAt`, `expiresAt?` (when a `forRun` upload is deleted unless such a run has started), `bucket?`, `key?`, `fileId?` and `version?` for a blob that is a file's version), **`BlobRead`** (`meta` + `stream`), **`BlobListPage`** (`data`, `nextCursor?`), **`BlobDeleteOutcome`** (`deleted`), **`S3ListPage`** (`contents`, `isTruncated`, `nextContinuationToken?`), **`MultipartListPartsPage`** (`parts` with `partNumber`, `etag`, `size`, `lastModified`).
 - **`BlobError`** — union discriminated by `code`: `blob-not-found` (`blobId`), `blob-hash-mismatch` (`expected`, `actual`), `blob-size-mismatch` (`declared`, `actual`), `blob-storage-error` (`cause?`), `artifact-in-file` (`blobId`, `fileId`: deleting bytes a file still needs), `storage-limit-reached` (`limit: 'storage'`, `storageMiB`, `usedBytes`, `neededBytes`: the tenant's storage limit has no room for the put, and nothing was stored).
 
@@ -77,6 +77,6 @@ async function storeReport(
 
 ## Related
 
-- [`@kindgi/api`](../api/) — mounts `/v1/artifacts/*` over a `BlobStorageBinding`, and `/s3/*` when an S3 credential binding is also supplied.
-- [`@kindgi/platform`](../platform/) — `Scope`.
-- [`@kindgi/types`](../types/) — `ArtifactId`, `Cursor`, `FileId`, `ProjectId`, `RunId`, `TenantId`, `Timestamp`, `Result`.
+- [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) — mounts `/v1/artifacts/*` over a `BlobStorageBinding`, and `/s3/*` when an S3 credential binding is also supplied.
+- [`@kindgi/platform`](https://docs.kindgi.com/reference/packages/platform/) — `Scope`.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — `ArtifactId`, `Cursor`, `FileId`, `ProjectId`, `RunId`, `TenantId`, `Timestamp`, `Result`.

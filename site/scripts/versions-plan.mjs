@@ -121,7 +121,9 @@ export function redirects({ lines, next }) {
  * splat in the URL", and the page's own example matches `/*.jpg`. So
  * `/*.md` matches `/index.md` and `/v0.1.7/start/install.md` alike, and
  * `/*.txt` every `llms*.txt` file and `_llms-txt/`'s, at the root and under
- * every version: two rules, well within the file's limit of 100.
+ * every version. `/downloads/*.sha256`, a download's checksum
+ * (`downloads.mjs`), is text a browser shows, not a file it saves: three
+ * rules, well within the file's limit of 100.
  */
 export function headers() {
   return [
@@ -129,6 +131,8 @@ export function headers() {
     '  Content-Type: text/markdown; charset=utf-8',
     '  X-Robots-Tag: noindex',
     '/*.txt',
+    '  Content-Type: text/plain; charset=utf-8',
+    '/downloads/*.sha256',
     '  Content-Type: text/plain; charset=utf-8',
     '',
   ].join('\n');

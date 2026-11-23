@@ -17,7 +17,6 @@ pnpm run docs:build   # what CI runs: the build, its link check, search
 | Guides | `guides/` | does one task, assuming the basics |
 | Concepts | `concepts/` | explains how something works and why |
 | Reference | `reference/` | lists everything, generated from the sources where one exists |
-| Contributing | `contributing/` | is for people changing this repository |
 
 ## Rules
 

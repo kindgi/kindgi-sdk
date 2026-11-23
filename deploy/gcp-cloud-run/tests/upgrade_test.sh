@@ -453,7 +453,7 @@ if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a plan
 # From 0.4.0 to a server fix of it: the module stays the release's, so the
 # go-back plans with it. (A run from before 0.4.0 has a go-back of its own.)
 # The module here is 0.7.0's: the note that it goes ahead is the one line
-# that names an SDK tag.
+# that names a module zip.
 case_start "apply fails"
 reset_env; export STUB_TAGS="0.4.0" STUB_APPLY_RC=1
 run "yes" --to 0.4.0.1
@@ -463,7 +463,7 @@ assert_file_has "$OUT" "npx --yes @kindgi/cli@0.4 memory erasures export --out=e
 assert_out "import sql"
 assert_file_has "$OUT" "npx --yes @kindgi/cli@0.4 memory erasures replay erasures-" "the replay runs 0.4.0's CLI line"
 assert_out "the module here is this copy's, as of 0.7.0"
-if grep -v -F "the module here is this copy's" "$OUT" | grep -q -e "@kindgi/sdk@" -e "pack-service-token"; then fail "a go-back with no switch names an older module or the pack token"; else pass; fi
+if grep -v -F "the module here is this copy's" "$OUT" | grep -q -e "module zip" -e "kindgi-gcp-cloud-run-[0-9][^ ]*\.zip" -e "pack-service-token"; then fail "a go-back with no switch names an older module or the pack token"; else pass; fi
 if grep -qF "pre-release" "$OUT"; then fail "a final's go-back has the pre-release note"; else pass; fi
 assert_out "cp $VAR_FILE.pre-upgrade-"
 if grep -qxF "      (umask 077 && terraform plan -var-file=$VAR_FILE -out=back.tfplan)" "$OUT"; then pass; else fail "the go-back doesn't plan with the var-file alone"; fi
@@ -726,7 +726,7 @@ reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.8.0
 assert_rc 1 "a later target refused"
 assert_out "knows the steps up to 0.7.0"
-assert_out "as of the @kindgi/sdk@0.8.0 tag"
+assert_out "Use the upgrade.sh in 0.8.0's module zip"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_absent "$STUB_MARKER_EXPORT" "backup"
@@ -738,7 +738,7 @@ reset_env; export STUB_TAGS="0.1.9"
 run "yes" --to 0.8.0-rc.1
 assert_rc 1 "a later rc refused"
 assert_out "knows the steps up to 0.7.0"
-assert_out "as of the @kindgi/sdk@0.8.0 tag or, before that release is out, its newest @kindgi/sdk@0.8.0-rc.N tag."
+assert_out "Use the upgrade.sh in 0.8.0's module zip or, before that release is out, in its newest release candidate's (0.8.0-rc.N)."
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
 # 26. 0.1.10 -> 0.4.0: crosses 0.2.0 and on, copies 0.4.0 from
@@ -786,7 +786,7 @@ reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.1.10
 assert_rc 1 "0.1.10 target refused"
 assert_out "has 0.2.0 and later"
-assert_out "as of the @kindgi/sdk@0.1.10 tag"
+assert_out "use the upgrade.sh in kindgi-gcp-cloud-run-0.1.10.zip"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
@@ -980,13 +980,13 @@ assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_varfile_unchanged
 
 # 42. A server fix of a release past the newest this script knows: the refusal
-# names its release's SDK tag, since a server-only release has none.
+# names its release's module zip, since a server-only release has none.
 case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.4.0"
 run "yes" --to 0.8.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.7.0. 0.8.0.1 is a server fix for 0.8.0, which comes out after its final: use this script as of the @kindgi/sdk@0.8.0 tag."
-if grep -q "@kindgi/sdk@0.8.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_out "knows the steps up to 0.7.0. 0.8.0.1 is a server fix for 0.8.0, which comes out after its final: use the upgrade.sh in 0.8.0's module zip."
+if grep -qF "0.8.0.1's module zip" "$OUT"; then fail "the refusal names a module zip a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 assert_varfile_unchanged
@@ -1416,14 +1416,14 @@ assert_varfile_unchanged
 
 # 49. The module here is 0.4.0's, whose plan needs the 0.4.0 runtime: a --to
 # below 0.4.0, a release or a server fix, is refused before anything is
-# called, naming the tag whose script keeps the module at that release.
+# called, naming the module zip whose script keeps the module at that release.
 for pair in "0.3.1 0.3.1" "0.2.0.1 0.2.0"; do
   read -r to tag <<<"$pair"
   case_start "--to $to, below the module's runtime"
   reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
   run "yes" --to "$to"
   assert_rc 1 "--to $to refused"
-  assert_file_has "$OUT" "--to $to: the module here is 0.4.0's, which needs the 0.4.0 runtime or later. Use this script as of the @kindgi/sdk@$tag tag or, before that release is out, its newest @kindgi/sdk@$tag-rc.N tag." "the refusal and its tag"
+  assert_file_has "$OUT" "--to $to: the module here is 0.4.0's, which needs the 0.4.0 runtime or later. Use the upgrade.sh in $tag's module zip or, before that release is out, in its newest release candidate's ($tag-rc.N)." "the refusal and its module zip"
   assert_absent "$STUB_CALLS_LOG" "a call"
   assert_varfile_unchanged
 done
@@ -2112,8 +2112,8 @@ case_start "the way back from a switch, secrets none, the one pack service"
 reset_env "$OLD_PACK"; export STUB_TAGS="0.3.1" STUB_APPLY_RC=1; V_SECRETS="none"; V_AAD=""
 run "yes"
 assert_rc 1 "the apply fails"
-assert_file_has "$OUT" "    a. In this directory, put the module's .tf files as of the" "a. the module"
-assert_file_has "$OUT" "       @kindgi/sdk@0.3.1 tag (deploy/gcp-cloud-run) in place of these." "the release it came from"
+assert_file_has "$OUT" "    a. In this directory, put the module's .tf files from" "a. the module"
+assert_file_has "$OUT" "       kindgi-gcp-cloud-run-0.3.1.zip in place of these." "the release it came from"
 assert_file_has "$OUT" "    b. Put the var-file back:" "b. the var file"
 assert_file_has "$OUT" "    c. Take the KMS key 0.4.0's module made out of the state" "c. the KMS key"
 assert_file_has "$OUT" "         terraform state rm google_kms_crypto_key_iam_member.server_wraps google_kms_crypto_key_iam_member.server_reads_key google_kms_crypto_key.secrets google_kms_key_ring.kindgi" "the state rm"
@@ -2130,7 +2130,7 @@ case_start "the way back from a switch, postgres, multi"
 reset_env; export STUB_TAGS="0.3.1" STUB_APPLY_RC=1; V_TENANCY="multi"
 run "yes"
 assert_rc 1 "the apply fails"
-assert_file_has "$OUT" "    a. In this directory, put the module's .tf files as of the" "a. the module"
+assert_file_has "$OUT" "    a. In this directory, put the module's .tf files from" "a. the module"
 assert_file_has "$OUT" "    b. Put the var-file back:" "b. the var file"
 assert_file_has "$OUT" "       Then give server_env back the KINDGI_PACK_ROUTING (\"per-deployment\")" "the routing given back"
 assert_file_has "$OUT" "    c. Plan:" "c. the plan"

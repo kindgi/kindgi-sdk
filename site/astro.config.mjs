@@ -248,6 +248,16 @@ export default defineConfig({
               items: [{ autogenerate: { directory: 'reference/python' } }],
             },
             {
+              label: 'Java',
+              collapsed: true,
+              items: [{ autogenerate: { directory: 'reference/java' } }],
+            },
+            {
+              label: 'Scala',
+              collapsed: true,
+              items: [{ autogenerate: { directory: 'reference/scala' } }],
+            },
+            {
               label: 'CLI',
               collapsed: true,
               items: [{ autogenerate: { directory: 'reference/cli' } }],
@@ -264,9 +274,14 @@ export default defineConfig({
               collapsed: true,
               items: [{ autogenerate: { directory: 'reference/schemas' } }],
             },
+            {
+              label: 'Terraform modules',
+              collapsed: true,
+              items: [{ autogenerate: { directory: 'reference/terraform' } }],
+            },
           ],
         },
-        { label: 'Contributing', items: [{ autogenerate: { directory: 'contributing' } }] },
+        { label: 'Report a security issue', link: '/security/' },
       ],
     }),
   ],

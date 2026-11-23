@@ -113,8 +113,19 @@ the first apply creates everything else: the APIs, the network, the service
 accounts, the repository, the KMS key, Cloud SQL and the secrets'
 containers.
 
-The module is `deploy/gcp-cloud-run/` in the kindgi-sdk repository:
-copy the folder from the release you run. Its `README.md` lists every
+The module is a zip on the docs site, one for each release:
+`kindgi-gcp-cloud-run-<version>.zip`. Download the one for the release you
+run, check it, and work in the directory it unzips to. For this release:
+
+```sh
+curl -fLO https://docs.kindgi.com/downloads/kindgi-gcp-cloud-run-{{kindgi.version}}.zip
+curl -fLO https://docs.kindgi.com/downloads/kindgi-gcp-cloud-run-{{kindgi.version}}.zip.sha256
+sha256sum -c kindgi-gcp-cloud-run-{{kindgi.version}}.zip.sha256
+unzip kindgi-gcp-cloud-run-{{kindgi.version}}.zip
+cd kindgi-gcp-cloud-run-{{kindgi.version}}
+```
+
+The module's [README](../../../reference/terraform/gcp-cloud-run/) lists every
 variable. `example.tfvars` is the shape on this page, with a new VPC.
 `example-connector.tfvars` runs in a VPC you already have, through a
 Serverless VPC Access connector.
@@ -1150,7 +1161,7 @@ The server uses a renewed key when Cloud Run next starts an instance: a new
 revision, or a new instance as it scales. A running instance keeps the key
 it started with, and never stops over its key. To stop renewing, unset
 `license_renewal_schedule`, or stop the renewer at access.kindgi.com. The
-module's README has the steps, the usage key's mint among them.
+module's [README](../../../reference/terraform/gcp-cloud-run/#8-renew-the-license-key) has the steps, the usage key's mint among them.
 
 ## Use Gemini
 
@@ -1292,7 +1303,7 @@ to, so set it to the deployment's before any `gcloud` command for it
   secret has that version: the server's new revision wouldn't start. A
   deployment whose `server_secret_env` sets `KINDGI_PAGINATION_KEY` itself
   is refused at plan. The module's README has the steps that keep its key,
-  under "Upgrading". From
+  under [Upgrading](../../../reference/terraform/gcp-cloud-run/#upgrading). From
   a module copy that set only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
   is on (the default). From a module copy that doesn't turn on Cloud
@@ -1305,9 +1316,9 @@ to, so set it to the deployment's before any `gcloud` command for it
   a replace deletes the database.
 - **Or upgrade with the module's `upgrade.sh`:** a deployment of the
   module on runtime 0.1.8 or later, in any `network_mode`, can run it
-  instead, to 0.4.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
-  `network_mode = "none"` only. It copies the new image from
-  `registry.kindgi.com`, so [log in there](../pull-the-runtime-image/)
+  instead, to 0.4.0 or later. With `network_mode` `direct` or `connector`,
+  it needs the `upgrade.sh` of 0.3.0 or later: an older one takes `"none"`
+  only. It copies the new image from `registry.kindgi.com`, so [log in there](../pull-the-runtime-image/)
   first. It runs the upgrade checks against the database, then backs the
   database up, and changes the running deployment only when you type
   `yes`. Before it asks, it checks the plan: it stops if the plan replaces
@@ -1323,19 +1334,19 @@ to, so set it to the deployment's before any `gcloud` command for it
   run would make, in order, and shows Terraform's plan for the new image,
   but changes nothing and never asks for `yes`. It doesn't run the upgrade
   checks against the database, since they run as jobs in your project. Use
-  the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
-  you're upgrading to, or, before that release is out, its newest
-  `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
-  and refuses a later `--to`. The module needs runtime 0.4.0 or later, so
-  its `upgrade.sh` refuses a `--to` below that, and names the tag whose
-  script goes there. With an earlier `--to` it takes, it still plans its own
+  the `upgrade.sh` in the module zip of the release you're upgrading to,
+  `kindgi-gcp-cloud-run-<version>.zip`, or, before that release is out, in
+  its newest release candidate's, `kindgi-gcp-cloud-run-<version>-rc.<n>.zip`:
+  it knows the steps up to its own release, and refuses a later `--to`. The
+  module needs runtime 0.4.0 or later, so its `upgrade.sh` refuses a `--to`
+  below that, and names the release whose script goes there. With an earlier `--to` it takes, it still plans its own
   module, whose changes past the target's release it lists and allows, and
   it says so. With the one pack service, it makes the switch to a service
   per deployment, and prints the steps that finish it after the apply
   ([From the one pack service](#from-the-one-pack-service)). A server-only release, such as 0.2.0.1, is a
-  server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
-  `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
-  module's README has the rest, under "Upgrading",
+  server fix for 0.2.0 with no module zip of its own: use the `upgrade.sh`
+  in `kindgi-gcp-cloud-run-0.2.0.zip`, with `--to 0.2.0.1`. The
+  module's README has the rest, under [Upgrading](../../../reference/terraform/gcp-cloud-run/#upgrading),
   and `./upgrade.sh --help` lists its options.
 - **Backups:** Cloud SQL backs the database up daily, with point-in-time
   recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
@@ -1367,8 +1378,8 @@ to, so set it to the deployment's before any `gcloud` command for it
   holding the server's URL to it. The module's own instance stays as it is,
   and doesn't get the erasures made later: empty it once the new one is
   checked ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
-  The module's README has the steps, under "Serving from a
-  restored instance":
+  The module's README has the steps, under [Serving from a
+  restored instance](../../../reference/terraform/gcp-cloud-run/#serving-from-a-restored-instance):
   - the new instance's deletion protection, which the module doesn't manage
     there: turn it on before it serves;
   - the new instance's URL, and the server's read access to it;
@@ -1489,7 +1500,7 @@ to, so set it to the deployment's before any `gcloud` command for it
 
 `upgrade.sh` runs these steps for you. Upgrade by hand instead if you'd
 rather, or with `network_mode` `direct` or `connector` and an `upgrade.sh`
-from before the `@kindgi/sdk@0.3.0` tag, which takes `"none"` only. Upgrade
+older than 0.3.0's, which takes `"none"` only. Upgrade
 staging first ([Staging and production](#staging-and-production)). Run the
 steps in the
 module's folder, as the identity that deploys the module, with `gcloud` set
@@ -1756,8 +1767,8 @@ After the apply:
    and its secrets.
 
 **To go back** after the switch, put the earlier module back before step 2
-of going back, above: its `.tf` files as of the `@kindgi/sdk@<version>` tag
-of the release the deployment ran, in place of this module's (keep
+of going back, above: the `.tf` files in the module zip of the release
+the deployment ran, in place of this module's (keep
 `.terraform/`, the state and your var files), and the var file you kept.
 Then, by the deployment's shape:
 

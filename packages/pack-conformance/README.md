@@ -1,18 +1,18 @@
 # `@kindgi/pack-conformance`
 
 The conformance suite for pack services. A Kindgi runtime runs a pack's code
-by calling a **pack service** over [pack protocol v2](../specs/schemas/pack-protocol.schema.json),
-and learns the pack from its [index](../specs/schemas/pack-index.schema.json).
+by calling a **pack service** over [pack protocol v2](https://docs.kindgi.com/reference/schemas/pack-protocol/),
+and learns the pack from its [index](https://docs.kindgi.com/reference/schemas/pack-index/).
 Any language can implement both; this suite is how an implementation proves it.
 
 It checks, from the outside:
 
-- **the index** the implementation's indexer writes for the [fixture pack](./FIXTURE.md):
+- **the index** the implementation's indexer writes for the fixture pack:
   valid against the spec, the right ids, canonical bytes (sorted keys, two-space
   indent, trailing newline), the same bytes on a second build, and every flow
   passing the graph checks every index goes through (`flowGraphProblem`, from
   `@kindgi/flow`);
-- **a flow with a cycle**, in the [invalid-flow pack](./FIXTURE.md#the-invalid-flow-pack):
+- **a flow with a cycle**, in the invalid-flow pack:
   refused, either by the indexer (a `manifest-validation-failed` file error
   naming its module) or by those graph checks on the index it wrote;
 - **the process contract**: `--index` / `--module-root` / `--host`,
@@ -54,9 +54,11 @@ packs against them and starts the service through its launcher. Without a JDK or
 the build it's skipped, saying why; under CI it fails instead.
 
 The Scala target runs the same service and indexer on the fixture packs in Scala
-(`kindgi-pack-scala`, `sdks/scala`). sbt builds each against the layer
-from source: with kindgi-pack installed (`./mvnw -pl kindgi-pack -am install
--DskipTests`), `sbt writeClasspath` in `fixtures/scala-pack` and in
+(`kindgi-pack-scala`, `sdks/scala`). sbt builds each against the Scala layer
+from source, on the published Java layer, `com.kindgi:kindgi-pack`
+([Java packs](https://docs.kindgi.com/reference/java/kindgi-pack/)), from
+Maven Central (or the local Maven repository first, when it has that
+version): `sbt writeClasspath` in `fixtures/scala-pack` and in
 `fixtures/scala-invalid-flow-pack` writes its `target/classpath.txt` (Scala 3;
 `sbt "++2.13.18!" writeClasspath` for 2.13, in both). Without them, or with the
 two built on different Scala versions, the target is skipped, saying why. The
@@ -70,7 +72,7 @@ invalid-flow case skipped, saying so.
 ## Adding an implementation
 
 1. Write the fixture pack in your language under `fixtures/<name>-pack/`, and the
-   invalid-flow pack under `fixtures/<name>-invalid-flow-pack/` ([FIXTURE.md](./FIXTURE.md)).
+   invalid-flow pack under `fixtures/<name>-invalid-flow-pack/`.
 2. Add `tests/<name>.test.ts`:
 
 ```ts
@@ -93,4 +95,4 @@ describePackServiceConformance({
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](https://www.apache.org/licenses/LICENSE-2.0).

@@ -1,6 +1,6 @@
 # `@kindgi/authz`
 
-Public authorization shape for Kindgi™: the vocabulary and interfaces that callers, policy enforcement points (PEPs) and policy executors share. Object types, actions and relation names follow an OpenFGA-style model; the FGA store and the check implementation are supplied by the deployment. [`@kindgi/api`](../api/) uses these types in its middleware and bindings.
+Public authorization shape for Kindgi™: the vocabulary and interfaces that callers, policy enforcement points (PEPs) and policy executors share. Object types, actions and relation names follow an OpenFGA-style model; the FGA store and the check implementation are supplied by the deployment. [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) uses these types in its middleware and bindings.
 
 ## Purpose
 
@@ -59,9 +59,9 @@ async function authorizeDelete(authz: AuthzCheckBinding, projectId: string) {
 
 ## Related
 
-- [`@kindgi/api`](../api/) — the middleware, `TokenResolution`, and the bindings that call `TupleEnqueueHook`.
-- [`@kindgi/types`](../types/) — the branded ids used in `EntityRef` and `PrincipalRef`.
+- [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) — the middleware, `TokenResolution`, and the bindings that call `TupleEnqueueHook`.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — the branded ids used in `EntityRef` and `PrincipalRef`.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](./LICENSE).
+Apache License 2.0 — see [LICENSE](https://www.apache.org/licenses/LICENSE-2.0).

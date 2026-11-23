@@ -4,7 +4,7 @@ Type contract for the Kindgi audit log. Defines the `AuditEvent` record every su
 
 ## Purpose
 
-Give the whole system one audit substrate: one record shape, one write surface, one query surface. Compliance evidence is a classification lens over this stream (see [`@kindgi/compliance`](../compliance/)), not a second write path. Common fields (`tenantId`, `projectId`, `timestamp`, `actor`, `correlationId`, `runId`, …) are top-level so they can be indexed; kind-specific data lives in a versioned `payload`. The binding is caller-plugged: [`@kindgi/api`](../api/) takes one as `auditEvents` and mounts the audit routes over it, and the reference in-memory implementation lives in [`@kindgi/audit-events-inmemory`](../audit-events-inmemory/).
+Give the whole system one audit substrate: one record shape, one write surface, one query surface. Compliance evidence is a classification lens over this stream (see [`@kindgi/compliance`](https://docs.kindgi.com/reference/packages/compliance/)), not a second write path. Common fields (`tenantId`, `projectId`, `timestamp`, `actor`, `correlationId`, `runId`, …) are top-level so they can be indexed; kind-specific data lives in a versioned `payload`. The binding is caller-plugged: [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) takes one as `auditEvents` and mounts the audit routes over it, and the reference in-memory implementation lives in [`@kindgi/audit-events-inmemory`](https://docs.kindgi.com/reference/packages/audit-events-inmemory/).
 
 ## Exports
 
@@ -77,13 +77,13 @@ async function* denialsSince(
 
 ## Non-goals
 
-- **No storage implementation.** Adapters implement `AuditEventBinding`; the in-memory reference is [`@kindgi/audit-events-inmemory`](../audit-events-inmemory/), and durable adapters are supplied by the Kindgi runtime.
+- **No storage implementation.** Adapters implement `AuditEventBinding`; the in-memory reference is [`@kindgi/audit-events-inmemory`](https://docs.kindgi.com/reference/packages/audit-events-inmemory/), and durable adapters are supplied by the Kindgi runtime.
 - **No signing on the write path.** Records are stored unsigned; signatures are computed over canonical bytes at export time by the compliance layer.
 - **No retention policy.** `purge` removes one kind older than a cutoff. Deciding when to call it, and exempting legal-hold kinds, belongs to the caller and the compliance classifier.
 - **No closed set of kinds or payload schemas.** `kind` is an open string so packs can add their own; each kind defines its own `payload.doc`.
 
 ## Related
 
-- [`@kindgi/audit-events-inmemory`](../audit-events-inmemory/) — reference `AuditEventBinding` for tests and local development.
-- [`@kindgi/compliance`](../compliance/) — classifier and signed export over this stream; `auditEventToEvidence` maps an `AuditEvent` to an evidence record.
-- [`@kindgi/api`](../api/) — accepts an `AuditEventBinding` as `auditEvents`.
+- [`@kindgi/audit-events-inmemory`](https://docs.kindgi.com/reference/packages/audit-events-inmemory/) — reference `AuditEventBinding` for tests and local development.
+- [`@kindgi/compliance`](https://docs.kindgi.com/reference/packages/compliance/) — classifier and signed export over this stream; `auditEventToEvidence` maps an `AuditEvent` to an evidence record.
+- [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) — accepts an `AuditEventBinding` as `auditEvents`.

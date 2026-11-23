@@ -284,8 +284,10 @@ curl -sS -X POST "$KINDGI_API_URL/v1/system/keys" \
 - **The key comes back once,** in the answer's `token`. Keep it where
   `--runtime-token` can read it
   ([Where the keys are kept](#where-the-keys-are-kept)), and give `renew`
-  that reference. On Cloud Run and Azure, the module's README puts it in
-  Secret Manager or the vault without printing it. A mint sent again with
+  that reference. On Cloud Run and Azure, the module's steps
+  ([Cloud Run](../../../reference/terraform/gcp-cloud-run/#8-renew-the-license-key),
+  [Azure](../../../reference/terraform/azure-container-apps/#renewing-the-license-key))
+  put it in Secret Manager or the vault without printing it. A mint sent again with
   the same `Idempotency-Key` doesn't return it: mint another.
 - **On a runtime serving many tenants,** the same call mints it, with the
   runtime's own token or a system key holding `kindgi:system`.
@@ -341,7 +343,9 @@ scheduled job. Once a day is plenty.
   `license_enroll_command` and `license_renew_command` print the two
   commands for this deployment.
 
-The module's README has the details.
+The module's README has the details:
+[Cloud Run](../../../reference/terraform/gcp-cloud-run/#8-renew-the-license-key),
+[Azure](../../../reference/terraform/azure-container-apps/#renewing-the-license-key).
 
 ## What renewing sends
 

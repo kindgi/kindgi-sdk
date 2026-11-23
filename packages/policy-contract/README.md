@@ -1,6 +1,6 @@
 # `@kindgi/policy-contract`
 
-Type contract for the workspace policy catalog: the `Policy` wire shape, the `PolicyRegistryBinding` storage interface, the executor interfaces that apply one policy kind at runtime, and the specs of the `retention`, `tool-errors` and `hitl` kinds with their validators. `createApp` in [`@kindgi/api`](../api/) mounts the `/v1/policies` routes when given a `PolicyRegistryBinding`, and [`@kindgi/agents`](../agents/) accepts a `PolicyRegistry` to apply `model-routing`, `tool-errors` and `hitl` policies. The bindings and executors themselves are implemented by the Kindgi runtime or by the embedding application.
+Type contract for the workspace policy catalog: the `Policy` wire shape, the `PolicyRegistryBinding` storage interface, the executor interfaces that apply one policy kind at runtime, and the specs of the `retention`, `tool-errors` and `hitl` kinds with their validators. `createApp` in [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) mounts the `/v1/policies` routes when given a `PolicyRegistryBinding`, and [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) accepts a `PolicyRegistry` to apply `model-routing`, `tool-errors` and `hitl` policies. The bindings and executors themselves are implemented by the Kindgi runtime or by the embedding application.
 
 ## Purpose
 
@@ -84,6 +84,6 @@ const plan = await policies.evaluate<PolicyEvalContext, RetentionPlan>('retentio
 
 ## Related
 
-- [`@kindgi/api`](../api/) — the `/v1/policies` routes and re-exports of the catalog types.
-- [`@kindgi/agents`](../agents/) — evaluates `model-routing`, `tool-errors` and `hitl` through a bound `PolicyRegistry`.
-- [`@kindgi/types`](../types/) — `TenantId` and `Cursor`.
+- [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) — the `/v1/policies` routes and re-exports of the catalog types.
+- [`@kindgi/agents`](https://docs.kindgi.com/reference/packages/agents/) — evaluates `model-routing`, `tool-errors` and `hitl` through a bound `PolicyRegistry`.
+- [`@kindgi/types`](https://docs.kindgi.com/reference/packages/types/) — `TenantId` and `Cursor`.

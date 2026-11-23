@@ -1,10 +1,10 @@
 # `@kindgi/compliance`
 
-Type contract for compliance evidence in Kindgi: the `Evidence` wire record, the `ComplianceEvidenceGenerator` interface that records evidence from finished runs and produces signed export bundles, and the classifier that decides retention, signing, and export per event kind. It also ships a few small functions: a pure audit-event-to-evidence transform and helpers that write `env-*` / `secret-*` audit events. The generator is implemented by the Kindgi runtime (or by a caller-supplied implementation) and consumed by [`@kindgi/api`](../api/).
+Type contract for compliance evidence in Kindgi: the `Evidence` wire record, the `ComplianceEvidenceGenerator` interface that records evidence from finished runs and produces signed export bundles, and the classifier that decides retention, signing, and export per event kind. It also ships a few small functions: a pure audit-event-to-evidence transform and helpers that write `env-*` / `secret-*` audit events. The generator is implemented by the Kindgi runtime (or by a caller-supplied implementation) and consumed by [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/).
 
 ## Purpose
 
-Evidence is a classification lens over the audit-event stream from [`@kindgi/audit-events`](../audit-events/): there is one write path for audit events, and the classifier selects which kinds are retained, signed, and exported. This package fixes the shapes on both sides of that lens: the record regulators and auditors read (matching `compliance-evidence.schema.json` in [`@kindgi/specs`](../specs/)), the signed bundle envelope they verify, and the run summary callers hand to the generator. Run summaries are redaction-safe by construction: model prompts and tool arguments appear only as caller-supplied hashes, and raw messages are embedded only with an explicit opt-in.
+Evidence is a classification lens over the audit-event stream from [`@kindgi/audit-events`](https://docs.kindgi.com/reference/packages/audit-events/): there is one write path for audit events, and the classifier selects which kinds are retained, signed, and exported. This package fixes the shapes on both sides of that lens: the record regulators and auditors read (matching `compliance-evidence.schema.json` in [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/)), the signed bundle envelope they verify, and the run summary callers hand to the generator. Run summaries are redaction-safe by construction: model prompts and tool arguments appear only as caller-supplied hashes, and raw messages are embedded only with an explicit opt-in.
 
 ## Exports
 
@@ -70,6 +70,6 @@ async function record(generator: ComplianceEvidenceGenerator): Promise<void> {
 
 ## Related
 
-- [`@kindgi/audit-events`](../audit-events/) — the `AuditEvent` stream evidence is derived from.
-- [`@kindgi/api`](../api/) — mounts the compliance routes from `auditEvents`, `complianceClassifier`, and `complianceGenerator`.
-- [`@kindgi/specs`](../specs/) — `compliance-evidence.schema.json`.
+- [`@kindgi/audit-events`](https://docs.kindgi.com/reference/packages/audit-events/) — the `AuditEvent` stream evidence is derived from.
+- [`@kindgi/api`](https://docs.kindgi.com/reference/packages/api/) — mounts the compliance routes from `auditEvents`, `complianceClassifier`, and `complianceGenerator`.
+- [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/) — `compliance-evidence.schema.json`.

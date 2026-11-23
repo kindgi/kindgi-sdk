@@ -20,7 +20,7 @@ Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
 
 **Requirements:** Node 22.12 or later, and Docker for `kindgi dev` (Docker
 Desktop, or a Docker engine on Linux). A Python pack needs Python and the
-[`kindgi` Python SDK](../../sdks/python), and gets this CLI from PyPI as
+[`kindgi` Python SDK](https://docs.kindgi.com/reference/python/), and gets this CLI from PyPI as
 `kindgi-cli`, with its own Node: `uv add --dev "kindgi-cli>=0.8,<0.9"`, then
 `uv run kindgi <command>`.
 
@@ -953,7 +953,7 @@ what it diagnosed for the maintainers.
 
 ## API commands
 
-These call a running Kindgi API through [`@kindgi/client`](../../sdks/typescript).
+These call a running Kindgi API through [`@kindgi/client`](https://docs.kindgi.com/reference/packages/client/).
 Inside a pack that `kindgi dev` runs, they find it on their own (see
 [Auth and config](#auth-and-config)).
 
@@ -998,7 +998,7 @@ false`).
 
 More of the API (superseding and searching memory, suggested changes,
 observations and tokens) has commands in progress. They're left out of `--help` until they work; until then, use
-[`@kindgi/client`](../../sdks/typescript) for those resources.
+[`@kindgi/client`](https://docs.kindgi.com/reference/packages/client/) for those resources.
 
 ## Auth and config
 

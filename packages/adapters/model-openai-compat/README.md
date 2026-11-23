@@ -1,6 +1,6 @@
 # `@kindgi/adapter-model-openai-compat`
 
-OpenAI-compatible `ModelProvider` for [`@kindgi/capabilities`](../../capabilities/). Wraps the official `openai` SDK client behind the framework's provider-neutral interface and works against OpenAI's own API and any endpoint that speaks the Chat Completions wire format — Ollama, vLLM, llama-server, LM Studio, OpenRouter, Groq, Together, Fireworks, DeepInfra, or a LiteLLM proxy. One adapter, many backends: `baseURL` selects the endpoint, and `api` the OpenAI API it speaks.
+OpenAI-compatible `ModelProvider` for [`@kindgi/capabilities`](https://docs.kindgi.com/reference/packages/capabilities/). Wraps the official `openai` SDK client behind the framework's provider-neutral interface and works against OpenAI's own API and any endpoint that speaks the Chat Completions wire format — Ollama, vLLM, llama-server, OpenRouter, Groq, Together, Fireworks, DeepInfra, or a LiteLLM proxy. One adapter, many backends: `baseURL` selects the endpoint, and `api` the OpenAI API it speaks.
 
 ## Purpose
 
@@ -43,7 +43,7 @@ A call's `thinking` goes as the reasoning effort: `reasoning_effort` on Chat Com
 
 ## Retries and errors
 
-The adapter owns the retry policy, built on [`@kindgi/adapter-model-shared`](../model-shared/), like the other adapters: the `openai` SDK client's own retries are off, and a dropped connection, a `408`/`409`/`429`/`5xx`, or a vendor's `x-should-retry: true` is tried again — up to the caller's `clientOptions.maxRetries` plus one attempts (the SDK default is 2, so 3 attempts) — honouring the vendor's `retry-after(-ms)`, and a vendor asking to wait more than a minute ends the call at once. A connection the runtime refuses the same way every time (an egress or body-size guard, or a redirect the request won't follow) is tried once, its own words on top rather than the SDK's generic "Connection error." A dropped connection's "Connection error." is followed by what its causes add (`; caused by …`, masked), so it says why.
+The adapter owns the retry policy, built on [`@kindgi/adapter-model-shared`](https://docs.kindgi.com/reference/packages/adapter-model-shared/), like the other adapters: the `openai` SDK client's own retries are off, and a dropped connection, a `408`/`409`/`429`/`5xx`, or a vendor's `x-should-retry: true` is tried again — up to the caller's `clientOptions.maxRetries` plus one attempts (the SDK default is 2, so 3 attempts) — honouring the vendor's `retry-after(-ms)`, and a vendor asking to wait more than a minute ends the call at once. A connection the runtime refuses the same way every time (an egress or body-size guard, or a redirect the request won't follow) is tried once, its own words on top rather than the SDK's generic "Connection error." A dropped connection's "Connection error." is followed by what its causes add (`; caused by …`, masked), so it says why.
 
 A failed call throws `ModelProviderError` (`kind`, `status`), with the OpenAI SDK's error as its `cause`, as the other adapters' do; a call stopped by the turn's abort signal ends at once with the turn's reason. (Before this, a failed OpenAI-compatible call rejected with the `openai` SDK's own `APIError`, and an abort with `APIUserAbortError`; code that caught `OpenAI.APIError` on this path should catch `ModelProviderError`.)
 
@@ -120,6 +120,6 @@ A local runner uses the same factory: `baseURL: BASE_URLS.OLLAMA_LOCAL`, `apiKey
 
 ## Related
 
-- [`@kindgi/capabilities`](../../capabilities/) — `ModelProvider`, `ProviderMetadata`, and the provider registry.
-- [`@kindgi/adapter-model-anthropic`](../model-anthropic/) — the Anthropic Messages API adapter, with a lazily resolved API key.
-- [`@kindgi/adapter-model-in-process`](../model-in-process/) — local models inside the Node.js process, no HTTP endpoint.
+- [`@kindgi/capabilities`](https://docs.kindgi.com/reference/packages/capabilities/) — `ModelProvider`, `ProviderMetadata`, and the provider registry.
+- [`@kindgi/adapter-model-anthropic`](https://docs.kindgi.com/reference/packages/adapter-model-anthropic/) — the Anthropic Messages API adapter, with a lazily resolved API key.
+- [`@kindgi/adapter-model-in-process`](https://docs.kindgi.com/reference/packages/adapter-model-in-process/) — local models inside the Node.js process, no HTTP endpoint.

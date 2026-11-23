@@ -68,6 +68,10 @@ jobs:
       - name: README package table
         run: pnpm run check:readme
 
+      # npm and PyPI show these READMEs away from the docs: whole links only.
+      - name: Published READMEs link the docs, not files
+        run: pnpm run check:readme-links
+
       # The Python SDK ships with the npm packages' version (lockstep):
       # scripts/sync-python-version.mjs.
       - name: Python SDK version in step with the npm packages

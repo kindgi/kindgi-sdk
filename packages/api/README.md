@@ -6,7 +6,7 @@ to `createApp`) behind two wire faces:
 
 - **`/v1/*`** — the Kindgi REST API. JSON in, JSON out. Bearer
   token auth. Documented via OpenAPI 3.1 (snapshot shipped as `@kindgi/api/openapi.json`).
-  Conventions locked in [`docs/API-ROUTE-CONVENTIONS.md`](../../docs/API-ROUTE-CONVENTIONS.md).
+  Every route is in the [HTTP API reference](https://docs.kindgi.com/reference/api/).
 - **`/s3/*`** — AWS S3 API v4 wire surface. XML in,
   XML out. SigV4 auth. Documented in this file.
 
@@ -18,7 +18,7 @@ either or both via `createApp(...)` bindings.
 
 Assemble the Hono app instance. Every runtime dependency is caller-
 plugged; the API package does not own persistence. See
-[`src/app.ts`](src/app.ts) for the full `CreateAppInput` shape.
+`src/app.ts` for the full `CreateAppInput` shape.
 
 Minimal wiring for BOTH surfaces:
 
@@ -73,7 +73,7 @@ flag.
 Any S3-aware client (`aws s3 cp`, `rclone`, `mc`, aws-sdk-js, boto3)
 hits `/s3/*` with zero code changes. The server verifies AWS Signature
 Version 4 itself (`node:crypto`; see
-[`src/middleware/sigv4-verify.ts`](src/middleware/sigv4-verify.ts)).
+`src/middleware/sigv4-verify.ts`).
 
 ### Auth model
 
@@ -321,8 +321,5 @@ which is correct for dev + tests.
 
 ## See also
 
-- [`docs/API-ROUTE-CONVENTIONS.md`](../../docs/API-ROUTE-CONVENTIONS.md)
-  — locked URL / auth / error-envelope / pagination / SSE conventions
-  for `/v1/*`.
-- [`docs/ADDING-A-ROUTE.md`](../../docs/ADDING-A-ROUTE.md) — how to add
-  a new `/v1/*` route.
+- [HTTP API reference](https://docs.kindgi.com/reference/api/) — every `/v1/*` route: its auth,
+  parameters, request and response bodies, and the errors it answers.

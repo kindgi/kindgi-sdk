@@ -37,8 +37,9 @@ A docs suggestion names a page of docs.kindgi.com and what's wrong with it.
   | `reference/python/` | the docstring in `sdks/python/src/kindgi/` |
   | `reference/env-vars/` | `packages/env-schema/src/schema.ts` |
   | `reference/packages/` | the package's `README.md` |
+  | `reference/java/`, `reference/scala/` | `sdks/java/README.md`, `sdks/java/kindgi-pack/README.md`, `sdks/scala/README.md` |
+  | `reference/terraform/` | the module's `README.md` in `deploy/` |
   | `reference/schemas/` | `packages/specs/schemas/` |
-  | `contributing/` | `CONTRIBUTING.md` and `docs/*.md` |
 
 - A suggestion about Kindgi's behaviour, not its docs (a bug, a confusing
   error), is an issue first: say so to the person rather than editing docs

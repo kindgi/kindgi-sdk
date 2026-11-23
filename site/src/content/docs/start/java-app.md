@@ -209,7 +209,7 @@ this client doesn't know yet. The client keeps it: `status().value()` is
 knows before it's sent (a `ValidationException` if not), so a value read
 from a newer runtime can't be sent back.
 
-More detail is in the client's README:
+More detail is in the [client's reference](../../reference/java/):
 streams, updates that clear a property, your app's Jackson.
 
 ## Next

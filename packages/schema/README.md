@@ -1,6 +1,6 @@
 # `@kindgi/schema`
 
-JSON Schema utilities for Kindgi. Loads specs, provides Ajv-based validation, extracts schema versions, converts Zod v4 schemas to JSON Schema, and serializes JSON canonically for signing. Consumers use this to validate incoming data against the wire contracts in [`@kindgi/specs`](../specs/).
+JSON Schema utilities for Kindgi. Loads specs, provides Ajv-based validation, extracts schema versions, converts Zod v4 schemas to JSON Schema, and serializes JSON canonically for signing. Consumers use this to validate incoming data against the wire contracts in [`@kindgi/specs`](https://docs.kindgi.com/reference/packages/specs/).
 
 ## Purpose
 
@@ -25,7 +25,7 @@ Turn the JSON Schemas that live in `@kindgi/specs/*.schema.json` into runtime-us
 
 ## Bounds
 
-`compileJsonSchema` and `compileInlineSchema` compile a schema under the process's bounds, from [`@kindgi/bounds`](../bounds/):
+`compileJsonSchema` and `compileInlineSchema` compile a schema under the process's bounds, from [`@kindgi/bounds`](https://docs.kindgi.com/reference/packages/bounds/):
 
 - A schema nested deeper than `schemaMaxDepth`, or larger than `schemaMaxBytes` as JSON, is refused before it's compiled, with an error naming the limit.
 - A `$ref` is compiled once, where its target is, not copied into each place that uses it (Ajv's `inlineRefs: false`), so the code a schema compiles to grows with its JSON, not with its targets' sizes times their uses.
