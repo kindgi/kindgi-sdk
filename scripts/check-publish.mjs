@@ -9,10 +9,10 @@
  *
  * Per package:
  *   - README.md and LICENSE present; `license` is Apache-2.0.
- *   - `repository` points at this repository with the package `directory`
- *     (npm provenance verifies `repository.url` against the publishing
- *     repository — a mismatch fails the publish).
- *   - `publishConfig.access` is `public` and `publishConfig.provenance` is true.
+ *   - `repository` points at this repository with the package `directory`.
+ *   - `publishConfig.access` is `public`, with no `provenance`: npm makes
+ *     none for a private source repository, and asking for it fails the
+ *     publish.
  *   - publint (package.json / exports / files correctness).
  *   - are-the-types-wrong on the packed tarball: from ES modules and from
  *     CommonJS (strict, for a package that ships a `require` condition).
@@ -110,8 +110,11 @@ for (const pkg of workspace) {
   if (repo?.url !== REPO_URL || repo?.directory !== dir) {
     problems.push(`${name}: repository must be { url: "${REPO_URL}", directory: "${dir}" }`);
   }
-  if (manifest.publishConfig?.access !== 'public' || manifest.publishConfig?.provenance !== true) {
-    problems.push(`${name}: publishConfig must set access "public" and provenance true`);
+  if (
+    manifest.publishConfig?.access !== 'public' ||
+    'provenance' in (manifest.publishConfig ?? {})
+  ) {
+    problems.push(`${name}: publishConfig must set access "public" and no provenance`);
   }
 
   // CommonJS apps `require()` the packages (Node's require(esm), from Node

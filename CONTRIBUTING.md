@@ -155,8 +155,8 @@ its line (`pnpm run check:cli-line`). The release notes keep theirs.
    `pnpm run ci:local` on its branch first, so the docs tutorials pass
    against the release.
 4. Publishing is a manual, approved run of the **Release** workflow
-   (npm trusted publishing with provenance, and PyPI trusted publishing
-   with attestations — no tokens). The JVM SDKs go to Maven Central first,
+   (npm and PyPI trusted publishing — no tokens, and no provenance or
+   attestations). The JVM SDKs go to Maven Central first,
    and npm waits for them: the CLI scaffolds Java and Scala packs on
    kindgi-pack at its own version. A release Central won't take for now
    skips them (step 5 under Maven Central).
