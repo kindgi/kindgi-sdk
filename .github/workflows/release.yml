@@ -294,8 +294,7 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
       # pnpm publishes itself, trusted publishing included. npm packs the
-      # tarballs attw checks (check:publish) and runs `npm view` below; its
-      # version is unchanged here.
+      # tarballs attw checks (check:publish) and runs `npm view` below.
       - run: npm install -g npm@^11.5.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
