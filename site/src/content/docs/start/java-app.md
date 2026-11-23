@@ -209,8 +209,7 @@ this client doesn't know yet. The client keeps it: `status().value()` is
 knows before it's sent (a `ValidationException` if not), so a value read
 from a newer runtime can't be sent back.
 
-More detail is in the client's
-[README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme):
+More detail is in the client's README:
 streams, updates that clear a property, your app's Jackson.
 
 ## Next

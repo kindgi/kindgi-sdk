@@ -137,7 +137,7 @@ when a CA is given with a URL that reaches a Unix socket or turns TLS off
 `kindgi-runtime check`, `kindgi-runtime tenants` and
 `kindgi-runtime erasures`, which open the same database.
 
-The [Cloud Run module](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run)
+The [Cloud Run module](../cloud-run/)
 does all of this in private-IP mode (`database_private_network`): it sets
 `KINDGI_DATABASE_SERVER_CA` to the instance's CAs at each apply.
 

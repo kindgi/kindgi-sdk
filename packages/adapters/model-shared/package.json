@@ -3,10 +3,9 @@
   "version": "0.8.1",
   "description": "Shared plumbing for Kindgi's model adapters: retries with counted attempts, typed errors, the reasoning state across a pause, usage onto Kindgi's counters. Today's engine is the AI SDK's provider packages, behind one module.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/adapters/model-shared"
+  "homepage": "https://docs.kindgi.com",
+  "bugs": {
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "exports": {
@@ -43,10 +42,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-shared#readme",
-  "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts"

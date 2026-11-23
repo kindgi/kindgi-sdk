@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Gemini ModelProvider for @kindgi/capabilities, on Vertex AI. Wraps @google/genai with the framework's provider-neutral interface: message-trail ↔ generateContent translation, function calling with thought signatures, token and cost accounting including thinking tokens, and Google Application Default Credentials (or a service-account key from the secret store). Non-streaming, tool-use enabled.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/adapters/model-gemini"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-gemini#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

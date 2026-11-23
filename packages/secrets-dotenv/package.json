@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — and Kindgi's own `.kindgi/secrets.env`, read last and written, plus the one definition of which env files belong to a pack environment. `KINDGI_*` names are runtime config, never secrets. Not for production — no encryption, no audit, no versioning.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/secrets-dotenv"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/secrets-dotenv#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

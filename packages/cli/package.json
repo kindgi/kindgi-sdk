@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Command-line interface for Kindgi™. Create a pack, run it on your machine (`kindgi dev`), build, sign and deploy it, and work with a running Kindgi API from the terminal.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/cli"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/cli#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

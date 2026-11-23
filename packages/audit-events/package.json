@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Kindgi™ audit events contract. Types only: AuditEvent (the audit record — id, tenantId, projectId, kind, timestamp, actor, outcome, run / agent / flow / correlation ids, versioned payload), AuditEventFilter and AuditEventPage, AuditEventBinding (the caller-plugged append / query / purge interface) with its input and result shapes, and the AuditEventError union. No runtime code. A reference in-memory binding is @kindgi/audit-events-inmemory; durable bindings are provided by the Kindgi runtime.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/audit-events"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/audit-events#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

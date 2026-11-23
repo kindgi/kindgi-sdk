@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "JSON Schema utilities for Kindgi. Loads specs, provides Ajv-based validation, extracts schema versions. Consumers validate incoming data against the wire contracts in @kindgi/specs.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/schema"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/schema#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

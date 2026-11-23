@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "@kindgi/sdk — the authoring SDK for Kindgi™. Facade over the individual @kindgi/* packages + @kindgi/client. Unifies pack authoring (defineTool / defineCheck / defineAgent / defineFlow) and client callsites (createClient) behind three sub-paths: /define, /client, /types. Re-export facade; zero behavior.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/sdk"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/sdk#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

@@ -17,7 +17,7 @@ description: >
   kindgi-java-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.14"
+version: "0.1.15"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -285,8 +285,8 @@ running the older version on it.
   release. It takes a `--var-file` for each file the deployment's variables
   are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
   what a real run would change. A real run's `yes` applies exactly the
-  saved plan it showed. The module README's Upgrading section has the rest:
-  https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
+  saved plan it showed. The Cloud Run page's "Operate it" section has the
+  rest: https://docs.kindgi.com/v0.8/deploy/self-hosted/cloud-run/#operate-it
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
   https://docs.kindgi.com/v0.8/deploy/self-hosted/cloud-run/#upgrade-by-hand

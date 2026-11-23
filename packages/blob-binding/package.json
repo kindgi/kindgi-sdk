@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Kindgi™ blob storage binding contract. Types only: the BlobStorageBinding interface that storage implementations provide and @kindgi/api consumes — blobId-addressed put / get / head / list / delete, S3-compatible putByKey / getByKey / headByKey / deleteByKey / listByPrefix, and multipart initiate / upload-part / complete / abort / list-parts — its input and result shapes (BlobPutInput, MultipartInitiateInput, BlobFilter, BlobMeta, BlobRead, BlobListPage, BlobDeleteOutcome, S3ListPage, MultipartListPartsPage), and the BlobError union. No runtime code.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/blob-binding"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/blob-binding#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

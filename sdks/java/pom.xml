@@ -3,7 +3,8 @@
 <!-- Copyright (C) 2026 Kindgi Inc. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+         child.project.url.inherit.append.path="false">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.kindgi</groupId>
@@ -14,7 +15,8 @@
 
   <name>Kindgi Java SDK (parent)</name>
   <description>Java SDK for Kindgi™: call the Kindgi API from a Java app, and write a pack's tools in Java or Scala. In preview: tested and supported, but the API may still change in a later release without the usual deprecation period.</description>
-  <url>https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java</url>
+  <!-- The modules inherit it as it is (no /<artifactId> appended). -->
+  <url>https://docs.kindgi.com</url>
   <inceptionYear>2026</inceptionYear>
   <organization>
     <name>Kindgi Inc.</name>
@@ -39,10 +41,6 @@
     <developerConnection>scm:git:https://github.com/kindgi/kindgi-sdk.git</developerConnection>
     <url>https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java</url>
   </scm>
-  <issueManagement>
-    <system>GitHub</system>
-    <url>https://github.com/kindgi/kindgi-sdk/issues</url>
-  </issueManagement>
 
   <modules>
     <module>codegen</module>

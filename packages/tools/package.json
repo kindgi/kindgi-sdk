@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Tool authoring shape + registry + invocation for Kindgi. A tool is a typed, effect-declared unit of work — the same definition runs in-process for one flow, over MCP for another. Pure — no kernel dependency; the kernel bridges tools to node handlers separately.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/tools"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/tools#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

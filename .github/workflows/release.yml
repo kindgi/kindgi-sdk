@@ -25,10 +25,11 @@ name: Release
 # npm trusted publisher settings per package: repository kindgi/kindgi-sdk,
 # workflow `release.yml`, environment `npm-publish`.
 #
-# No npm provenance and no PyPI attestations: npm makes no provenance for a
-# private source repository (asking for it fails the publish), and PyPI's
-# attestations would record a private repository's name in Sigstore's
-# public log.
+# No npm provenance and no PyPI attestations. pnpm adds provenance by
+# itself only when the source repository is public, and then the registry
+# refuses a package without `repository` in its package.json, so the
+# Publish step runs only from a private repository. PyPI's attestations
+# would record a private repository's name in Sigstore's public log.
 #
 # The same dispatch also publishes the Python SDK (`kindgi`, sdks/python) to
 # PyPI, in the `pypi-publish` environment (required reviewer), with PyPI's
@@ -292,7 +293,8 @@ jobs:
           node-version: "22"
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
-      # Trusted publishing needs npm >= 11.5.1 (pnpm hands the tarball to npm).
+      # pnpm publishes itself, trusted publishing included. npm packs the
+      # tarballs attw checks (check:publish) and runs `npm view` below.
       - run: npm install -g npm@^11.5.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
@@ -310,6 +312,20 @@ jobs:
       - name: Publish (dry-run)
         if: ${{ inputs.dry-run }}
         run: pnpm -r publish --dry-run --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
+      # From a public repository, pnpm 12 adds provenance whatever its
+      # provenance settings say, and the registry refuses it for a package
+      # without `repository`. Asked when the step runs, not read from the
+      # dispatch, so a re-run after the repository goes private publishes.
+      - name: The repository is private
+        if: ${{ !inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)
+          if [[ "$private" != "true" ]]; then
+            echo "::error::$GITHUB_REPOSITORY is public: npm would refuse the provenance pnpm adds. Re-run this job once it's private."
+            exit 1
+          fi
       - name: Publish
         if: ${{ !inputs.dry-run }}
         run: pnpm -r publish --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"

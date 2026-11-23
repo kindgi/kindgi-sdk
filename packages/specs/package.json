@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Canonical JSON Schemas (Draft 2020-12) for every Kindgi artifact kind — flow, agent, tool, capability, guardrail, policy, event, run event, memory, provenance, pack, compliance evidence, audit bundle, test set, discoverable entity. The wire contracts every SDK, runtime, and external tool validates against. Each schema is importable by name as `@kindgi/specs/<name>.schema.json`.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/specs"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/specs#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

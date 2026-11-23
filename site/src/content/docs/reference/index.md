@@ -32,11 +32,9 @@ schemas), so they match the release they document.
 - **[Python](python/):** the `kindgi` package: authoring (`kindgi`), the API
   client (`kindgi.client`) with every `client.<resource>` and the API's
   models, `kindgi.webhooks`, and `python -m kindgi.pack`.
-- **[Java](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme)
-  and Scala (preview):** the README of `com.kindgi:kindgi-client`, the API
-  client for Java and Scala apps, and
-  [`kindgi-pack`'s](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack),
-  for packs. See also [Call Kindgi from a Java app](../start/java-app/).
+- **Java and Scala (preview):** the README of `com.kindgi:kindgi-client`,
+  the API client for Java and Scala apps, and `kindgi-pack`'s, for packs.
+  See also [Call Kindgi from a Java app](../start/java-app/).
 - **[CLI](cli/):** every `kindgi` command, its flags and its subcommands.
 - **[Environment variables](env-vars/):** every `KINDGI_*` variable the
   runtime and the pack service read.

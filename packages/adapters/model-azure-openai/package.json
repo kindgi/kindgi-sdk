@@ -3,10 +3,9 @@
   "version": "0.8.1",
   "description": "Azure OpenAI ModelProvider for @kindgi/capabilities: your Azure OpenAI deployments (Responses or Chat Completions) by API key or the runtime's Entra identity.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/adapters/model-azure-openai"
+  "homepage": "https://docs.kindgi.com",
+  "bugs": {
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "exports": {
@@ -39,10 +38,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-azure-openai#readme",
-  "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts"

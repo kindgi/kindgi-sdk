@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Machine-readable registry of the Kindgi runtime's operator-facing env vars. Single source of truth for boot-time validation (validateEnvForTarget), .env.example scaffolding (renderEnvExample), and tools or coding agents introspecting deployment config. Adding a new env var means adding one entry here — no drift between validation, docs, and .env.example generation.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/env-schema"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/env-schema#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

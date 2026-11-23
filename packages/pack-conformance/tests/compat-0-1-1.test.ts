@@ -6,15 +6,16 @@
  * context, and a check whose trace, carry the project and org (pack
  * protocol 2.3.0) are answered as before. The released services are
  * fetched as a user gets them: `@kindgi/handler-runtime@0.1.1` from npm,
- * and the Python SDK from the 0.1.1 release commit with uv. Without npm or
- * uv, that half is skipped and says why.
+ * and the Python SDK from the 0.1.1 release commit in this clone's
+ * history, installed with uv. Without npm or uv, that half is skipped and
+ * says why.
  */
 
 import { execFile } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import { describe, test } from 'vitest';
@@ -25,6 +26,9 @@ const run = promisify(execFile);
 
 /** The commit Kindgi 0.1.1 was released from (`@kindgi/handler-runtime@0.1.1`). */
 const RELEASE_0_1_1 = 'a22f4a93e0c4a97bf02bcf171d7a16dd97a34712';
+
+/** This repository's root, whose history holds that commit. */
+const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
 async function available(command: string): Promise<boolean> {
   return run(command, ['--version']).then(
@@ -90,14 +94,53 @@ if (!(await available('uv'))) {
   const venv = await mkdtemp(join(tmpdir(), 'kindgi-python-0.1.1-'));
   const python = join(venv, 'bin', 'python');
   await run('uv', ['venv', venv, '--quiet']);
+  // The SDK as it was at the release commit, from this clone's own history
+  // (fetched first when the clone is shallow, as CI's is): 0.1.1 was never
+  // on PyPI, and the repository isn't public.
+  const hasRelease = await run('git', [
+    '-C',
+    REPO_ROOT,
+    'cat-file',
+    '-e',
+    `${RELEASE_0_1_1}^{commit}`,
+  ]).then(
+    () => true,
+    () => false,
+  );
+  if (!hasRelease) {
+    await run('git', [
+      '-C',
+      REPO_ROOT,
+      'fetch',
+      '--quiet',
+      '--depth',
+      '1',
+      'origin',
+      RELEASE_0_1_1,
+    ]);
+  }
+  const source = await mkdtemp(join(tmpdir(), 'kindgi-python-0.1.1-src-'));
+  const archive = join(source, 'sdk.tar');
+  await run('git', [
+    '-C',
+    REPO_ROOT,
+    'archive',
+    '--format=tar',
+    '-o',
+    archive,
+    RELEASE_0_1_1,
+    'sdks/python',
+  ]);
+  await run('tar', ['-xf', archive, '-C', source]);
   await run('uv', [
     'pip',
     'install',
     '--quiet',
     '--python',
     python,
-    `kindgi @ git+https://github.com/kindgi/kindgi-sdk@${RELEASE_0_1_1}#subdirectory=sdks/python`,
+    join(source, 'sdks', 'python'),
   ]);
+  await rm(source, { recursive: true, force: true });
   const packDir = fixturePackDir('python-pack');
   // Fixture files written with a newer SDK's features: 0.1.1 can't load them.
   const newerThan011 = new Set([
