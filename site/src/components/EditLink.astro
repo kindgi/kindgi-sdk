@@ -4,13 +4,10 @@
  * laid out as the next/previous links under them are: at either edge, each
  * label after a line icon of the arrows' size, so the labels line up.
  *
- * There's no "Edit page" link while the repository doesn't take outside
- * contributions; "Improve this page with your coding agent" replaces it once
- * it does.
+ * There's no "Edit page" link: the source repository is private.
  *
- * "Report a problem" opens the repository's Docs problem issue form
- * (`.github/ISSUE_TEMPLATE/docs_problem.yml`) with the title and its `page`
- * field filled in: a form takes its fields by id, never `body`.
+ * "Report a problem" starts an email to contact@kindgi.com, its subject
+ * naming the page and its body the page's address.
  *
  * `llms.txt` lists every page's Markdown version, for an agent to read.
  *
@@ -18,21 +15,21 @@
  */
 import { Icon } from '@astrojs/starlight/components';
 
-const REPOSITORY = 'https://github.com/kindgi/kindgi-sdk';
+const CONTACT = 'contact@kindgi.com';
 
 const route = Astro.locals.starlightRoute;
 
 const page = new URL(Astro.url.pathname, 'https://docs.kindgi.com').href;
-const issue = new URL(`${REPOSITORY}/issues/new`);
-issue.searchParams.set('template', 'docs_problem.yml');
-issue.searchParams.set('title', `Docs: ${route.entry.data.title}`);
-issue.searchParams.set('page', page);
+// Percent-encoded, not a query string's `+`: mail apps read RFC 6068.
+const subject = encodeURIComponent(`Docs: ${route.entry.data.title}`);
+const body = encodeURIComponent(`Page: ${page}\n\n`);
+const report = `mailto:${CONTACT}?subject=${subject}&body=${body}`;
 
 const llms = `${import.meta.env.BASE_URL.replace(/\/?$/, '/')}llms.txt`;
 ---
 
 <div class="kindgi-page-links sl-flex print:hidden" data-pagefind-ignore>
-  <a href={issue.href} class="sl-flex">
+  <a href={report} class="sl-flex">
     <Icon name="comment-alt" size="1rem" />
     Report a problem
   </a>

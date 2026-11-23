@@ -16,7 +16,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.26"
+version: "0.3.27"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -370,8 +370,8 @@ running the older version on it.
   release. It takes a `--var-file` for each file the deployment's variables
   are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
   what a real run would change. A real run's `yes` applies exactly the
-  saved plan it showed. The module README's Upgrading section has the rest:
-  https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
+  saved plan it showed. The Cloud Run page's "Operate it" section has the
+  rest: https://docs.kindgi.com/v0.8/deploy/self-hosted/cloud-run/#operate-it
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
   https://docs.kindgi.com/v0.8/deploy/self-hosted/cloud-run/#upgrade-by-hand

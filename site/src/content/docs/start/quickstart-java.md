@@ -265,5 +265,5 @@ declare it in `kindgi.config.json` (`"providers": [{"preset": "<preset>"}]`):
   with the Java client.
 - [Guides](../../guides/): one task at a time.
 - [Concepts](../../concepts/): packs, runs and the journal, security.
-- [kindgi-pack's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack):
+- kindgi-pack's README:
   schemas from records, guardrails, flows, the call context and cancellation.

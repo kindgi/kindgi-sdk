@@ -105,7 +105,7 @@ Who calls whom:
 
 This step creates everything the two apps need, before their images and
 secrets exist. The module is `deploy/azure-container-apps/` in the
-[kindgi-sdk repository](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps):
+kindgi-sdk repository:
 copy the folder from the release you run. Its `README.md` lists every
 variable.
 
@@ -757,8 +757,7 @@ module on runtime 0.1.8 or later, in either network shape, can run it to
 of the release you're upgrading to: it knows the steps up to its own
 release. It first came with the `@kindgi/sdk@0.4.0` tag, so to keep the
 module at an earlier release, upgrade by hand. The module's README has
-what it checks and changes, under
-[Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps#upgrading),
+what it checks and changes, under Upgrading,
 and `./upgrade.sh --help` lists its options.
 
 Upgrade by hand instead if you'd rather: run these steps on a staging
@@ -821,8 +820,7 @@ identity that deploys the module. `<rg>` is the resource group, and
    Don't set it before the secret has that version: the server's new
    revision wouldn't start. A deployment whose `server_secret_env` sets
    `KINDGI_PAGINATION_KEY` itself is refused at plan. The module's README
-   has the steps that keep its key, under
-   [Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps#upgrading).
+   has the steps that keep its key, under Upgrading.
 
    The plan holds your variables' values: `umask 077` keeps it readable by
    you alone, and you delete it once it's applied.

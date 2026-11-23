@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Anthropic ModelProvider for @kindgi/capabilities. Wraps @anthropic-ai/sdk with the framework's provider-neutral interface: message-trail ↔ Messages API translation, prompt-caching-aware cost accounting, and lazy API-key resolution so per-tenant registries can close over a SecretStore scope. Non-streaming, tool-use enabled. Wire per-tenant in the provider registry (see @kindgi/capabilities).",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/adapters/model-anthropic"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-anthropic#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

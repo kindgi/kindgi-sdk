@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Reference in-memory `EnvBinding` adapter — dev + tests only; refuses to boot in production.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/env-inmemory"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/env-inmemory#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

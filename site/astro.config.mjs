@@ -104,8 +104,6 @@ export default defineConfig({
         light: './src/assets/kindgi-tile-light.svg',
         dark: './src/assets/kindgi-tile-dark.svg',
       },
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
-      editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
       // No "On this page" column beside the text.
       tableOfContents: false,
       // The fonts are served from the site itself (Fontsource), so a page asks no

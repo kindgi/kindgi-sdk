@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Multi-tenant hierarchy primitives — the Workspace → Org → Team → Project + User type surface, the `Scope` discriminated access-boundary, binding interfaces for orgs, teams, projects, memberships, team-project grants and the workspace hierarchy, and reference in-memory adapters.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/platform"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/platform#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

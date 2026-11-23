@@ -4,17 +4,15 @@
  * One reference page per public `@kindgi/*` package, from its README.
  *
  * Links in a README are written for the repository. Here, a link to
- * another public package goes to that package's page; any other file or
- * directory in the repository goes to GitHub at the docs' own ref
- * (`KINDGI_DOCS_REF`, a release tag for a versioned build, else `main`),
- * so a version's docs never point at newer code.
+ * another public package goes to that package's page; a link to any other
+ * file or directory in the repository becomes its text, since the
+ * repository is private and a reader couldn't open it.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const GITHUB = 'https://github.com/kindgi/kindgi-sdk';
 const README = `README${'.md'}`;
 
 /** Public `@kindgi/*` packages: `{ name, dir, slug }`. */
@@ -39,7 +37,7 @@ function publicPackages() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function rewriteLinks(markdown, pkg, bySlugDir, ref) {
+function rewriteLinks(markdown, pkg, bySlugDir) {
   return markdown.replace(
     /(!?)\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g,
     (whole, bang, text, target, rest) => {
@@ -54,10 +52,7 @@ function rewriteLinks(markdown, pkg, bySlugDir, ref) {
         const self = other.slug === pkg.slug;
         return `[${text}](${self ? '' : `../${other.slug}/`}${anchor}${rest})`;
       }
-      const inRepo = relative(REPO, absolute);
-      if (inRepo.startsWith('..') || !existsSync(absolute)) return text; // nowhere to point
-      const kind = statSync(absolute).isDirectory() ? 'tree' : 'blob';
-      return `${bang}[${text}](${GITHUB}/${kind}/${ref}/${inRepo}${anchor}${rest})`;
+      return text; // the private repository: nowhere a reader can open
     },
   );
 }
@@ -92,12 +87,11 @@ export function markFragments(markdown) {
 }
 
 export function packagePages() {
-  const ref = process.env.KINDGI_DOCS_REF ?? 'main';
   const packages = publicPackages();
   const bySlugDir = new Map(packages.map((pkg) => [pkg.dir, pkg]));
   const pages = packages.map((pkg) => {
     const readme = readFileSync(join(pkg.dir, README), 'utf8').replace(/^# .*\n+/, '');
-    const body = markFragments(rewriteLinks(readme, pkg, bySlugDir, ref));
+    const body = markFragments(rewriteLinks(readme, pkg, bySlugDir));
     return {
       slug: `reference/packages/${pkg.slug}`,
       content: [
@@ -106,7 +100,7 @@ export function packagePages() {
         `description: ${JSON.stringify(pkg.description)}`,
         '---',
         '',
-        `\`npm install ${pkg.name}\` · [source](${GITHUB}/tree/${ref}/${relative(REPO, pkg.dir)})`,
+        `\`npm install ${pkg.name}\``,
         '',
         body.trimEnd(),
         '',

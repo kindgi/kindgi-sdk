@@ -5,11 +5,10 @@
  * What a build fixes in hand-written pages, so a versioned build describes its
  * own release:
  *
- * - **Links into the repository.** Pages link `github.com/kindgi/kindgi-sdk/
- *   tree/main/…` (or `blob/main`), which is right on GitHub and in the
- *   preview. A build for a release (`KINDGI_DOCS_REF`, its tag) points them at
- *   the tag instead, as the generated package pages do, and fails if any page
- *   still points at `main`.
+ * - **Links into the repository.** Pages don't link into it: it's private.
+ *   A `tree/main/…` (or `blob/main`) link that slips in is pointed at the
+ *   release's tag (`KINDGI_DOCS_REF`) in a release's build, and the build
+ *   fails if any page still points at `main`.
  * - **The release's version.** `{{kindgi.version}}` in a page becomes the
  *   version the build is for: the CLI's at the ref being built. The JVM SDKs
  *   are released at the CLI's version (lockstep), so a Maven or sbt snippet
@@ -96,7 +95,7 @@ function fixFile(file, { ref, version }) {
 }
 
 const HOW_TO_LINK =
-  "Link into the repository as https://github.com/kindgi/kindgi-sdk/tree/main/… (or blob/main/…), which a release's build points at its tag.";
+  "Don't link into the repository (it's private): link the docs page that covers it, or name the path in inline code.";
 
 /**
  * Fixes the built pages (see the module comment). Listed before Starlight,

@@ -9,7 +9,9 @@
  *
  * Per package:
  *   - README.md and LICENSE present; `license` is Apache-2.0.
- *   - `repository` points at this repository with the package `directory`.
+ *   - No `repository`: the source repository is private, so its links would
+ *     404 on the package page. `homepage` is the docs site and `bugs` is the
+ *     contact address (`HOMEPAGE`, `BUGS_EMAIL`).
  *   - `publishConfig.access` is `public`, with no `provenance`: npm makes
  *     none for a private source repository, and asking for it fails the
  *     publish.
@@ -35,7 +37,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { cpus } from 'node:os';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { withOwnTarball } from './pack-tarball.mjs';
@@ -46,7 +48,8 @@ const JOBS = Math.max(
   Number.parseInt(process.env.KINDGI_PUBLISH_CHECK_JOBS ?? '', 10) || Math.min(6, cpus().length),
 );
 
-const REPO_URL = 'git+https://github.com/kindgi/kindgi-sdk.git';
+const HOMEPAGE = 'https://docs.kindgi.com';
+const BUGS_EMAIL = 'contact@kindgi.com';
 
 const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
 const workspace = JSON.parse(
@@ -101,14 +104,15 @@ for (const pkg of workspace) {
   if (manifest.private === true) continue;
   checked += 1;
   const name = manifest.name;
-  const dir = relative(root, pkg.path);
 
   if (!existsSync(join(pkg.path, 'README.md'))) problems.push(`${name}: README.md missing`);
   if (!existsSync(join(pkg.path, 'LICENSE'))) problems.push(`${name}: LICENSE missing`);
   if (manifest.license !== 'Apache-2.0') problems.push(`${name}: license is not Apache-2.0`);
-  const repo = manifest.repository;
-  if (repo?.url !== REPO_URL || repo?.directory !== dir) {
-    problems.push(`${name}: repository must be { url: "${REPO_URL}", directory: "${dir}" }`);
+  if ('repository' in manifest) problems.push(`${name}: no repository (the source is private)`);
+  if (manifest.homepage !== HOMEPAGE) problems.push(`${name}: homepage must be "${HOMEPAGE}"`);
+  const bugs = manifest.bugs;
+  if (typeof bugs !== 'object' || bugs?.email !== BUGS_EMAIL || Object.keys(bugs).length !== 1) {
+    problems.push(`${name}: bugs must be { "email": "${BUGS_EMAIL}" }`);
   }
   if (
     manifest.publishConfig?.access !== 'public' ||

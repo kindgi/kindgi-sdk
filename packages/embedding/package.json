@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Kindgi™ embedding provider contract and registry: the EmbeddingProvider interface (embed / dimensions / describe), the EmbeddingProviderRegistry interface with the createEmbeddingProviderRegistry in-memory factory, and the EmbeddingError union (NoEmbeddingProviderError, UnknownEmbeddingModelError, DuplicateEmbeddingProviderError, AmbiguousDefaultProviderError). No I/O; the only state is the registry's in-memory map. No provider ships here — adapters implement EmbeddingProvider and are registered at boot.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/embedding"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/embedding#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

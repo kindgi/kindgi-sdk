@@ -7,15 +7,14 @@
  *
  * The files stay in the repository, where contributors and the API spec's
  * descriptions point at them. Links between them become links between the
- * pages; any other file in the repository goes to GitHub at the docs' own
- * ref (`KINDGI_DOCS_REF`), like the package pages.
+ * pages; a link to any other file in the repository becomes its text, like
+ * the package pages', since the repository is private.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { basename, dirname, extname, join, relative, resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const GITHUB = 'https://github.com/kindgi/kindgi-sdk';
 const MARKDOWN = '.md';
 
 /** `{ path, slug }` for every source, the root guide first. */
@@ -34,7 +33,7 @@ function sources() {
   return [root, ...docs].filter((source) => existsSync(source.path));
 }
 
-function rewriteLinks(markdown, source, bySourcePath, ref) {
+function rewriteLinks(markdown, source, bySourcePath) {
   return markdown.replace(
     /(!?)\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g,
     (whole, bang, text, target, rest) => {
@@ -46,16 +45,12 @@ function rewriteLinks(markdown, source, bySourcePath, ref) {
       if (other && !bang) {
         return `[${text}](${other === source ? '' : `../${basename(other.slug)}/`}${anchor}${rest})`;
       }
-      const inRepo = relative(REPO, absolute);
-      if (inRepo.startsWith('..') || !existsSync(absolute)) return text; // nowhere to point
-      const kind = statSync(absolute).isDirectory() ? 'tree' : 'blob';
-      return `${bang}[${text}](${GITHUB}/${kind}/${ref}/${inRepo}${anchor}${rest})`;
+      return text; // the private repository: nowhere a reader can open
     },
   );
 }
 
 export function contributingPages() {
-  const ref = process.env.KINDGI_DOCS_REF ?? 'main';
   const all = sources();
   const bySourcePath = new Map(all.map((source) => [source.path, source]));
   return all.map((source, index) => {
@@ -66,7 +61,6 @@ export function contributingPages() {
       heading ? markdown.slice(heading[0].length) : markdown,
       source,
       bySourcePath,
-      ref,
     );
     return {
       slug: source.slug,
@@ -75,11 +69,7 @@ export function contributingPages() {
         `title: ${JSON.stringify(title)}`,
         'sidebar:',
         `  order: ${index + 1}`,
-        // "Edit page" edits the source file, on main (never a release tag).
-        `editUrl: ${GITHUB}/edit/main/${relative(REPO, source.path)}`,
         '---',
-        '',
-        `[Source](${GITHUB}/blob/${ref}/${relative(REPO, source.path)}) in the repository.`,
         '',
         body.trimEnd(),
         '',

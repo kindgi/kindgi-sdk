@@ -25,7 +25,7 @@ ThisBuild / crossScalaVersions := Seq(Scala213, Scala3)
 ThisBuild / organizationName := "Kindgi Inc."
 ThisBuild / organizationHomepage := Some(url("https://kindgi.com"))
 ThisBuild / licenses := Seq("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage := Some(url("https://github.com/kindgi/kindgi-sdk/tree/main/sdks/scala"))
+ThisBuild / homepage := Some(url("https://docs.kindgi.com"))
 ThisBuild / scmInfo := Some(
   ScmInfo(
     url("https://github.com/kindgi/kindgi-sdk/tree/main/sdks/scala"),

@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Kindgi™ connections: the app entries a Kindgi server reads to connect people's and a company's accounts at other apps (how to sign in, each permission in plain words, whose account it is, how access is withdrawn), defineApp to check one, the Google, GitHub, Microsoft, LinkedIn, Texts, HubSpot and Asana entries (HubSpot and Asana sign in to their own MCP servers), and tools that act with their connections (sending and reading mail as a person; listing and labelling a repository's issues; posting on LinkedIn as a person).",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/connections"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/connections#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

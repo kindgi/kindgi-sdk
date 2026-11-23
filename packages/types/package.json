@@ -3,14 +3,9 @@
   "version": "0.8.1",
   "description": "Foundational TypeScript types shared across Kindgi. Branded IDs, timestamps, hashes, refs, Result, list filter / page shapes. Zero runtime dependencies; the runtime exports are small checks such as makeEnvName and isFileValue.",
   "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
-    "directory": "packages/types"
-  },
-  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/types#readme",
+  "homepage": "https://docs.kindgi.com",
   "bugs": {
-    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+    "email": "contact@kindgi.com"
   },
   "type": "module",
   "main": "./dist/index.js",

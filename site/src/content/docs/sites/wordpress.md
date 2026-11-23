@@ -149,7 +149,7 @@ and `kindgi sites update <site-id>` changes it later:
 ## Install and connect the plugin
 
 Each SDK release carries the plugin as `kindgi-<version>.zip`; its source is under
-[`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
+`integrations/wordpress/kindgi`.
 This page is for release `{{kindgi.version}}`, whose plugin needs runtime
 0.4.0 or later, WordPress 6.4 or later and PHP 7.4 or later. For an older
 runtime, read this page in the docs for the runtime's own version: it names
@@ -561,9 +561,8 @@ the store's actions (look up an order, refund it) as
 
 ## What the plugin keeps on the site
 
-The plugin's
-[README](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi#what-the-plugin-stores)
-lists what it keeps, and how WordPress's personal-data tools cover it.
+The plugin's README (in its zip, under "What the plugin stores") lists
+what it keeps, and how WordPress's personal-data tools cover it.
 
 Erasing a person with those tools forgets them on the site, and tells
 Kindgi they left, which ends their access there for good. Kindgi keeps its
