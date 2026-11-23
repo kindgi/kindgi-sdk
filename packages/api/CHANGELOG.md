@@ -1,5 +1,32 @@
 # @kindgi/api
 
+## 0.8.2
+
+### Patch Changes
+
+- b8ffc77: `GET /v1/providers` and `GET /v1/providers/{providerId}` show each provider's `adapterId` and `adapterConfig`, and `kindgi providers list --table` shows the adapter.
+- @kindgi/agents@0.8.2
+  - @kindgi/audit-events@0.8.2
+  - @kindgi/authz@0.8.2
+  - @kindgi/blob-binding@0.8.2
+  - @kindgi/bounds@0.8.2
+  - @kindgi/capabilities@0.8.2
+  - @kindgi/compliance@0.8.2
+  - @kindgi/connections@0.8.2
+  - @kindgi/crypto@0.8.2
+  - @kindgi/flow@0.8.2
+  - @kindgi/guardrails@0.8.2
+  - @kindgi/handler-runtime@0.8.2
+  - @kindgi/log@0.8.2
+  - @kindgi/memory@0.8.2
+  - @kindgi/platform@0.8.2
+  - @kindgi/policy-contract@0.8.2
+  - @kindgi/provenance@0.8.2
+  - @kindgi/runtime@0.8.2
+  - @kindgi/schema@0.8.2
+  - @kindgi/tools@0.8.2
+  - @kindgi/types@0.8.2
+
 ## 0.8.1
 
 ### Patch Changes

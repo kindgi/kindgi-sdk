@@ -10,6 +10,10 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+## 0.8.2
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.8.1
 
 No JVM changes; the version moves with the npm packages.
