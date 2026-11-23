@@ -20,9 +20,10 @@ const CONTACT = 'contact@kindgi.com';
 const route = Astro.locals.starlightRoute;
 
 const page = new URL(Astro.url.pathname, 'https://docs.kindgi.com').href;
-// Percent-encoded, not a query string's `+`: mail apps read RFC 6068.
+// Percent-encoded, not a query string's `+`, with CRLF line breaks: mail
+// apps read RFC 6068.
 const subject = encodeURIComponent(`Docs: ${route.entry.data.title}`);
-const body = encodeURIComponent(`Page: ${page}\n\n`);
+const body = encodeURIComponent(`Page: ${page}\r\n\r\n`);
 const report = `mailto:${CONTACT}?subject=${subject}&body=${body}`;
 
 const llms = `${import.meta.env.BASE_URL.replace(/\/?$/, '/')}llms.txt`;

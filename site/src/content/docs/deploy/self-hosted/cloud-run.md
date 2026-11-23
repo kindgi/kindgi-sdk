@@ -1292,7 +1292,7 @@ to, so set it to the deployment's before any `gcloud` command for it
   secret has that version: the server's new revision wouldn't start. A
   deployment whose `server_secret_env` sets `KINDGI_PAGINATION_KEY` itself
   is refused at plan. The module's README has the steps that keep its key,
-  under Upgrading. From
+  under "Upgrading". From
   a module copy that set only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
   is on (the default). From a module copy that doesn't turn on Cloud
@@ -1335,7 +1335,7 @@ to, so set it to the deployment's before any `gcloud` command for it
   ([From the one pack service](#from-the-one-pack-service)). A server-only release, such as 0.2.0.1, is a
   server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
   `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
-  module's README has the rest, under Upgrading,
+  module's README has the rest, under "Upgrading",
   and `./upgrade.sh --help` lists its options.
 - **Backups:** Cloud SQL backs the database up daily, with point-in-time
   recovery. On the module's edition (`ENTERPRISE`) it keeps 7 backups and
@@ -1367,8 +1367,8 @@ to, so set it to the deployment's before any `gcloud` command for it
   holding the server's URL to it. The module's own instance stays as it is,
   and doesn't get the erasures made later: empty it once the new one is
   checked ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
-  The module's README has the steps, under Serving from a restored
-  instance:
+  The module's README has the steps, under "Serving from a
+  restored instance":
   - the new instance's deletion protection, which the module doesn't manage
     there: turn it on before it serves;
   - the new instance's URL, and the server's read access to it;

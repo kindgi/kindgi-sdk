@@ -312,6 +312,11 @@ jobs:
         run: pnpm -r publish --dry-run --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
       - name: Publish
         if: ${{ !inputs.dry-run }}
+        # Off by name: under trusted publishing from a public repository, npm
+        # turns provenance on by itself, and a package without `repository`
+        # is then refused.
+        env:
+          NPM_CONFIG_PROVENANCE: "false"
         run: pnpm -r publish --no-git-checks --tag "${{ steps.dist-tag.outputs.tag }}"
       - name: latest is still a release
         if: ${{ !inputs.dry-run }}

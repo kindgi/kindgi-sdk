@@ -12,7 +12,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -140,6 +140,7 @@ if (!(await available('uv'))) {
     python,
     join(source, 'sdks', 'python'),
   ]);
+  await rm(source, { recursive: true, force: true });
   const packDir = fixturePackDir('python-pack');
   // Fixture files written with a newer SDK's features: 0.1.1 can't load them.
   const newerThan011 = new Set([
