@@ -38,8 +38,7 @@
     "node": ">=22.12.0"
   },
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-bedrock#readme",
   "bugs": {

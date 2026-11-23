@@ -18,16 +18,21 @@ name: Release
 # 2. workflow_dispatch → publish. Runs in the `npm-publish` environment
 #    (required reviewer), authenticates to npm with trusted publishing
 #    (OIDC — no tokens), and publishes every non-private package whose
-#    current version is not yet on npm, with provenance, under the dist-tag
+#    current version is not yet on npm, under the dist-tag
 #    `latest`, or `next` for a release candidate. `dry-run: true` (the
 #    default) builds, checks, and packs without publishing.
 #
 # npm trusted publisher settings per package: repository kindgi/kindgi-sdk,
 # workflow `release.yml`, environment `npm-publish`.
 #
+# No npm provenance and no PyPI attestations: npm makes no provenance for a
+# private source repository (asking for it fails the publish), and PyPI's
+# attestations would record a private repository's name in Sigstore's
+# public log.
+#
 # The same dispatch also publishes the Python SDK (`kindgi`, sdks/python) to
 # PyPI, in the `pypi-publish` environment (required reviewer), with PyPI's
-# trusted publishing (OIDC — no tokens) and attestations. Its version is the
+# trusted publishing (OIDC — no tokens), without attestations. Its version is the
 # npm packages' (scripts/sync-python-version.mjs; the job checks it before
 # it builds). A version PyPI already has is skipped.
 # PyPI trusted publisher: project `kindgi`, owner `kindgi`, repository
@@ -276,7 +281,7 @@ jobs:
     environment: npm-publish
     permissions:
       contents: write # push release tags
-      id-token: write # npm trusted publishing (OIDC) + provenance
+      id-token: write # npm trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v5
         with:
@@ -372,7 +377,7 @@ jobs:
     environment: pypi-publish
     permissions:
       contents: read
-      id-token: write # PyPI trusted publishing (OIDC) + attestations
+      id-token: write # PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v5
       # The guard below lists the workspace's packages with pnpm (no install).
@@ -406,6 +411,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdks/python/dist
+          attestations: false
           skip-existing: true
 
   publish-pypi-cli:
@@ -419,7 +425,7 @@ jobs:
     environment: pypi-publish
     permissions:
       contents: read
-      id-token: write # PyPI trusted publishing (OIDC) + attestations
+      id-token: write # PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -460,4 +466,5 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdks/python-cli/dist
+          attestations: false
           skip-existing: true
